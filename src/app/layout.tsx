@@ -12,13 +12,36 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Aivestor 投资工作台",
-  description: "面向一级市场投资人的AI增强型工作平台",
+  title: {
+    default: "Aivestor — 投资人的 AI 增强工作台",
+    template: "%s | Aivestor",
+  },
+  description:
+    "面向一级股权投资人的AI工作台。BP分析、私有知识库、投资判断沉淀、跨会话记忆。数据主权归用户。",
+  keywords: [
+    "投资分析",
+    "AI工具",
+    "风险投资",
+    "私募股权",
+    "BP分析",
+    "尽职调查",
+    "知识库",
+    "venture capital",
+    "AI investment",
+  ],
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     title: "Aivestor",
     statusBarStyle: "default",
+  },
+  openGraph: {
+    title: "Aivestor — 投资人的 AI 增强工作台",
+    description: "面向一级股权投资人的AI工作台。把每次投资判断沉淀为私有知识资产。",
+    url: "https://aivestor.cn",
+    siteName: "Aivestor",
+    locale: "zh_CN",
+    type: "website",
   },
 };
 
