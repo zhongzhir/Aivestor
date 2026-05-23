@@ -41,10 +41,16 @@ export async function POST(req: Request) {
         [user.id]
       );
       if (Number(recent[0]?.count ?? 0) < 3) {
+        // 作废该账号此前未使用的重置令牌，确保仅最新链接有效。
+        await query(
+          `UPDATE password_reset_tokens SET used_at = NOW()
+            WHERE user_id = $1 AND used_at IS NULL`,
+          [user.id]
+        );
         const token = crypto.randomBytes(32).toString("hex");
         await query(
           `INSERT INTO password_reset_tokens (user_id, token, expires_at)
-           VALUES ($1, $2, NOW() + INTERVAL '1 hour')`,
+           VALUES ($1, $2, NOW() + INTERVAL '15 minutes')`,
           [user.id, token]
         );
         const link = `${APP_URL}/reset-password?token=${token}`;
@@ -53,7 +59,7 @@ export async function POST(req: Request) {
           "重置你的 Aivestor 账号密码",
           `<div style="font-family:-apple-system,sans-serif;line-height:1.7;color:#37352f">
              <p>你好，</p>
-             <p>我们收到了重置你 Aivestor 投资工作台账号密码的请求。请点击下方链接设置新密码，链接 1 小时内有效：</p>
+             <p>我们收到了重置你 Aivestor 投资工作台账号密码的请求。请点击下方链接设置新密码，链接 15 分钟内有效：</p>
              <p><a href="${link}" style="color:#1B6FE8">${link}</a></p>
              <p style="color:#787774;font-size:13px">如果你没有发起此请求，请忽略本邮件，你的密码不会被更改。</p>
            </div>`

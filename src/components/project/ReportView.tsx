@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import { popJudgmentPoints, readTextStream } from "@/lib/clientAI";
 import { FinancialCharts } from "./FinancialCharts";
 import { DigestCard } from "@/components/report/DigestCard";
@@ -14,6 +15,16 @@ import { ConfidencePanel } from "@/components/report/ConfidencePanel";
 import type { FinancialData } from "@/lib/types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
+
+// 在默认 sanitize 规则基础上放行溯源徽章用到的 <span class="src-badge ...">，
+// 既消毒报告中可能注入的恶意 HTML，又保留徽章样式。
+const SANITIZE_SCHEMA = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    span: [...(defaultSchema.attributes?.span ?? []), "className"],
+  },
+};
 
 interface HistoryItem {
   instruction: string;
@@ -249,7 +260,7 @@ export function ReportView({
         return (
           <>
             <article className="report-body mt-6 min-h-[200px]">
-              <ReactMarkdown rehypePlugins={[rehypeRaw]}>{rendered}</ReactMarkdown>
+              <ReactMarkdown rehypePlugins={[rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA]]}>{rendered}</ReactMarkdown>
               {streaming && <span className="type-cursor" />}
             </article>
             {confidence && !streaming && <ConfidencePanel data={confidence} />}
