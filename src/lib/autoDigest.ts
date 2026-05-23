@@ -81,7 +81,6 @@ interface RunOpts {
   baseURL?: string;
   freeQuotaMeta?: {
     userId: string;
-    phone: string;
     feature: string;
   };
 }

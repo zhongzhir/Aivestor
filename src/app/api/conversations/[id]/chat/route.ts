@@ -101,7 +101,7 @@ async function generateTitle(
   provider: ReturnType<typeof Object>,
   apiKey: string,
   baseURL: string | undefined,
-  freeQuotaMeta: { userId: string; phone: string; feature: string } | undefined,
+  freeQuotaMeta: { userId: string; feature: string } | undefined,
   firstMessage: string,
   reply: string
 ): Promise<string | null> {

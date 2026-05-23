@@ -203,9 +203,9 @@ export function freeQuotaMetaFor(
   creds: UserCredentials,
   userId: string,
   feature: string
-): { userId: string; phone: string; feature: string } | undefined {
-  if (!creds.usingFreeQuota || !creds.phone) return undefined;
-  return { userId, phone: creds.phone, feature };
+): { userId: string; feature: string } | undefined {
+  if (!creds.usingFreeQuota) return undefined;
+  return { userId, feature };
 }
 
 // 凭据返回的统一形状：包含可选的免费额度元信息。
@@ -215,7 +215,6 @@ export interface UserCredentials {
   apiKey: string;
   baseURL?: string;
   usingFreeQuota: boolean;
-  phone?: string | null;
   tokensRemaining?: number;
 }
 
@@ -267,7 +266,6 @@ export async function loadUserAICredentials(
         apiKey: decrypt(row.api_key_encrypted),
         baseURL: row.ai_base_url?.trim() || undefined,
         usingFreeQuota: false,
-        phone: null,
       };
     } catch {
       // 解密失败：当作没 Key，往下走免费额度兜底
@@ -284,7 +282,6 @@ export async function loadUserAICredentials(
         apiKey: systemKey,
         baseURL: "https://api.deepseek.com/v1",
         usingFreeQuota: true,
-        phone: quota.phone,
         tokensRemaining: quota.tokensRemaining,
       };
     }

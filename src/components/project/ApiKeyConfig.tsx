@@ -222,7 +222,10 @@ export function ApiKeyConfig({
       {!loading && !configured && quota?.enabled && quota.available === false && (
         <div className="mb-3 rounded-r-lg border-l-4 border-[#FF6B35] bg-orange-50 p-3">
           <p className="text-sm font-medium text-[#FF6B35]">
-            ⚠️ 免费额度已用完，请配置 API Key 继续使用
+            免费额度已用完，配置自己的 API Key 后可无限使用，数据完全归您所有。
+            <a href="/settings" className="ml-1 underline hover:opacity-80">
+              前往设置 →
+            </a>
           </p>
         </div>
       )}

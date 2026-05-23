@@ -28,10 +28,9 @@ export interface ChatRequest {
   model?: string;
   // 覆盖默认 baseURL（仅对 OpenAI 兼容协议有效；Claude 走 Anthropic SDK 不读此值）
   baseURL?: string;
-  // 若使用平台免费额度，传入用户 / 手机号 / 功能名；流结束后会扣减额度
+  // 若使用平台免费额度，传入用户 id / 功能名；流结束后会扣减额度
   freeQuotaMeta?: {
     userId: string;
-    phone: string;
     feature: string;
   };
 }
@@ -134,7 +133,6 @@ export async function* streamChat(
   if (req.freeQuotaMeta && (promptTokens > 0 || completionTokens > 0)) {
     await consumeQuota(
       req.freeQuotaMeta.userId,
-      req.freeQuotaMeta.phone,
       promptTokens,
       completionTokens,
       req.freeQuotaMeta.feature
