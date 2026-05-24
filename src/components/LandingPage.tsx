@@ -97,7 +97,7 @@ export default function LandingPage() {
               { icon: "📄", title: "BP 分析报告", desc: "上传BP，生成结构化七章节分析，支持Word/PPT导出" },
               { icon: "🧠", title: "私有知识库", desc: "判断自动沉淀，语义检索，越用越懂你" },
               { icon: "🎯", title: "投资判断中心", desc: "多空记录、Outcome追踪、认知盲区识别" },
-              { icon: "🛠", title: "SKILL 市场", desc: "20+官方分析框架，支持自定义与分享" },
+              { icon: "🛠", title: "SKILL 广场", desc: "20+官方分析框架，支持自定义与分享" },
               { icon: "💬", title: "跨会话记忆", desc: "AI记住你的投资偏好，无需每次重新介绍背景" },
               { icon: "🔒", title: "数据主权", desc: "用户自带API Key，数据不经第三方，支持私有部署" },
             ].map((item) => (
@@ -172,7 +172,7 @@ export default function LandingPage() {
                 a: "主要靠自动沉淀，无需手动维护。每次AI分析报告完成后，关键判断会自动提炼为知识条目；对话达到一定轮次后，系统会自动生成认知摘要写入知识库。你也可以手动添加行业观点或投资论点。"
               },
               {
-                q: "SKILL 市场是什么？",
+                q: "SKILL 广场是什么？",
                 a: "投资分析框架的模板库。平台内置20+官方SKILL，覆盖消费、SaaS、医疗、硬件等细分赛道，每个SKILL定义了分析该类项目的结构化问题框架。你可以直接使用官方框架，也可以自定义、导入导出，或让AI根据你的历史判断自动生成专属框架。"
               },
               {

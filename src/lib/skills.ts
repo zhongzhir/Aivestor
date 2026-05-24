@@ -1,4 +1,4 @@
-// SKILL 市场常量与类型（前后端共用）
+// SKILL 广场常量与类型（前后端共用）
 
 export const SKILL_CATEGORIES = [
   { value: "analysis", label: "分析框架", icon: "🔍" },

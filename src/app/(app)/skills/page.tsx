@@ -155,7 +155,7 @@ export default function SkillsPage() {
       {/* 页头 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-ink">SKILL 市场</h1>
+          <h1 className="text-xl font-semibold text-ink">SKILL 广场</h1>
           <p className="mt-1 text-xs text-ink-faint">
             投资分析技能库，一键调用结构化分析框架
           </p>

@@ -11,7 +11,7 @@ const NAV = [
   { href: "/projects", label: "项目分析", desc: "上传 BP，生成分析报告" },
   { href: "/archive", label: "项目档案", desc: "项目全生命周期记录" },
   { href: "/knowledge", label: "知识库", desc: "私有知识沉淀与检索" },
-  { href: "/skills", label: "SKILL 市场", desc: "投资分析技能库" },
+  { href: "/skills", label: "SKILL 广场", desc: "投资分析技能库" },
   { href: "/settings", label: "个人设置", desc: "个人画像与 AI 配置" },
 ];
 

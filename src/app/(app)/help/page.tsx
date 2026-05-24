@@ -52,7 +52,7 @@ const SECTIONS: Section[] = [
     tip: "知识库是 Aivestor 的核心资产，建议定期将重要对话沉淀入库",
   },
   {
-    title: "SKILL 市场",
+    title: "SKILL 广场",
     positioning: "投资分析专用技能包",
     bullets: [
       "官方提供 20 个常用分析框架（波特五力、SWOT、商业模式画布等）",

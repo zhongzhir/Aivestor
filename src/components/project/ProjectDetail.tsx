@@ -8,6 +8,7 @@ import { StageProgress, type Judgment } from "./StageProgress";
 import { DecisionTools } from "./DecisionTools";
 import { PostInvestment } from "./PostInvestment";
 import { FileUploader, type UploadResult } from "@/components/shared/FileUploader";
+import { SkillRunModal } from "@/components/skills/SkillRunModal";
 import { stashJudgmentPoints } from "@/lib/clientAI";
 import { outcomeDef } from "@/lib/outcome";
 import type { FinancialData } from "@/lib/types";
@@ -60,6 +61,11 @@ export function ProjectDetail({
   const router = useRouter();
 
   const [tab, setTab] = useState<Tab>("analysis");
+
+  // SKILL 分析弹窗
+  const [showSkillModal, setShowSkillModal] = useState(false);
+  // 是否存在已解析完成的文档（决定「SKILL 分析」是否可用）
+  const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
 
   // 新文件上传完成提示
   const [newUpload, setNewUpload] = useState(false);
@@ -319,6 +325,16 @@ export function ProjectDetail({
               生成分析报告
             </button>
             <button
+              onClick={() => setShowSkillModal(true)}
+              disabled={!hasParsedDoc}
+              title={
+                hasParsedDoc ? undefined : "请先上传并解析项目文档"
+              }
+              className="rounded-md border border-accent px-4 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint disabled:hover:bg-transparent"
+            >
+              SKILL 分析
+            </button>
+            <button
               onClick={handleExtractFinancials}
               disabled={finLoading}
               className="rounded-md border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface disabled:opacity-50"
@@ -347,6 +363,15 @@ export function ProjectDetail({
         </div>
       )}
       </>
+      )}
+
+      {showSkillModal && (
+        <SkillRunModal
+          projectId={projectId}
+          projectName={projectName}
+          onClose={() => setShowSkillModal(false)}
+          onSaved={() => router.refresh()}
+        />
       )}
     </div>
   );
