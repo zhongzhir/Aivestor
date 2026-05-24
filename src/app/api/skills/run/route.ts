@@ -24,11 +24,22 @@ interface JudgmentRow {
 
 const EMPTY = "（未关联项目，无相关数据）";
 
+// 单篇文档注入上限，避免超出 token 限制
+const DOC_CHAR_LIMIT = 8000;
+
+interface ProjectVars {
+  // 供模板 {占位符} 替换的变量
+  vars: Record<string, string>;
+  // 当模板未引用任何项目占位符时，整体前置注入的上下文块
+  contextBlock: string;
+  hasDocs: boolean;
+}
+
 // 组装关联项目的注入变量
 async function buildProjectVars(
   projectId: string,
   userId: string
-): Promise<Record<string, string> | null> {
+): Promise<ProjectVars | null> {
   const projects = await query<{
     name: string;
     industry: string | null;
@@ -50,13 +61,19 @@ async function buildProjectVars(
     `项目概述：${p.summary || "（未填写）"}`,
   ].join("\n");
 
-  const docs = await query<{ extracted_text: string | null }>(
-    `SELECT extracted_text FROM documents
-      WHERE project_id = $1 AND extracted_text IS NOT NULL
-      ORDER BY created_at DESC LIMIT 1`,
-    [projectId]
+  // 取该项目下所有解析成功的文档（按上传时间正序），用户归属校验
+  const docs = await query<{ filename: string; extracted_text: string | null }>(
+    `SELECT filename, extracted_text FROM documents
+      WHERE project_id = $1 AND user_id = $2
+        AND parse_status = 'done' AND extracted_text IS NOT NULL
+      ORDER BY created_at ASC`,
+    [projectId, userId]
   );
-  const bpContent = docs[0]?.extracted_text?.slice(0, 8000) || "（未上传文档）";
+  const docParts = docs.map(
+    (d) => `【${d.filename}】\n${(d.extracted_text || "").slice(0, DOC_CHAR_LIMIT)}`
+  );
+  const hasDocs = docParts.length > 0;
+  const bpContent = hasDocs ? docParts.join("\n\n") : "（未上传文档）";
 
   const financialData = p.financial_data
     ? JSON.stringify(p.financial_data)
@@ -89,12 +106,25 @@ async function buildProjectVars(
           })
           .join("\n\n");
 
-  return {
+  const vars: Record<string, string> = {
     project_info: projectInfo,
     bp_content: bpContent,
     financial_data: financialData,
     judgments,
   };
+
+  // 前置注入块：模板未引用占位符时，把真实材料拼到 prompt 前面
+  const contextBlock = [
+    projectInfo,
+    hasDocs
+      ? `\n以下是该项目提交的材料内容：\n\n${docParts.join("\n\n")}`
+      : "",
+    p.financial_data ? `\n财务数据：${financialData}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return { vars, contextBlock, hasDocs };
 }
 
 // POST /api/skills/run — 运行 SKILL（流式）
@@ -158,18 +188,31 @@ export async function POST(req: Request) {
     financial_data: EMPTY,
     judgments: EMPTY,
   };
+  let prependContext = "";
   if (project_id) {
     const projectVars = await buildProjectVars(project_id, session.user.id);
     if (!projectVars) {
       return NextResponse.json({ error: "项目不存在" }, { status: 404 });
     }
-    vars = projectVars;
+    vars = projectVars.vars;
+
+    // 若模板未引用任何项目占位符（常见于用户自建 SKILL），
+    // 则把项目资料整体前置注入，确保 AI 能拿到真实材料。
+    const usesPlaceholders = Object.keys(vars).some((key) =>
+      promptTemplate.includes(`{${key}}`)
+    );
+    if (!usesPlaceholders) {
+      prependContext = projectVars.contextBlock;
+    }
   }
 
   // 3. 替换所有 {变量} 占位符
   let prompt = promptTemplate;
   for (const [key, value] of Object.entries(vars)) {
     prompt = prompt.split(`{${key}}`).join(value);
+  }
+  if (prependContext) {
+    prompt = `${prependContext}\n\n---\n\n${prompt}`;
   }
   if (extra_input?.trim()) {
     prompt += `\n\n## 投资人补充说明\n${extra_input.trim()}`;
