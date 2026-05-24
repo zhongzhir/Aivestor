@@ -8,7 +8,7 @@ import { FileUploader } from "@/components/shared/FileUploader";
 import { PostInvestment } from "@/components/project/PostInvestment";
 import { STAGE_LABELS } from "@/lib/stages";
 import { outcomeDef } from "@/lib/outcome";
-import { readTextStream } from "@/lib/clientAI";
+import { readTextStream, readError } from "@/lib/clientAI";
 
 export interface ArchiveDoc {
   id: string;
@@ -426,7 +426,7 @@ function MergePanel({
         }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "生成失败");
+        throw new Error(await readError(res, "生成失败"));
       }
       await readTextStream(res, (t) => setResult((c) => c + t));
       setDone(true);

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { readTextStream } from "@/lib/clientAI";
+import { readTextStream, readError } from "@/lib/clientAI";
 
 interface RunnerSkill {
   id: string;
@@ -56,7 +56,7 @@ export function SkillRunner({ skill, onClose }: Props) {
         }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "运行失败");
+        throw new Error(await readError(res, "运行失败"));
       }
       await readTextStream(res, (t) => setResult((c) => c + t));
     } catch (e) {
@@ -79,7 +79,7 @@ export function SkillRunner({ skill, onClose }: Props) {
         }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "保存失败");
+        throw new Error(await readError(res, "保存失败"));
       }
       setSaveState("saved");
     } catch (e) {

@@ -9,7 +9,7 @@ import { DecisionTools } from "./DecisionTools";
 import { PostInvestment } from "./PostInvestment";
 import { FileUploader, type UploadResult } from "@/components/shared/FileUploader";
 import { SkillRunModal } from "@/components/skills/SkillRunModal";
-import { stashJudgmentPoints } from "@/lib/clientAI";
+import { stashJudgmentPoints, readError } from "@/lib/clientAI";
 import { outcomeDef } from "@/lib/outcome";
 import type { FinancialData } from "@/lib/types";
 
@@ -100,7 +100,7 @@ export function ProjectDetail({
         headers: { "Content-Type": "application/json" },
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "提取失败");
+        throw new Error(await readError(res, "提取失败"));
       }
       const data = await res.json();
       setFinancials(data.financialData);

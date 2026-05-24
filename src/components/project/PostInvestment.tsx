@@ -7,6 +7,7 @@ import {
   UPDATE_TYPE_CONFIG,
   updateTypeDef,
 } from "@/lib/postInvestment";
+import { readError } from "@/lib/clientAI";
 
 interface AiSummary {
   decisions?: string[];
@@ -172,7 +173,7 @@ function MeetingCard({
         { method: "POST" }
       );
       if (!res.ok) {
-        throw new Error((await res.json()).error || "摘要生成失败");
+        throw new Error(await readError(res, "摘要生成失败"));
       }
       setSummary((await res.json()).ai_summary);
     } catch (e) {
@@ -299,7 +300,7 @@ function MeetingModal({
         }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "保存失败");
+        throw new Error(await readError(res, "保存失败"));
       }
       const { meeting } = await res.json();
       if (withSummary && meeting?.id) {
@@ -434,7 +435,7 @@ function UpdateModal({
         }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "保存失败");
+        throw new Error(await readError(res, "保存失败"));
       }
       onSaved();
     } catch (e) {

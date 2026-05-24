@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { popJudgmentPoints, readTextStream } from "@/lib/clientAI";
+import { popJudgmentPoints, readTextStream, readError } from "@/lib/clientAI";
 import { FinancialCharts } from "./FinancialCharts";
 import { DigestCard } from "@/components/report/DigestCard";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -87,7 +87,7 @@ export function ReportView({
         headers: JSON_HEADERS,
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "提取失败");
+        throw new Error(await readError(res, "提取失败"));
       }
       const data = await res.json();
       setFinancials(data.financialData);
@@ -114,7 +114,7 @@ export function ReportView({
         body: JSON.stringify({ judgmentPoints: points }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "生成失败");
+        throw new Error(await readError(res, "生成失败"));
       }
       const rid = res.headers.get("X-Report-Id");
       if (rid) setReportId(rid);
@@ -141,7 +141,7 @@ export function ReportView({
         body: JSON.stringify({ instruction: text }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "修改失败");
+        throw new Error(await readError(res, "修改失败"));
       }
       await readTextStream(res, (t) => setContent((c) => c + t));
       setHistory((h) => [...h, { instruction: text, ts: new Date().toISOString() }]);

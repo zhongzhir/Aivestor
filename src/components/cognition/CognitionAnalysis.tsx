@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { readTextStream } from "@/lib/clientAI";
+import { readTextStream, readError } from "@/lib/clientAI";
 
 export function CognitionAnalysis() {
   const [result, setResult] = useState("");
@@ -16,7 +16,7 @@ export function CognitionAnalysis() {
     try {
       const res = await fetch("/api/cognition/analyze", { method: "POST" });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "分析失败");
+        throw new Error(await readError(res, "分析失败"));
       }
       await readTextStream(res, (t) => setResult((c) => c + t));
     } catch (e) {

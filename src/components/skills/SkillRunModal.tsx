@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import { readTextStream } from "@/lib/clientAI";
+import { readTextStream, readError } from "@/lib/clientAI";
 import { CATEGORY_ICONS, CATEGORY_LABELS } from "@/lib/skills";
 
 interface SkillItem {
@@ -99,7 +99,7 @@ export function SkillRunModal({
         }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "运行失败");
+        throw new Error(await readError(res, "运行失败"));
       }
       let acc = "";
       await readTextStream(res, (t) => {
@@ -129,7 +129,7 @@ export function SkillRunModal({
         }),
       });
       if (!res.ok) {
-        throw new Error((await res.json()).error || "保存失败");
+        throw new Error(await readError(res, "保存失败"));
       }
       setSaveState("saved");
       onSaved?.();
