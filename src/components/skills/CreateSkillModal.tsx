@@ -3,17 +3,39 @@
 import { useRef, useState } from "react";
 import { SKILL_CATEGORIES, SKILL_STAGES, STAGE_LABELS } from "@/lib/skills";
 
+export interface EditSkillData {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  prompt_template: string;
+  applicable_stages: string[];
+  generatedFromJudgments?: boolean;
+}
+
 interface Props {
   onClose: () => void;
   onCreated: () => void;
+  mode?: "create" | "edit";
+  initialData?: EditSkillData;
 }
 
-export function CreateSkillModal({ onClose, onCreated }: Props) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<string>(SKILL_CATEGORIES[0].value);
-  const [stages, setStages] = useState<string[]>([]);
-  const [template, setTemplate] = useState("");
+export function CreateSkillModal({
+  onClose,
+  onCreated,
+  mode = "create",
+  initialData,
+}: Props) {
+  const isEdit = mode === "edit" && !!initialData;
+  const [name, setName] = useState(initialData?.name ?? "");
+  const [description, setDescription] = useState(initialData?.description ?? "");
+  const [category, setCategory] = useState<string>(
+    initialData?.category ?? SKILL_CATEGORIES[0].value
+  );
+  const [stages, setStages] = useState<string[]>(
+    initialData?.applicable_stages ?? []
+  );
+  const [template, setTemplate] = useState(initialData?.prompt_template ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   // AI 帮我写
@@ -69,17 +91,20 @@ export function CreateSkillModal({ onClose, onCreated }: Props) {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch("/api/skills/custom", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          description,
-          category,
-          prompt_template: template,
-          applicable_stages: stages,
-        }),
-      });
+      const res = await fetch(
+        isEdit ? `/api/skills/custom/${initialData!.id}` : "/api/skills/custom",
+        {
+          method: isEdit ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            description,
+            category,
+            prompt_template: template,
+            applicable_stages: stages,
+          }),
+        }
+      );
       if (!res.ok) {
         throw new Error((await res.json()).error || "保存失败");
       }
@@ -94,7 +119,9 @@ export function CreateSkillModal({ onClose, onCreated }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-canvas p-6 shadow-xl">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-ink">创建我的 SKILL</h2>
+          <h2 className="text-base font-semibold text-ink">
+            {isEdit ? "编辑 SKILL" : "创建我的 SKILL"}
+          </h2>
           <button
             onClick={onClose}
             className="text-sm text-ink-faint hover:text-ink"
@@ -103,6 +130,12 @@ export function CreateSkillModal({ onClose, onCreated }: Props) {
             ✕
           </button>
         </div>
+
+        {isEdit && initialData?.generatedFromJudgments && (
+          <p className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-200">
+            此 SKILL 由历史判断生成，修改后将不再与判断记录同步。
+          </p>
+        )}
 
         <div className="mt-5 space-y-4">
           <div>
@@ -249,7 +282,7 @@ export function CreateSkillModal({ onClose, onCreated }: Props) {
             disabled={saving}
             className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
           >
-            {saving ? "保存中…" : "保存 SKILL"}
+            {saving ? "保存中…" : isEdit ? "保存修改" : "保存 SKILL"}
           </button>
         </div>
       </div>

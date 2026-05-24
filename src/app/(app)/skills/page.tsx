@@ -17,6 +17,7 @@ interface SkillItem {
   applicable_stages: string[];
   skillType: "catalog" | "custom";
   prompt_template?: string;
+  metadata?: { generated_from_judgments?: boolean } | null;
 }
 
 type TabKey = "all" | "analysis" | "due_diligence" | "valuation" | "post_investment" | "mine";
@@ -37,6 +38,7 @@ export default function SkillsPage() {
   const [tab, setTab] = useState<TabKey>("all");
   const [runnerSkill, setRunnerSkill] = useState<SkillItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [editSkill, setEditSkill] = useState<SkillItem | null>(null);
   const [showImport, setShowImport] = useState(false);
   // 判断记录数（用于「从我的历史判断生成专属 SKILL」入口）
   const [judgmentCount, setJudgmentCount] = useState<number | null>(null);
@@ -214,6 +216,9 @@ export default function SkillsPage() {
               skill={s}
               highlight={s.id === highlightId}
               onRun={() => setRunnerSkill(s)}
+              onEdit={
+                s.skillType === "custom" ? () => setEditSkill(s) : undefined
+              }
               onExport={
                 s.skillType === "custom" ? () => exportSkill(s) : undefined
               }
@@ -260,6 +265,29 @@ export default function SkillsPage() {
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
+            setTab("mine");
+            load();
+          }}
+        />
+      )}
+
+      {/* 编辑面板 */}
+      {editSkill && (
+        <CreateSkillModal
+          mode="edit"
+          initialData={{
+            id: editSkill.id,
+            name: editSkill.name,
+            description: editSkill.description,
+            category: editSkill.category,
+            prompt_template: editSkill.prompt_template ?? "",
+            applicable_stages: editSkill.applicable_stages ?? [],
+            generatedFromJudgments:
+              editSkill.metadata?.generated_from_judgments === true,
+          }}
+          onClose={() => setEditSkill(null)}
+          onCreated={() => {
+            setEditSkill(null);
             setTab("mine");
             load();
           }}
@@ -329,12 +357,14 @@ function SkillCard({
   skill,
   highlight,
   onRun,
+  onEdit,
   onExport,
   onDelete,
 }: {
   skill: SkillItem;
   highlight?: boolean;
   onRun: () => void;
+  onEdit?: () => void;
   onExport?: () => void;
   onDelete?: () => void;
 }) {
@@ -352,6 +382,16 @@ function SkillCard({
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-medium text-ink">{skill.name}</h3>
         </div>
+        {onEdit && (
+          <button
+            onClick={onEdit}
+            className="shrink-0 text-xs text-ink-faint hover:text-accent"
+            aria-label="编辑"
+            title="编辑"
+          >
+            ✎
+          </button>
+        )}
         {onExport && (
           <button
             onClick={onExport}
