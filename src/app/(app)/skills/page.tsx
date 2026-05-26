@@ -7,7 +7,7 @@ import { SkillsClient } from "@/components/skills/SkillsClient";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "SKILL 市场 — 投资分析框架库 | Aivestor",
+  title: "SKILL 广场 — 投资分析框架库 | Aivestor",
   description:
     "面向一级股权投资人的AI分析框架库，覆盖BP分析、尽调、行业研究、财务评估等20个核心工作场景，帮助投资人结构化分析决策。",
 };
@@ -44,7 +44,7 @@ async function loadCustomSkills(userId: string): Promise<SkillRow[]> {
   }
 }
 
-// SKILL 市场公开页：未登录可浏览全部官方框架（SSR，爬虫可读）；
+// SKILL 广场公开页：未登录可浏览全部官方框架（SSR，爬虫可读）；
 // 已登录额外加载自建 SKILL 并开放调用/创建/导入等交互。
 export default async function SkillsPage() {
   const session = await getServerSession(authOptions);
@@ -71,7 +71,7 @@ export default async function SkillsPage() {
     <div className="mx-auto max-w-5xl px-6 py-10">
       <header>
         <h1 className="text-xl font-semibold leading-tight text-ink">
-          SKILL 市场
+          SKILL 广场
           <span className="mt-1 block text-base font-medium text-ink-soft">
             一级股权投资分析框架库
           </span>

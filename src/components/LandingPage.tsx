@@ -36,7 +36,7 @@ export default function LandingPage() {
               "私有知识库（向量检索）",
               "投资判断记录与回溯",
               "跨会话AI记忆",
-              "SKILL分析框架市场",
+              "SKILL分析框架广场",
               "数据溯源标注",
               "投委会报告生成"
             ]
@@ -192,7 +192,7 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* SKILL 预览 — 引导至公开的 SKILL 市场 */}
+        {/* SKILL 预览 — 引导至公开的 SKILL 广场 */}
         <section style={{ marginBottom: "80px" }}>
           <h2 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "12px", textAlign: "center", color: "#0D1B3E" }}>
             专业分析框架，开箱即用
