@@ -192,6 +192,34 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* SKILL 预览 — 引导至公开的 SKILL 市场 */}
+        <section style={{ marginBottom: "80px" }}>
+          <h2 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "12px", textAlign: "center", color: "#0D1B3E" }}>
+            专业分析框架，开箱即用
+          </h2>
+          <p style={{ fontSize: "16px", color: "#666", lineHeight: "1.7", textAlign: "center", maxWidth: "640px", margin: "0 auto 32px" }}>
+            20个由投资实践提炼的分析框架，覆盖BP解读、尽调、行业研究、财务评估等核心场景
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "16px" }}>
+            {[
+              { name: "BP 综合分析", desc: "结构化拆解商业计划书，定位关键风险与亮点" },
+              { name: "行业竞争格局", desc: "梳理赛道玩家与壁垒，判断差异化是否成立" },
+              { name: "财务健康度评估", desc: "审视收入质量、现金跑道与单位经济模型" },
+              { name: "创始人评估", desc: "从背景与执行力构建创始团队画像" },
+            ].map((item) => (
+              <div key={item.name} style={{ background: "#fff", border: "1px solid #E8F0FD", borderRadius: "12px", padding: "20px" }}>
+                <div style={{ fontWeight: "700", marginBottom: "6px", color: "#0D1B3E", fontSize: "15px" }}>{item.name}</div>
+                <div style={{ color: "#666", fontSize: "14px", lineHeight: "1.6" }}>{item.desc}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ textAlign: "center", marginTop: "28px" }}>
+            <Link href="/skills" style={{ color: "#1B6FE8", fontWeight: "600", fontSize: "16px", textDecoration: "none" }}>
+              查看全部20个分析框架 →
+            </Link>
+          </div>
+        </section>
+
         {/* CTA */}
         <section style={{ textAlign: "center", background: "#0D1B3E", borderRadius: "16px", padding: "48px 32px", color: "#fff" }}>
           <h2 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "12px" }}>

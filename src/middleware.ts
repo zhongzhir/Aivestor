@@ -14,7 +14,7 @@ export const config = {
     "/archive/:path*",
     "/settings/:path*",
     "/cognition/:path*", // 保留入口；导航已移除，但鉴权仍生效
-    "/skills/:path*",
+    // /skills 不在鉴权列表中（SKILL 市场公开页，未登录可浏览官方框架）
     // /help 不在鉴权列表中（产品介绍页可未登录访问）
   ],
 };
