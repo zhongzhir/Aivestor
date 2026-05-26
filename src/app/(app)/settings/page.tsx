@@ -40,7 +40,19 @@ export default async function SettingsPage() {
         </div>
       </section>
 
-      {/* 区块二：AI 模型配置 */}
+      {/* 区块二：数据导出与迁移 */}
+      <section className="mt-12 border-t border-line pt-8">
+        <h2 className="text-sm font-medium text-ink">数据导出与迁移</h2>
+        <p className="mt-1 text-xs leading-5 text-ink-faint">
+          把你在 Aivestor 沉淀的投资画像、知识库与项目判断导出带走。
+          你的判断，永远属于你。
+        </p>
+        <div className="mt-6">
+          <DataExport />
+        </div>
+      </section>
+
+      {/* 区块三：AI 模型配置 */}
       <section className="mt-12 border-t border-line pt-8">
         <h2 className="text-sm font-medium text-ink">AI 模型配置</h2>
         <p className="mt-1 text-xs leading-5 text-ink-faint">
@@ -54,18 +66,6 @@ export default async function SettingsPage() {
         </div>
 
         <ApiKeyGuide />
-      </section>
-
-      {/* 区块三：数据导出与迁移 */}
-      <section className="mt-12 border-t border-line pt-8">
-        <h2 className="text-sm font-medium text-ink">数据导出与迁移</h2>
-        <p className="mt-1 text-xs leading-5 text-ink-faint">
-          把你在 Aivestor 沉淀的投资画像、知识库与项目判断导出带走。
-          你的判断，永远属于你。
-        </p>
-        <div className="mt-6">
-          <DataExport />
-        </div>
       </section>
 
       <footer className="mt-12 border-t border-line pt-6 text-xs text-ink-faint">
