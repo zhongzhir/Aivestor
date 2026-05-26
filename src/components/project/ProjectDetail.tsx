@@ -317,13 +317,20 @@ export function ProjectDetail({
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               onClick={handleGenerate}
-              className="flex-1 rounded-md bg-accent py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="flex-1 min-w-[140px] rounded-md bg-accent py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               生成分析报告
             </button>
+            <Link
+              href={`/projects/${projectId}/brief-analysis`}
+              title="无需 3 条判断，快速入库的原则性评估"
+              className="rounded-md border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
+            >
+              简要分析
+            </Link>
             <button
               onClick={() => setShowSkillModal(true)}
               disabled={!hasParsedDoc}
@@ -342,6 +349,9 @@ export function ProjectDetail({
               {finLoading ? "提取中…" : "提取财务数据"}
             </button>
           </div>
+          <p className="text-xs text-ink-faint">
+            还没填判断？试试 <Link href={`/projects/${projectId}/brief-analysis`} className="text-accent hover:underline">简要分析</Link>，先做一份原则性评估存档。
+          </p>
         </section>
       </div>
 

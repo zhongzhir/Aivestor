@@ -229,7 +229,7 @@ function FilesTab({
 
 // 解析报告标题前缀，返回角标类型与去前缀后的展示标题
 function reportBadge(title: string): {
-  kind: "skill" | "merge" | null;
+  kind: "skill" | "merge" | "brief" | null;
   display: string;
 } {
   if (title.startsWith("【SKILL】")) {
@@ -237,6 +237,9 @@ function reportBadge(title: string): {
   }
   if (title.startsWith("【总报告】")) {
     return { kind: "merge", display: title.replace(/^【总报告】/, "") };
+  }
+  if (title.startsWith("【简要分析】")) {
+    return { kind: "brief", display: title.replace(/^【简要分析】/, "") };
   }
   return { kind: null, display: title };
 }
@@ -303,6 +306,11 @@ function ReportsTab({
                   {badge.kind === "merge" && (
                     <span className="shrink-0 rounded bg-orange-50 px-1.5 py-0.5 text-[11px] font-medium text-orange-700 ring-1 ring-inset ring-orange-200">
                       总报告
+                    </span>
+                  )}
+                  {badge.kind === "brief" && (
+                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 ring-1 ring-inset ring-slate-200">
+                      简要分析
                     </span>
                   )}
                   <p className="truncate text-sm font-medium text-ink">
