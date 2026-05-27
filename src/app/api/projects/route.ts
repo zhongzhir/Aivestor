@@ -57,9 +57,11 @@ export async function GET(req: NextRequest) {
 
   const rows = await query(
     `SELECT p.id, p.name, p.company_name, p.industry, p.stage, p.status,
-            p.created_at,
+            p.created_at, p.updated_at,
             r.id   AS latest_report_id,
-            r.status AS latest_report_status
+            r.status AS latest_report_status,
+            (SELECT COUNT(*)::int FROM documents d WHERE d.project_id = p.id) AS file_count,
+            (SELECT COUNT(*)::int FROM reports rr WHERE rr.project_id = p.id) AS report_count
        FROM projects p
        LEFT JOIN LATERAL (
          SELECT id, status FROM reports
