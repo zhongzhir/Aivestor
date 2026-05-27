@@ -54,6 +54,22 @@ const SOURCE_LABEL: Record<string, string> = {
   report: "分析报告",
 };
 
+const ENTRY_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "manual", label: "手动录入" },
+  { value: "conversation_digest", label: "对话沉淀" },
+  { value: "document_chunk", label: "文档切片" },
+  { value: "industry", label: "行业" },
+  { value: "project", label: "项目" },
+  { value: "thesis", label: "投资逻辑" },
+  { value: "prediction", label: "预测" },
+  { value: "chunk", label: "片段" },
+];
+const SOURCE_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "manual", label: "手动录入" },
+  { value: "document", label: "项目文档" },
+  { value: "report", label: "分析报告" },
+];
+
 export default function KnowledgePage() {
   const [entries, setEntries] = useState<KBEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -75,17 +91,35 @@ export default function KnowledgePage() {
   const [sources, setSources] = useState<Source[]>([]);
   const answerRef = useRef("");
 
+  // 列表筛选
+  const [filterEntryTypes, setFilterEntryTypes] = useState<string[]>([]);
+  const [filterSourceType, setFilterSourceType] = useState<string>("");
+  // 排序：无搜索词时即「最近沉淀」；有搜索词时按相关度（向量搜索本身已排序）
+  const hasQuery = question.trim().length > 0;
+
   useEffect(() => {
-    fetchEntries();
-  }, []);
+    if (!hasQuery) fetchEntries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterEntryTypes, filterSourceType, hasQuery]);
 
   async function fetchEntries() {
     setLoading(true);
-    const res = await fetch("/api/knowledge");
+    const sp = new URLSearchParams();
+    if (filterEntryTypes.length > 0)
+      sp.set("entry_type", filterEntryTypes.join(","));
+    if (filterSourceType) sp.set("source_type", filterSourceType);
+    const qs = sp.toString();
+    const res = await fetch(`/api/knowledge${qs ? `?${qs}` : ""}`);
     const data = await res.json();
     setEntries(data.entries ?? []);
     setTotal(data.total ?? 0);
     setLoading(false);
+  }
+
+  function toggleEntryType(value: string) {
+    setFilterEntryTypes((prev) =>
+      prev.includes(value) ? prev.filter((v) => v !== value) : [...prev, value]
+    );
   }
 
   async function handleAdd() {
@@ -113,7 +147,11 @@ export default function KnowledgePage() {
     const res = await fetch("/api/knowledge/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({
+        question,
+        entry_type: filterEntryTypes,
+        source_type: filterSourceType || undefined,
+      }),
     });
 
     if (!res.ok) {
@@ -185,6 +223,56 @@ export default function KnowledgePage() {
           >
             {searching ? "检索中…" : "检索"}
           </button>
+        </div>
+
+        {/* 筛选条件 */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-ink-faint">条目类型：</span>
+          {ENTRY_TYPE_OPTIONS.map((o) => {
+            const active = filterEntryTypes.includes(o.value);
+            return (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => toggleEntryType(o.value)}
+                className={`rounded-full border px-2 py-0.5 transition-colors ${
+                  active
+                    ? "border-[#0D1B3E] bg-[#0D1B3E] text-white"
+                    : "border-line text-ink-soft hover:border-[#0D1B3E]"
+                }`}
+              >
+                {o.label}
+              </button>
+            );
+          })}
+          <span className="ml-2 text-ink-faint">来源：</span>
+          <select
+            value={filterSourceType}
+            onChange={(e) => setFilterSourceType(e.target.value)}
+            className="rounded border border-line px-2 py-0.5 text-ink"
+          >
+            <option value="">全部</option>
+            {SOURCE_TYPE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {(filterEntryTypes.length > 0 || filterSourceType) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFilterEntryTypes([]);
+                setFilterSourceType("");
+              }}
+              className="ml-1 rounded border border-line px-2 py-0.5 text-ink-soft hover:bg-surface"
+            >
+              清除筛选
+            </button>
+          )}
+          <span className="ml-auto text-ink-faint">
+            {hasQuery ? "排序：相关度" : "排序：最近沉淀"}
+          </span>
         </div>
 
         {/* 检索结果 */}

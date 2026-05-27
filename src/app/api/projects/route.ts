@@ -1,13 +1,59 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { ALL_STAGES } from "@/lib/stages";
 
-// GET /api/projects — 列出当前用户的所有项目（含最新报告状态）
-export async function GET() {
+const ALLOWED_OUTCOMES = new Set([
+  "pending",
+  "invested",
+  "passed",
+  "exited_profit",
+  "exited_loss",
+]);
+
+// GET /api/projects — 列出当前用户的项目，支持 search / stage / process_stage / outcome / sort
+export async function GET(req: NextRequest) {
   const session = await getSession();
   if (!session?.user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
+
+  const sp = req.nextUrl.searchParams;
+  const search = (sp.get("search") ?? "").trim();
+  const stage = (sp.get("stage") ?? "").trim();
+  const processStageRaw = (sp.get("process_stage") ?? "").trim();
+  const outcomeRaw = (sp.get("outcome") ?? "").trim();
+  const sort = (sp.get("sort") ?? "created_desc").trim();
+
+  const processStage = (ALL_STAGES as readonly string[]).includes(processStageRaw)
+    ? processStageRaw
+    : "";
+  const outcome = ALLOWED_OUTCOMES.has(outcomeRaw) ? outcomeRaw : "";
+
+  const where: string[] = ["p.user_id = $1"];
+  const params: unknown[] = [session.user.id];
+
+  if (search) {
+    params.push(`%${search}%`);
+    where.push(
+      `(p.name ILIKE $${params.length} OR p.judgment_points::text ILIKE $${params.length})`
+    );
+  }
+  if (stage) {
+    params.push(stage);
+    where.push(`p.stage = $${params.length}`);
+  }
+  if (processStage) {
+    params.push(processStage);
+    where.push(`p.process_stage = $${params.length}`);
+  }
+  if (outcome) {
+    params.push(outcome);
+    where.push(`p.outcome = $${params.length}`);
+  }
+
+  const orderBy =
+    sort === "updated_desc" ? "p.updated_at DESC" : "p.created_at DESC";
 
   const rows = await query(
     `SELECT p.id, p.name, p.company_name, p.industry, p.stage, p.status,
@@ -20,9 +66,9 @@ export async function GET() {
           WHERE project_id = p.id
           ORDER BY updated_at DESC LIMIT 1
        ) r ON true
-      WHERE p.user_id = $1
-      ORDER BY p.created_at DESC`,
-    [session.user.id]
+      WHERE ${where.join(" AND ")}
+      ORDER BY ${orderBy}`,
+    params
   );
 
   return NextResponse.json({ projects: rows });

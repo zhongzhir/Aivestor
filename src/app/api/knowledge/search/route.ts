@@ -41,7 +41,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  let body: { question?: string };
+  let body: {
+    question?: string;
+    entry_type?: string[];
+    source_type?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -51,6 +55,51 @@ export async function POST(req: NextRequest) {
   const question = body.question?.trim();
   if (!question) {
     return NextResponse.json({ error: "请输入问题" }, { status: 422 });
+  }
+
+  const ALLOWED_ENTRY_TYPES = new Set([
+    "industry",
+    "project",
+    "thesis",
+    "prediction",
+    "chunk",
+    "manual",
+    "conversation_digest",
+    "document_chunk",
+  ]);
+  const ALLOWED_SOURCE_TYPES = new Set(["manual", "document", "report"]);
+  const filterEntryTypes = Array.isArray(body.entry_type)
+    ? body.entry_type.filter((s) => typeof s === "string" && ALLOWED_ENTRY_TYPES.has(s))
+    : [];
+  const filterSourceType =
+    typeof body.source_type === "string" && ALLOWED_SOURCE_TYPES.has(body.source_type)
+      ? body.source_type
+      : "";
+
+  // 构造可复用的 WHERE 子句片段（针对 knowledge_base_entries）
+  const kbExtraWhere: string[] = [];
+  const kbExtraParams: unknown[] = [];
+  if (filterEntryTypes.length > 0) {
+    kbExtraParams.push(filterEntryTypes);
+    kbExtraWhere.push(`entry_type = ANY($PARAM::text[])`);
+  }
+  if (filterSourceType) {
+    kbExtraParams.push(filterSourceType);
+    kbExtraWhere.push(`source_type = $PARAM`);
+  }
+  function buildKbWhere(baseParams: unknown[]): {
+    sql: string;
+    params: unknown[];
+  } {
+    let idx = baseParams.length;
+    const sqlParts = kbExtraWhere.map((clause) => {
+      idx += 1;
+      return clause.replace("$PARAM", `$${idx}`);
+    });
+    return {
+      sql: sqlParts.length > 0 ? " AND " + sqlParts.join(" AND ") : "",
+      params: [...baseParams, ...kbExtraParams],
+    };
   }
 
   const userRows = await query<{
@@ -72,15 +121,18 @@ export async function POST(req: NextRequest) {
   }
 
   // 1. 全文检索（所有用户都走这一步）
+  const ftsBase = [session.user.id, question];
+  const ftsExtra = buildKbWhere(ftsBase);
   const ftsRows = await query<Chunk>(
     `SELECT content, source_type,
             ts_rank(search_vector, plainto_tsquery('simple', $2)) AS score
        FROM knowledge_base_entries
       WHERE user_id = $1
         AND search_vector @@ plainto_tsquery('simple', $2)
+        ${ftsExtra.sql}
       ORDER BY score DESC
       LIMIT 8`,
-    [session.user.id, question]
+    ftsExtra.params
   );
   const retrievedChunks: Chunk[] = [...ftsRows];
   const seen = new Set(retrievedChunks.map((c) => c.content));
@@ -97,22 +149,29 @@ export async function POST(req: NextRequest) {
   // 2. 向量检索（百炼可用时补充）
   const embResult = await generateEmbedding(question);
   if (embResult) {
+    const vecBase = [session.user.id, `[${embResult.vector.join(",")}]`];
+    const vecExtra = buildKbWhere(vecBase);
     const vectorRows = await query<Chunk>(
       `SELECT content, source_type,
               1 - (embedding <=> $2::vector) AS score
          FROM knowledge_base_entries
         WHERE user_id = $1
           AND embedding IS NOT NULL
+          ${vecExtra.sql}
         ORDER BY embedding <=> $2::vector
         LIMIT 8`,
-      [session.user.id, `[${embResult.vector.join(",")}]`]
+      vecExtra.params
     );
     // 合并去重，向量结果得分加权
     addChunks(vectorRows, 1.2);
   }
 
   // 3. 文档分块检索（document_chunks）：优先向量，否则回退全文 ILIKE
-  if (embResult) {
+  //    若用户已显式过滤到非 document 来源 / 非 document_chunk 类型，则跳过
+  const skipDocChunks =
+    (filterSourceType && filterSourceType !== "document") ||
+    (filterEntryTypes.length > 0 && !filterEntryTypes.includes("document_chunk"));
+  if (!skipDocChunks && embResult) {
     const chunkRows = await query<{ content: string; score: number }>(
       `SELECT content,
               1 - (embedding <=> $2::vector) AS score
@@ -127,7 +186,7 @@ export async function POST(req: NextRequest) {
       chunkRows.map((r) => ({ ...r, source_type: "document" })),
       1.2
     );
-  } else {
+  } else if (!skipDocChunks) {
     const chunkRows = await query<{ content: string }>(
       `SELECT content FROM document_chunks
         WHERE user_id = $1 AND content ILIKE $2

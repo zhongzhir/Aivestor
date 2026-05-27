@@ -17,34 +17,66 @@ interface KBRow {
   created_at: string;
 }
 
-// GET /api/knowledge?page=1 — 当前用户知识库条目列表（每页 20 条）
+const ALLOWED_ENTRY_TYPES = new Set([
+  "industry",
+  "project",
+  "thesis",
+  "prediction",
+  "chunk",
+  "manual",
+  "conversation_digest",
+  "document_chunk",
+]);
+const ALLOWED_SOURCE_TYPES = new Set(["manual", "document", "report"]);
+
+// GET /api/knowledge?page=1&entry_type=a,b&source_type=manual&sort=created_desc
 export async function GET(req: NextRequest) {
   const session = await getSession();
   if (!session?.user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const page = Math.max(
-    1,
-    parseInt(req.nextUrl.searchParams.get("page") ?? "1", 10) || 1
-  );
+  const sp = req.nextUrl.searchParams;
+  const page = Math.max(1, parseInt(sp.get("page") ?? "1", 10) || 1);
   const limit = 20;
   const offset = (page - 1) * limit;
 
+  const entryTypes = (sp.get("entry_type") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s && ALLOWED_ENTRY_TYPES.has(s));
+  const sourceTypeRaw = (sp.get("source_type") ?? "").trim();
+  const sourceType = ALLOWED_SOURCE_TYPES.has(sourceTypeRaw) ? sourceTypeRaw : "";
+
+  const where: string[] = ["user_id = $1"];
+  const params: unknown[] = [session.user.id];
+
+  if (entryTypes.length > 0) {
+    params.push(entryTypes);
+    where.push(`entry_type = ANY($${params.length}::text[])`);
+  }
+  if (sourceType) {
+    params.push(sourceType);
+    where.push(`source_type = $${params.length}`);
+  }
+
+  params.push(limit);
+  params.push(offset);
   const entries = await query<KBRow>(
     `SELECT id, content, source_type, entry_type, structured_data,
             tags, embedding_model, metadata, created_at
        FROM knowledge_base_entries
-      WHERE user_id = $1
+      WHERE ${where.join(" AND ")}
       ORDER BY created_at DESC
-      LIMIT $2 OFFSET $3`,
-    [session.user.id, limit, offset]
+      LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    params
   );
 
   const countRows = await query<{ count: number }>(
     `SELECT COUNT(*)::int AS count
-       FROM knowledge_base_entries WHERE user_id = $1`,
-    [session.user.id]
+       FROM knowledge_base_entries
+      WHERE ${where.join(" AND ")}`,
+    params.slice(0, params.length - 2)
   );
 
   return NextResponse.json({

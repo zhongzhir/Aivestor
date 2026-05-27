@@ -3,6 +3,8 @@ import { requireAuth } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { sleepDays } from "@/lib/projectSleep";
+import { ProjectFilters } from "./ProjectFilters";
+import { ALL_STAGES } from "@/lib/stages";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +28,59 @@ const STATUS_LABEL: Record<string, string> = {
   exited: "已退出",
 };
 
-export default async function ProjectsPage() {
+const ALLOWED_OUTCOMES = new Set([
+  "pending",
+  "invested",
+  "passed",
+  "exited_profit",
+  "exited_loss",
+]);
+
+export default async function ProjectsPage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   const session = await requireAuth();
+
+  const pickStr = (v: string | string[] | undefined) =>
+    typeof v === "string" ? v.trim() : "";
+  const search = pickStr(searchParams?.search);
+  const stage = pickStr(searchParams?.stage);
+  const processStageRaw = pickStr(searchParams?.process_stage);
+  const outcomeRaw = pickStr(searchParams?.outcome);
+  const sort = pickStr(searchParams?.sort) || "created_desc";
+
+  const processStage =
+    processStageRaw &&
+    (ALL_STAGES as readonly string[]).includes(processStageRaw)
+      ? processStageRaw
+      : "";
+  const outcome = outcomeRaw && ALLOWED_OUTCOMES.has(outcomeRaw) ? outcomeRaw : "";
+
+  const where: string[] = ["p.user_id = $1"];
+  const params: unknown[] = [session.user.id];
+
+  if (search) {
+    params.push(`%${search}%`);
+    // judgment_points 是 JSONB 数组，用 ::text 简单子串匹配
+    where.push(`(p.name ILIKE $${params.length} OR p.judgment_points::text ILIKE $${params.length})`);
+  }
+  if (stage) {
+    params.push(stage);
+    where.push(`p.stage = $${params.length}`);
+  }
+  if (processStage) {
+    params.push(processStage);
+    where.push(`p.process_stage = $${params.length}`);
+  }
+  if (outcome) {
+    params.push(outcome);
+    where.push(`p.outcome = $${params.length}`);
+  }
+
+  const orderBy =
+    sort === "updated_desc" ? "p.updated_at DESC" : "p.created_at DESC";
 
   const projects = await query<ProjectRow>(
     `SELECT p.id, p.name, p.company_name, p.industry, p.status,
@@ -39,9 +92,22 @@ export default async function ProjectsPage() {
           WHERE project_id = p.id
           ORDER BY updated_at DESC LIMIT 1
        ) r ON true
-      WHERE p.user_id = $1
-      ORDER BY p.created_at DESC`,
+      WHERE ${where.join(" AND ")}
+      ORDER BY ${orderBy}`,
+    params
+  );
+
+  // 用户自有项目中已出现过的「融资阶段」枚举，提供给下拉
+  const stageRows = await query<{ stage: string }>(
+    `SELECT DISTINCT stage FROM projects
+      WHERE user_id = $1 AND stage IS NOT NULL AND stage <> ''
+      ORDER BY stage`,
     [session.user.id]
+  );
+  const stageOptions = stageRows.map((r) => r.stage);
+
+  const hasFilters = Boolean(
+    search || stage || processStage || outcome || sort !== "created_desc"
   );
 
   return (
@@ -56,15 +122,27 @@ export default async function ProjectsPage() {
         </Link>
       </div>
 
+      <ProjectFilters stageOptions={stageOptions} />
+
       {projects.length === 0 ? (
         <div className="mt-6">
-          <EmptyState
-            icon="🗂️"
-            title="还没有项目"
-            description="创建第一个项目，上传 BP 开始分析"
-            action={{ label: "新建项目分析", href: "/projects/new" }}
-          />
-          <DemoCards />
+          {hasFilters ? (
+            <EmptyState
+              icon="🔍"
+              title="没有匹配的项目"
+              description="试着调整搜索词或筛选条件"
+            />
+          ) : (
+            <>
+              <EmptyState
+                icon="🗂️"
+                title="还没有项目"
+                description="创建第一个项目，上传 BP 开始分析"
+                action={{ label: "新建项目分析", href: "/projects/new" }}
+              />
+              <DemoCards />
+            </>
+          )}
         </div>
       ) : (
         <ul className="mt-8 space-y-2">
