@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import OSS from "ali-oss";
 import { getSession } from "@/lib/auth";
+import { randomUUID } from "crypto";
 
 export const maxDuration = 60;
 
@@ -13,11 +14,20 @@ const ALLOWED_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.ms-powerpoint",
 ];
-const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB（Vercel 限制）
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
+
+function getOSSClient() {
+  return new OSS({
+    region: process.env.OSS_REGION!,
+    accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
+    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
+    bucket: process.env.OSS_BUCKET!,
+  });
+}
 
 function validateFile(file: File): { valid: boolean; error?: string } {
   if (file.size > MAX_FILE_SIZE) {
-    return { valid: false, error: "文件超过 4MB 限制，请压缩后重试" };
+    return { valid: false, error: "文件超过 25MB 限制，请压缩后重试" };
   }
   const ext = file.name.split(".").pop()?.toLowerCase();
   if (!ext || !ALLOWED_EXTENSIONS.includes(ext)) {
@@ -45,11 +55,19 @@ export async function POST(req: Request) {
     if (!check.valid) {
       return NextResponse.json({ error: check.error }, { status: 400 });
     }
-    const blob = await put(file.name, file, {
-      access: "private",
-      addRandomSuffix: true,
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    const objectKey = `uploads/${randomUUID()}.${ext}`;
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    const client = getOSSClient();
+    await client.put(objectKey, buffer, {
+      mime: file.type || "application/octet-stream",
     });
-    return NextResponse.json({ url: blob.url });
+
+    // 返回内网可访问的 OSS 路径（服务端解析文件时使用）
+    const url = `oss://${process.env.OSS_BUCKET}/${objectKey}`;
+    return NextResponse.json({ url });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },
