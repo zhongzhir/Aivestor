@@ -65,9 +65,9 @@ export function FileUploader({
     );
   }
 
-  // 单个文件上传：获取预签名 URL → 浏览器直传 OSS → 解析 API
+  // 单个文件上传：自动适配 OSS 直传 或 本地上传
   async function uploadOne(file: File): Promise<QueueItem> {
-    // 1. 获取预签名 URL
+    // 1. 获取上传凭证（OSS预签名URL 或 本地上传端点）
     const signRes = await fetch("/api/upload-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -76,15 +76,29 @@ export function FileUploader({
     if (!signRes.ok) {
       throw new Error((await signRes.json()).error || "获取上传地址失败");
     }
-    const { presignedUrl, ossUrl } = await signRes.json();
+    const credential = await signRes.json();
 
-    // 2. 浏览器直传 OSS
-    const putRes = await fetch(presignedUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    });
-    if (!putRes.ok) throw new Error("文件上传 OSS 失败");
+    // 2. 上传文件
+    let fileUrl: string;
+    if (credential.mode === "oss") {
+      // OSS 模式：浏览器直传
+      const putRes = await fetch(credential.presignedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("文件上传失败");
+      fileUrl = credential.fileUrl;
+    } else {
+      // 本地模式：POST 到服务端写盘
+      const objectKey = credential.fileUrl.replace(/^local:\/\//, "");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("objectKey", objectKey);
+      const uploadRes = await fetch("/api/upload-local", { method: "POST", body: form });
+      if (!uploadRes.ok) throw new Error("文件上传失败");
+      fileUrl = credential.fileUrl;
+    }
 
     // 3. 通知服务器解析
     let res: Response;
@@ -93,7 +107,7 @@ export function FileUploader({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          blobUrl: ossUrl,
+          blobUrl: fileUrl,
           filename: file.name,
           fileType: clientFileType(file.name),
         }),
@@ -103,7 +117,7 @@ export function FileUploader({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          blobUrl: ossUrl,
+          blobUrl: fileUrl,
           fileName: file.name,
           fileSize: file.size,
           category,

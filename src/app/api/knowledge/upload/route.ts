@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { generateEmbedding } from "@/lib/embedding";
 import { parseFile, getFileType } from "@/lib/fileParser";
 import { isValidCategory } from "@/lib/knowledgeCategories";
+import { readFileBuffer } from "@/lib/fileStorage";
 
 export const maxDuration = 120;
 
@@ -43,29 +44,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1. 从 OSS 或旧 Vercel Blob 下载文件
+    // 1. 读取文件（自动识别 oss:// / local:// / https://）
     let buffer: Buffer;
     try {
-      if (blobUrl.startsWith("oss://")) {
-        const objectKey = blobUrl.replace(/^oss:\/\/[^/]+\//, "");
-        const OSS = (await import("ali-oss")).default;
-        const ossClient = new OSS({
-          region: process.env.OSS_REGION!,
-          accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
-          accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
-          bucket: process.env.OSS_BUCKET!,
-        });
-        const result = await ossClient.get(objectKey);
-        buffer = result.content as Buffer;
-      } else {
-        const fetchRes = await fetch(blobUrl, {
-          headers: { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` },
-        });
-        if (!fetchRes.ok) {
-          return NextResponse.json({ error: "文件读取失败" }, { status: 422 });
-        }
-        buffer = Buffer.from(await fetchRes.arrayBuffer());
-      }
+      buffer = await readFileBuffer(blobUrl);
     } catch {
       return NextResponse.json({ error: "文件读取失败" }, { status: 422 });
     }

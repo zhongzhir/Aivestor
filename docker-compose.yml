@@ -12,6 +12,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - uploads:/app/uploads
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aivestor -d aivestor_db"]
       interval: 10s
@@ -37,11 +38,12 @@ services:
       BAILIAN_API_KEY: ${BAILIAN_API_KEY}
       SYSTEM_DEEPSEEK_API_KEY: ${SYSTEM_DEEPSEEK_API_KEY:-}
       FREE_QUOTA_TOKENS: ${FREE_QUOTA_TOKENS:-5000000}
-      # OSS（可选，不填则文件上传功能不可用）
+      # OSS（可选，不填则自动使用本地磁盘存储）
       OSS_REGION: ${OSS_REGION:-}
       OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
       OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
       OSS_BUCKET: ${OSS_BUCKET:-}
+      LOCAL_UPLOAD_DIR: /app/uploads
       # 邮件（可选）
       ALIYUN_ACCESS_KEY_ID: ${ALIYUN_ACCESS_KEY_ID:-}
       ALIYUN_ACCESS_KEY_SECRET: ${ALIYUN_ACCESS_KEY_SECRET:-}
@@ -67,3 +69,4 @@ services:
 
 volumes:
   pgdata:
+  uploads:   # 本地文件存储（未配置OSS时使用）

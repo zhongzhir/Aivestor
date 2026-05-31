@@ -39,7 +39,7 @@ export default function NewProjectPage() {
     if (!file) throw new Error("未选择文件");
 
     setProgress(10);
-    // 1. 获取预签名 URL
+    // 1. 获取上传凭证
     const signRes = await fetch("/api/upload-url", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -49,16 +49,28 @@ export default function NewProjectPage() {
       const data = await signRes.json();
       throw new Error(data.error || "获取上传地址失败");
     }
-    const { presignedUrl, ossUrl } = await signRes.json();
+    const credential = await signRes.json();
 
     setProgress(20);
-    // 2. 浏览器直传 OSS（走 OSS 带宽，不经过服务器）
-    const putRes = await fetch(presignedUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type || "application/octet-stream" },
-      body: file,
-    });
-    if (!putRes.ok) throw new Error("文件上传 OSS 失败");
+    // 2. 上传文件（OSS直传 或 本地写盘）
+    let fileUrl: string;
+    if (credential.mode === "oss") {
+      const putRes = await fetch(credential.presignedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("文件上传失败");
+      fileUrl = credential.fileUrl;
+    } else {
+      const objectKey = credential.fileUrl.replace(/^local:\/\//, "");
+      const form = new FormData();
+      form.append("file", file);
+      form.append("objectKey", objectKey);
+      const uploadRes = await fetch("/api/upload-local", { method: "POST", body: form });
+      if (!uploadRes.ok) throw new Error("文件上传失败");
+      fileUrl = credential.fileUrl;
+    }
 
     setProgress(70);
     // 3. 通知服务器解析
@@ -66,7 +78,7 @@ export default function NewProjectPage() {
     const res = await fetch(`/api/projects/${pid}/documents`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blobUrl: ossUrl, filename: file.name, fileType }),
+      body: JSON.stringify({ blobUrl: fileUrl, filename: file.name, fileType }),
     });
     setProgress(100);
 
