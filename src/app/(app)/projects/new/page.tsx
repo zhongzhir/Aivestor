@@ -27,8 +27,8 @@ export default function NewProjectPage() {
       setError("仅支持 PDF 与 Word(.docx) 格式");
       return;
     }
-    if (f.size > 4 * 1024 * 1024) {
-      setError("文件超过 4MB，请压缩后重试");
+    if (f.size > 25 * 1024 * 1024) {
+      setError("文件超过 25MB，请压缩后重试");
       return;
     }
     setError("");
@@ -231,7 +231,7 @@ export default function NewProjectPage() {
               <li>用 Word 或 WPS 将文件另存为 PDF</li>
               <li>用 Adobe Acrobat 进行 OCR 识别后再上传</li>
             </ol>
-            <p className="mt-1">· 文件大小请控制在 4MB 以内</p>
+            <p className="mt-1">· 文件大小请控制在 25MB 以内</p>
           </div>
         </div>
 

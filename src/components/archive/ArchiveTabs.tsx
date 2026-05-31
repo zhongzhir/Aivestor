@@ -170,7 +170,7 @@ function FilesTab({
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <p className="text-sm font-medium text-ink">上传新文件</p>
         <p className="mt-1 text-xs text-ink-faint">
-          支持 PDF / Word / PPT / Excel，单文件最大 4MB
+          支持 PDF / Word / PPT / Excel，单文件最大 25MB
         </p>
         <div className="mt-3">
           <FileUploader

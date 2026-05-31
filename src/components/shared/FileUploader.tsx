@@ -27,7 +27,7 @@ interface QueueItem {
 }
 
 const MAX_FILES = 5;
-const MAX_SIZE = 4 * 1024 * 1024;
+const MAX_SIZE = 25 * 1024 * 1024;
 const ACCEPT = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx";
 const EXT_RE = /\.(pdf|docx?|pptx?|xlsx?)$/i;
 
@@ -153,7 +153,7 @@ export function FileUploader({
         return;
       }
       if (f.size > MAX_SIZE) {
-        setHint(`${f.name} 超过 4MB`);
+        setHint(`${f.name} 超过 25MB`);
         return;
       }
       valid.push({ file: f, status: "pending" });
@@ -208,7 +208,7 @@ export function FileUploader({
         <p className="text-sm text-ink-soft">拖拽文件到此处，或点击选择</p>
         <p className="mt-1 text-xs text-ink-faint">支持 PDF、Word、PPT、Excel</p>
         <p className="mt-0.5 text-xs text-ink-faint">
-          单次最多 {MAX_FILES} 个文件，每个文件最大 4MB
+          单次最多 {MAX_FILES} 个文件，每个文件最大 25MB
         </p>
       </div>
 
