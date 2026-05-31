@@ -6,15 +6,6 @@ import { randomUUID } from "crypto";
 export const maxDuration = 60;
 
 const ALLOWED_EXTENSIONS = ["pdf", "docx", "xlsx", "xls", "pptx", "ppt"];
-const ALLOWED_MIME_TYPES = [
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "application/vnd.ms-powerpoint",
-];
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
 function getOSSClient() {
   return new OSS({
@@ -25,49 +16,38 @@ function getOSSClient() {
   });
 }
 
-function validateFile(file: File): { valid: boolean; error?: string } {
-  if (file.size > MAX_FILE_SIZE) {
-    return { valid: false, error: "文件超过 25MB 限制，请压缩后重试" };
-  }
-  const ext = file.name.split(".").pop()?.toLowerCase();
-  if (!ext || !ALLOWED_EXTENSIONS.includes(ext)) {
-    return { valid: false, error: `不支持的文件格式：.${ext ?? ""}` };
-  }
-  // 部分浏览器对 Office 文档的 MIME 留空，留空时放行（已由扩展名兜底）。
-  if (file.type && !ALLOWED_MIME_TYPES.includes(file.type)) {
-    return { valid: false, error: "文件类型验证失败，请上传合法的办公文档" };
-  }
-  return { valid: true };
-}
-
+// 生成预签名 URL，供浏览器直传 OSS（PUT 方式）
 export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
-    if (!file) {
-      return NextResponse.json({ error: "未收到文件" }, { status: 400 });
+    const body = await req.json();
+    const { filename, contentType } = body as { filename: string; contentType?: string };
+
+    if (!filename) {
+      return NextResponse.json({ error: "缺少文件名" }, { status: 400 });
     }
-    const check = validateFile(file);
-    if (!check.valid) {
-      return NextResponse.json({ error: check.error }, { status: 400 });
+    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return NextResponse.json({ error: `不支持的文件格式：.${ext}` }, { status: 400 });
     }
 
-    const ext = file.name.split(".").pop()?.toLowerCase();
     const objectKey = `uploads/${randomUUID()}.${ext}`;
-    const buffer = Buffer.from(await file.arrayBuffer());
-
     const client = getOSSClient();
-    await client.put(objectKey, buffer, {
-      mime: file.type || "application/octet-stream",
+
+    // 生成 10 分钟有效的预签名 PUT URL
+    const presignedUrl = client.signatureUrl(objectKey, {
+      method: "PUT",
+      expires: 600,
+      "Content-Type": contentType || "application/octet-stream",
     });
 
-    // 返回内网可访问的 OSS 路径（服务端解析文件时使用）
-    const url = `oss://${process.env.OSS_BUCKET}/${objectKey}`;
-    return NextResponse.json({ url });
+    // ossUrl 供服务端后续读取文件用
+    const ossUrl = `oss://${process.env.OSS_BUCKET}/${objectKey}`;
+
+    return NextResponse.json({ presignedUrl, ossUrl });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

@@ -38,25 +38,35 @@ export default function NewProjectPage() {
   async function uploadDocument(pid: string): Promise<{ charCount: number }> {
     if (!file) throw new Error("未选择文件");
 
-    setProgress(20);
-    const blobForm = new FormData();
-    blobForm.append("file", file);
-    const blobRes = await fetch("/api/upload-url", {
+    setProgress(10);
+    // 1. 获取预签名 URL
+    const signRes = await fetch("/api/upload-url", {
       method: "POST",
-      body: blobForm,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: file.name, contentType: file.type }),
     });
-    if (!blobRes.ok) {
-      const data = await blobRes.json();
-      throw new Error(data.error || "文件上传失败");
+    if (!signRes.ok) {
+      const data = await signRes.json();
+      throw new Error(data.error || "获取上传地址失败");
     }
-    const { url: blobUrl } = await blobRes.json();
-    setProgress(70);
+    const { presignedUrl, ossUrl } = await signRes.json();
 
+    setProgress(20);
+    // 2. 浏览器直传 OSS（走 OSS 带宽，不经过服务器）
+    const putRes = await fetch(presignedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!putRes.ok) throw new Error("文件上传 OSS 失败");
+
+    setProgress(70);
+    // 3. 通知服务器解析
     const fileType = file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "docx";
     const res = await fetch(`/api/projects/${pid}/documents`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blobUrl, filename: file.name, fileType }),
+      body: JSON.stringify({ blobUrl: ossUrl, filename: file.name, fileType }),
     });
     setProgress(100);
 

@@ -64,26 +64,35 @@ export function FileUploader({
     );
   }
 
-  // 单个文件上传：upload-url → 解析 API
+  // 单个文件上传：获取预签名 URL → 浏览器直传 OSS → 解析 API
   async function uploadOne(file: File): Promise<QueueItem> {
-    const blobForm = new FormData();
-    blobForm.append("file", file);
-    const blobRes = await fetch("/api/upload-url", {
+    // 1. 获取预签名 URL
+    const signRes = await fetch("/api/upload-url", {
       method: "POST",
-      body: blobForm,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: file.name, contentType: file.type }),
     });
-    if (!blobRes.ok) {
-      throw new Error((await blobRes.json()).error || "文件上传失败");
+    if (!signRes.ok) {
+      throw new Error((await signRes.json()).error || "获取上传地址失败");
     }
-    const { url: blobUrl } = await blobRes.json();
+    const { presignedUrl, ossUrl } = await signRes.json();
 
+    // 2. 浏览器直传 OSS
+    const putRes = await fetch(presignedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!putRes.ok) throw new Error("文件上传 OSS 失败");
+
+    // 3. 通知服务器解析
     let res: Response;
     if (target === "project") {
       res = await fetch(`/api/projects/${projectId}/documents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          blobUrl,
+          blobUrl: ossUrl,
           filename: file.name,
           fileType: clientFileType(file.name),
         }),
@@ -93,7 +102,7 @@ export function FileUploader({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          blobUrl,
+          blobUrl: ossUrl,
           fileName: file.name,
           fileSize: file.size,
           category,
