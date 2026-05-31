@@ -26,7 +26,8 @@ interface QueueItem {
   error?: string;
 }
 
-const MAX_FILES = 5;
+const MAX_FILES = 20;
+const CONCURRENT = 3; // 并发上传数
 const MAX_SIZE = 25 * 1024 * 1024;
 const ACCEPT = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx";
 const EXT_RE = /\.(pdf|docx?|pptx?|xlsx?)$/i;
@@ -119,27 +120,27 @@ export function FileUploader({
 
   async function runQueue(items: QueueItem[]) {
     setBusy(true);
-    const results: UploadResult[] = [];
-    for (let i = 0; i < items.length; i++) {
-      setItem(i, { status: "uploading" });
-      try {
-        const done = await uploadOne(items[i].file);
-        setItem(i, { status: "done", warning: done.warning });
-        results.push({
-          fileName: items[i].file.name,
-          status: "done",
-          warning: done.warning,
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "上传失败";
-        setItem(i, { status: "error", error: msg });
-        results.push({
-          fileName: items[i].file.name,
-          status: "error",
-          error: msg,
-        });
+    const results: UploadResult[] = new Array(items.length);
+
+    // 并发上传，控制并发数为 CONCURRENT
+    let index = 0;
+    async function worker() {
+      while (index < items.length) {
+        const i = index++;
+        setItem(i, { status: "uploading" });
+        try {
+          const done = await uploadOne(items[i].file);
+          setItem(i, { status: "done", warning: done.warning });
+          results[i] = { fileName: items[i].file.name, status: "done", warning: done.warning };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "上传失败";
+          setItem(i, { status: "error", error: msg });
+          results[i] = { fileName: items[i].file.name, status: "error", error: msg };
+        }
       }
     }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENT, items.length) }, worker));
+
     setBusy(false);
     onUploadComplete?.(results);
   }

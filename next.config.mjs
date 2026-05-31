@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
   experimental: {
     // unpdf 为重量级原生依赖，交由 Node 直接 require，不参与打包
     serverComponentsExternalPackages: ["unpdf"],
