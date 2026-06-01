@@ -72,7 +72,15 @@ export async function getUploadCredential(filename: string, contentType: string)
  * 把文件写入本地磁盘（本地模式上传端点使用）
  */
 export async function saveLocalFile(objectKey: string, buffer: Buffer): Promise<void> {
-  const filePath = path.join(LOCAL_UPLOAD_DIR, objectKey.replace(/^uploads\//, ""));
+  const rel = path.posix.normalize(objectKey.replace(/^uploads\//, ""));
+  if (rel.startsWith("..") || rel.includes("\0") || path.isAbsolute(rel)) {
+    throw new Error("非法的文件路径");
+  }
+  const filePath = path.resolve(LOCAL_UPLOAD_DIR, rel);
+  const root = path.resolve(LOCAL_UPLOAD_DIR);
+  if (!filePath.startsWith(root + path.sep) && filePath !== root) {
+    throw new Error("非法的文件路径");
+  }
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(filePath, buffer);
 }
@@ -91,7 +99,15 @@ export async function readFileBuffer(fileUrl: string): Promise<Buffer> {
 
   if (fileUrl.startsWith("local://")) {
     const objectKey = fileUrl.replace(/^local:\/\//, "");
-    const filePath = path.join(LOCAL_UPLOAD_DIR, objectKey.replace(/^uploads\//, ""));
+    const rel = path.posix.normalize(objectKey.replace(/^uploads\//, ""));
+    if (rel.startsWith("..") || rel.includes("\0") || path.isAbsolute(rel)) {
+      throw new Error("非法的文件路径");
+    }
+    const filePath = path.resolve(LOCAL_UPLOAD_DIR, rel);
+    const root = path.resolve(LOCAL_UPLOAD_DIR);
+    if (!filePath.startsWith(root + path.sep) && filePath !== root) {
+      throw new Error("非法的文件路径");
+    }
     return fs.readFile(filePath);
   }
 

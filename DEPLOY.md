@@ -56,7 +56,15 @@ nano .env.docker   # 填写必填项
 | `NEXTAUTH_URL` | 访问地址 | 如 `http://192.168.1.100` |
 | `NEXTAUTH_SECRET` | JWT 密钥 | `openssl rand -base64 32` |
 | `ENCRYPTION_KEY` | 加密主密钥 | `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `BAILIAN_API_KEY` | 百炼 Embedding | [申请地址](https://bailian.console.aliyun.com/) |
+
+**可选项：**
+
+| 变量 | 说明 | 留空时的降级行为 |
+|------|------|----------|
+| `BAILIAN_API_KEY` | 百炼 Embedding，用于知识库语义检索 | 自动降级为关键词搜索，其余功能不受影响 |
+| `OSS_*` | 阿里云 OSS 文件存储 | 自动降级为本地磁盘存储（数据完全在本机） |
+| `SYSTEM_DEEPSEEK_API_KEY` | 系统代付 DeepSeek，新用户免费额度 | 新用户必须自带 API Key 才能使用 AI |
+| `ALIYUN_*`（邮件/短信） | 忘记密码邮件 / 手机号验证码登录 | 对应功能不可用 |
 
 ### 3. 构建并启动
 
@@ -72,14 +80,17 @@ docker compose --env-file .env.docker up -d --build
 
 ---
 
-## 文件存储配置（推荐）
+## 文件存储
 
-不配置 OSS 则无法上传 BP 文件。推荐使用阿里云 OSS：
+默认使用**本地磁盘存储**（Docker volume `uploads`），无需任何云服务。文件保存在本机，
+随容器持久化；删除容器不会丢失，`docker compose down -v` 才会清空。
+
+如需多机共享或云端备份，可配置阿里云 OSS：
 
 1. 创建 OSS Bucket（私有读写）
 2. 创建 RAM 子账号，授权 `AliyunOSSFullAccess`
 3. 在 `.env.docker` 填入 `OSS_REGION` / `OSS_ACCESS_KEY_ID` / `OSS_ACCESS_KEY_SECRET` / `OSS_BUCKET`
-4. OSS 跨域设置中添加你的服务器 IP 来源
+4. OSS 跨域设置中添加 `NEXTAUTH_URL` 对应的来源（含协议+端口）
 
 ---
 

@@ -30,11 +30,10 @@ if exist ".env.docker" (
   echo.
 )
 
-:: 检查 Node.js
-where node >nul 2>&1
+:: 检查 PowerShell（Windows 自带，理论上必有）
+where powershell >nul 2>&1
 if errorlevel 1 (
-  echo [错误] 未检测到 Node.js，请先安装：https://nodejs.org/
-  echo 安装完成后重新运行本脚本。
+  echo [错误] 未检测到 PowerShell，请使用 Windows 10/11 自带的命令提示符运行本脚本。
   pause
   exit /b 1
 )
@@ -87,9 +86,9 @@ echo.
 :: ── 自动生成密钥 ─────────────────────────────────────────────
 echo 正在自动生成安全密钥...
 
-for /f %%i in ('node -e "console.log(require('crypto').randomBytes(20).toString('hex').slice(0,20))"') do set DB_PASSWORD=%%i
-for /f %%i in ('node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"') do set NEXTAUTH_SECRET=%%i
-for /f %%i in ('node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"') do set ENCRYPTION_KEY=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 20 | ForEach-Object {[char]$_})"`) do set DB_PASSWORD=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)"`) do set NEXTAUTH_SECRET=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); ($b | ForEach-Object { $_.ToString('x2') }) -join ''"`) do set ENCRYPTION_KEY=%%i
 
 echo   ✓ 数据库密码已生成
 echo   ✓ JWT 签名密钥已生成
