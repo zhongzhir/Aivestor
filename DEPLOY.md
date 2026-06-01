@@ -78,6 +78,11 @@ docker compose --env-file .env.docker up -d --build
 
 浏览器打开 `http://你的IP`，注册账号即可使用。
 
+> ⚠️ 必须通过 **Nginx 80 端口**（即 `NEXTAUTH_URL` 指向的地址）访问。
+> 直连 `http://...:3000` 会导致 NextAuth cookie 域名与 `NEXTAUTH_URL` 不一致，登录后立刻 401。
+> 如果你的 80 端口被占用，先停掉占用进程，或在 `docker-compose.yml` 的 nginx 服务里把
+> `"80:80"` 改为 `"8080:80"`，并把 `NEXTAUTH_URL` 同步改为 `http://...:8080`。
+
 ---
 
 ## 文件存储

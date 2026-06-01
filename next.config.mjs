@@ -3,8 +3,10 @@ const nextConfig = {
   reactStrictMode: true,
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
   experimental: {
-    // unpdf 为重量级原生依赖，交由 Node 直接 require，不参与打包
-    serverComponentsExternalPackages: ["unpdf"],
+    // 重量级 / 仅服务端使用的依赖，交由 Node 直接 require，不参与打包
+    //   - unpdf：原生 PDF 解析依赖
+    //   - ali-oss：仅在配置 OSS 时才会触发 require，本地化部署用户无需打包
+    serverComponentsExternalPackages: ["unpdf", "ali-oss"],
     serverActions: {
       bodySizeLimit: "25mb",
     },

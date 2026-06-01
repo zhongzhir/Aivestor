@@ -96,45 +96,21 @@ echo   ✓ 数据加密密钥已生成
 echo.
 
 :: ── 写入配置文件 ─────────────────────────────────────────────
-(
-echo # Aivestor 本地化部署配置
-echo # 由 setup.bat 自动生成
-echo # ⚠️  请妥善保管此文件，不要分享给他人或上传到代码仓库
-echo.
-echo # ── 访问地址 ─────────────────────────────────────────────────
-echo NEXTAUTH_URL=!NEXTAUTH_URL!
-echo.
-echo # ── 自动生成的安全密钥（请勿手动修改）──────────────────────────
-echo DB_PASSWORD=!DB_PASSWORD!
-echo NEXTAUTH_SECRET=!NEXTAUTH_SECRET!
-echo ENCRYPTION_KEY=!ENCRYPTION_KEY!
-echo.
-echo # ── AI 能力 ──────────────────────────────────────────────────
-echo # 知识库语义搜索 Key（留空则使用关键词搜索，功能不受影响）
-echo # 申请地址：https://bailian.console.aliyun.com/
-echo BAILIAN_API_KEY=!BAILIAN_API_KEY!
-echo.
-echo # 系统代付 DeepSeek Key（可选，填写后新用户有免费 AI 额度）
-echo SYSTEM_DEEPSEEK_API_KEY=
-echo.
-echo # ── 文件存储（可选）──────────────────────────────────────────
-echo # 留空则文件自动存储在本机，无需任何云服务。
-echo OSS_REGION=
-echo OSS_ACCESS_KEY_ID=
-echo OSS_ACCESS_KEY_SECRET=
-echo OSS_BUCKET=
-echo.
-echo # ── 邮件服务（可选）──────────────────────────────────────────
-echo # 用于「忘记密码」邮件，不填则该功能不可用
-echo ALIYUN_ACCESS_KEY_ID=
-echo ALIYUN_ACCESS_KEY_SECRET=
-echo ALIYUN_EMAIL_FROM=
-echo.
-echo # ── 短信服务（可选）──────────────────────────────────────────
-echo # 用于手机号验证码登录，不填则只能用邮箱登录
-echo ALIYUN_SMS_SIGN=
-echo ALIYUN_SMS_TEMPLATE=
-) > .env.docker
+:: 把变量导出为 cmd 进程环境变量，再让 PowerShell 用 $env: 读取并写出 UTF-8（无 BOM）文件
+:: 这样可以避开 cmd 重定向在中文环境下用 GBK 写文件的问题
+set _NEXTAUTH_URL=!NEXTAUTH_URL!
+set _DB_PASSWORD=!DB_PASSWORD!
+set _NEXTAUTH_SECRET=!NEXTAUTH_SECRET!
+set _ENCRYPTION_KEY=!ENCRYPTION_KEY!
+set _BAILIAN_API_KEY=!BAILIAN_API_KEY!
+
+powershell -NoProfile -Command "$lines = @('# Aivestor 本地化部署配置', '# 由 setup.bat 自动生成', '# 请妥善保管此文件，不要分享给他人或上传到代码仓库', '', '# 访问地址', \"NEXTAUTH_URL=$env:_NEXTAUTH_URL\", '', '# 自动生成的安全密钥（请勿手动修改）', \"DB_PASSWORD=$env:_DB_PASSWORD\", \"NEXTAUTH_SECRET=$env:_NEXTAUTH_SECRET\", \"ENCRYPTION_KEY=$env:_ENCRYPTION_KEY\", '', '# AI 能力', '# 知识库语义搜索 Key（留空则使用关键词搜索，功能不受影响）', '# 申请地址：https://bailian.console.aliyun.com/', \"BAILIAN_API_KEY=$env:_BAILIAN_API_KEY\", '', '# 系统代付 DeepSeek Key（可选，填写后新用户有免费 AI 额度）', 'SYSTEM_DEEPSEEK_API_KEY=', '', '# 文件存储（可选）', '# 留空则文件自动存储在本机，无需任何云服务。', 'OSS_REGION=', 'OSS_ACCESS_KEY_ID=', 'OSS_ACCESS_KEY_SECRET=', 'OSS_BUCKET=', '', '# 邮件服务（可选）', '# 用于「忘记密码」邮件，不填则该功能不可用', 'ALIYUN_ACCESS_KEY_ID=', 'ALIYUN_ACCESS_KEY_SECRET=', 'ALIYUN_EMAIL_FROM=', '', '# 短信服务（可选）', '# 用于手机号验证码登录，不填则只能用邮箱登录', 'ALIYUN_SMS_SIGN=', 'ALIYUN_SMS_TEMPLATE='); [IO.File]::WriteAllLines((Join-Path (Get-Location) '.env.docker'), $lines, (New-Object Text.UTF8Encoding $false))"
+
+set _NEXTAUTH_URL=
+set _DB_PASSWORD=
+set _NEXTAUTH_SECRET=
+set _ENCRYPTION_KEY=
+set _BAILIAN_API_KEY=
 
 echo ╔══════════════════════════════════════════════════╗
 echo ║           配置完成！                             ║

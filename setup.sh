@@ -91,7 +91,7 @@ echo ""
 # ── 自动生成密钥 ─────────────────────────────────────────────
 echo -e "${BOLD}正在自动生成安全密钥...${RESET}"
 
-# 生成数据库密码（16位随机字母数字）
+# 生成数据库密码（20位随机字母数字）
 DB_PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)
 
 # 生成 NEXTAUTH_SECRET
