@@ -109,20 +109,13 @@ Aivestor 的核心理念是**数据主权归用户**。
 
 只想运行自己的 Aivestor 实例（不改代码）？用 Docker：
 
-**国内网络**（首推）：
 ```bash
-curl -LO https://aivestor-releases.oss-cn-beijing.aliyuncs.com/aivestor-latest.tar.gz
-tar xzf aivestor-latest.tar.gz && cd aivestor
+git clone https://github.com/zhongzhir/Aivestor.git && cd Aivestor
 ./setup.sh        # Windows 双击 setup.bat
 docker compose --env-file .env.docker up -d --build
 ```
 
-**GitHub**：
-```bash
-git clone https://github.com/zhongzhir/Aivestor.git && cd Aivestor
-./setup.sh
-docker compose --env-file .env.docker up -d --build
-```
+> 不便用 git 时，可在 GitHub 仓库页点 `Code → Download ZIP` 下载后解压。
 
 完整步骤、故障排查、HTTPS 配置见 **[INSTALL.md](./INSTALL.md)**。
 

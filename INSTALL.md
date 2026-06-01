@@ -61,21 +61,18 @@ newgrp docker                   # 使用户组变更生效（或重新登录）
 
 ## 第一步：获取代码
 
-**国内网络推荐方式（阿里云镜像下载）：**
-
-```bash
-# 下载最新发布包（无需 GitHub 访问）
-wget https://aivestor-releases.oss-cn-beijing.aliyuncs.com/aivestor-latest.tar.gz
-tar -xzf aivestor-latest.tar.gz
-cd aivestor
-```
-
-**GitHub 方式：**
+**方式 A：Git 克隆**
 
 ```bash
 git clone https://github.com/zhongzhir/Aivestor.git
 cd Aivestor
 ```
+
+**方式 B：下载 ZIP（无需 Git）**
+
+1. 打开 https://github.com/zhongzhir/Aivestor
+2. 点击绿色「Code」按钮 →「Download ZIP」
+3. 解压到任意文件夹后进入该目录
 
 **Windows 用户：** 在 WSL2 终端内执行上述命令，或在 Windows 资源管理器中下载 ZIP 后解压，路径中避免中文和空格。
 
