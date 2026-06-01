@@ -4,11 +4,35 @@
 
 ## 前置条件
 
-- Docker 20.10+
-- Docker Compose v2+
-- 2核4G 及以上服务器（推荐 Ubuntu 22.04）
+- Docker Desktop（[下载地址](https://www.docker.com/products/docker-desktop/)）
+- 2核4G 及以上内存（本机或服务器均可）
 
-## 快速开始
+---
+
+## 方式一：一键配置（推荐新手）
+
+运行配置脚本，全程引导，自动生成所有密钥，只需回答 2-3 个问题。
+
+**Mac / Linux：**
+```bash
+git clone https://github.com/zhongzhir/Aivestor.git
+cd Aivestor
+chmod +x setup.sh
+./setup.sh
+```
+
+**Windows：**
+```
+1. 下载并解压代码
+2. 双击运行 setup.bat
+3. 按提示操作
+```
+
+脚本完成后，直接执行第 3 步启动。
+
+---
+
+## 方式二：手动配置（适合有技术背景的用户）
 
 ### 1. 克隆代码
 
