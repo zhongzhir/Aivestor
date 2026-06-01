@@ -284,6 +284,9 @@ docker exec -i aivestor-db psql -U aivestor aivestor_db < backup_20260601_120000
 **Q：端口 80 被占用（Address already in use）**  
 编辑 `docker-compose.yml`，将 nginx 的 `"80:80"` 改为 `"8080:80"`，访问地址改为 `http://IP:8080`，同步修改 `NEXTAUTH_URL`。
 
+**Q：Windows 上启动报错 `ports are not available: exposing port TCP 0.0.0.0:80`**  
+Windows 对 80 端口有权限限制（常被 IIS、World Wide Web Publishing Service 或 Hyper-V 保留区段占用）。编辑 `docker-compose.yml` 将 nginx 的 `"80:80"` 改为 `"8080:80"`，同步修改 `.env.docker` 中 `NEXTAUTH_URL=http://localhost:8080`，重启服务后访问 `http://localhost:8080`。
+
 **Q：docker compose 提示找不到 .env.docker 文件**  
 确认当前终端工作目录为 Aivestor 项目根目录（`ls` 能看到 `docker-compose.yml`）。
 
