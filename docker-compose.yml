@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -12,7 +10,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - uploads:/app/uploads
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aivestor -d aivestor_db"]
       interval: 10s
@@ -51,6 +48,8 @@ services:
       # 短信（可选）
       ALIYUN_SMS_SIGN: ${ALIYUN_SMS_SIGN:-}
       ALIYUN_SMS_TEMPLATE: ${ALIYUN_SMS_TEMPLATE:-}
+    volumes:
+      - uploads:/app/uploads
     ports:
       - "3000:3000"
 
