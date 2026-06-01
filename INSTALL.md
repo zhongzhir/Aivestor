@@ -64,13 +64,13 @@ newgrp docker                   # 使用户组变更生效（或重新登录）
 **方式 A：Git 克隆**
 
 ```bash
-git clone https://github.com/zhongzhir/Aivestor.git
-cd Aivestor
+git clone https://github.com/zhongzhir/aivestor.git
+cd aivestor
 ```
 
 **方式 B：下载 ZIP（无需 Git）**
 
-1. 打开 https://github.com/zhongzhir/Aivestor
+1. 打开 https://github.com/zhongzhir/aivestor
 2. 点击绿色「Code」按钮 →「Download ZIP」
 3. 解压到任意文件夹后进入该目录
 
@@ -326,6 +326,6 @@ V3.1 起 nginx 已通过 `depends_on: condition: service_healthy` 等待 app 健
 
 ## 技术支持
 
-- 项目仓库：https://github.com/zhongzhir/Aivestor
+- 项目仓库：https://github.com/zhongzhir/aivestor
 - 联系邮箱：Aivestor@qq.com
 - 部署问题请附上 `docker compose logs app` 的输出内容

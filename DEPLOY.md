@@ -15,8 +15,8 @@
 
 **Mac / Linux：**
 ```bash
-git clone https://github.com/zhongzhir/Aivestor.git
-cd Aivestor
+git clone https://github.com/zhongzhir/aivestor.git
+cd aivestor
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -37,8 +37,8 @@ chmod +x setup.sh
 ### 1. 克隆代码
 
 ```bash
-git clone https://github.com/zhongzhir/Aivestor.git
-cd Aivestor
+git clone https://github.com/zhongzhir/aivestor.git
+cd aivestor
 ```
 
 ### 2. 配置环境变量

@@ -110,7 +110,7 @@ Aivestor 的核心理念是**数据主权归用户**。
 只想运行自己的 Aivestor 实例（不改代码）？用 Docker：
 
 ```bash
-git clone https://github.com/zhongzhir/Aivestor.git && cd Aivestor
+git clone https://github.com/zhongzhir/aivestor.git && cd aivestor
 ./setup.sh        # Windows 双击 setup.bat
 docker compose --env-file .env.docker up -d --build
 ```
@@ -132,7 +132,7 @@ docker compose --env-file .env.docker up -d --build
 
 ```bash
 # 克隆仓库
-git clone https://github.com/zhongzhir/investment-workbench.git
+git clone https://github.com/zhongzhir/aivestor.git
 cd investment-workbench
 
 # 安装依赖
