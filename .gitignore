@@ -26,9 +26,16 @@ yarn-error.log*
 # local env files
 .env
 .env*.local
+.env.docker
+!.env.docker.example
 
 # typescript
 *.tsbuildinfo
 
 # uploads / 本地临时目录
 /tmp/
+
+# 用户生成的发布包（不入库）
+release/
+aivestor-*.tar.gz
+aivestor-*.zip

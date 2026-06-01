@@ -1,0 +1,41 @@
+# 构建产物 / 依赖
+node_modules
+.next
+out
+build
+*.tsbuildinfo
+
+# 本地配置 / 密钥
+.env
+.env.local
+.env.docker
+.env*.local
+
+# Git 与 IDE
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.claude
+
+# 项目开发文档（不进镜像）
+AIVESTOR_CONTEXT.md
+docs/
+README.md
+DEPLOYMENT.md
+
+# 发布包
+release/
+aivestor-*.tar.gz
+aivestor-*.zip
+
+# 日志/临时
+*.log
+npm-debug.log*
+yarn-debug.log*
+tmp/
+
+# OS 杂项
+.DS_Store
+Thumbs.db

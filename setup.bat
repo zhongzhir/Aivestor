@@ -2,109 +2,154 @@
 chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 
+REM ============================================================
+REM  Aivestor local deployment - configuration helper (Windows)
+REM
+REM  All output uses ASCII English to avoid CMD code-page issues.
+REM  See INSTALL.md for the full Chinese guide.
+REM ============================================================
+
 cls
 echo.
-echo ╔══════════════════════════════════════════════════╗
-echo ║        Aivestor  本地化部署  快速配置            ║
-echo ╚══════════════════════════════════════════════════╝
+echo ==================================================
+echo    Aivestor  local deployment  quick setup
+echo ==================================================
 echo.
-echo 本脚本将帮你完成部署前的配置工作。
-echo 全程只需回答 2-3 个问题，约 2 分钟完成。
+echo This script writes a single file, .env.docker, in the
+echo current folder. Nothing is uploaded anywhere.
 echo.
-echo ━━━ 关于数据安全的说明 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-echo   本脚本在你的电脑本地运行，所有信息仅写入
-echo   当前文件夹下的 .env.docker 文件，不会上传到任何服务器。
-echo   生成的密钥只存在你的机器上，我们无法也不会获取。
-echo ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+echo Press Ctrl+C any time to abort.
+echo --------------------------------------------------
 echo.
 
-:: 检查 .env.docker 是否已存在
+REM Sanity check: PowerShell must be available (used to generate keys
+REM and write UTF-8 file). Ships with Windows 10/11.
+where powershell >nul 2>&1
+if errorlevel 1 (
+  echo [ERROR] PowerShell not found on PATH.
+  echo         This script needs Windows PowerShell 5.1 or later,
+  echo         which is bundled with Windows 10/11. Please run from
+  echo         an ordinary cmd window.
+  echo.
+  pause
+  exit /b 1
+)
+
+REM If .env.docker already exists, ask before overwriting.
 if exist ".env.docker" (
-  echo 检测到 .env.docker 已存在。
-  set /p overwrite="是否覆盖重新配置？(y/N) "
+  echo An existing .env.docker was detected.
+  set /p overwrite="Overwrite it? (y/N): "
   if /i not "!overwrite!"=="y" (
-    echo 已取消，保留原有配置。
+    echo Aborted. Existing .env.docker kept as-is.
+    echo.
     pause
     exit /b 0
   )
   echo.
 )
 
-:: 检查 PowerShell（Windows 自带，理论上必有）
-where powershell >nul 2>&1
-if errorlevel 1 (
-  echo [错误] 未检测到 PowerShell，请使用 Windows 10/11 自带的命令提示符运行本脚本。
-  pause
-  exit /b 1
-)
-
-:: ── 第1步：访问地址 ──────────────────────────────────────────
-echo 【第 1 步】设置访问地址
-echo   在哪台设备上访问 Aivestor？
+REM ---------- Step 1: access URL ----------
+echo [Step 1/2] Access URL
+echo   Where will you open Aivestor in a browser?
+echo     1) This machine only      ( http://localhost )         ^<-- recommended
+echo     2) Other devices on LAN   ( http://192.168.x.x )
+echo     3) Public server / domain ( http://1.2.3.4 or https://your.domain )
 echo.
-echo   1) 本机浏览器访问（http://localhost）  ← 推荐新手选这个
-echo   2) 局域网内其他设备访问（如 http://192.168.x.x）
-echo   3) 公网服务器（如 http://1.2.3.4 或 https://yourdomain.com）
-echo.
-set /p addr_choice="请输入选项 (默认 1): "
+set /p addr_choice="  Choice (default 1): "
 if "!addr_choice!"=="" set addr_choice=1
 
 if "!addr_choice!"=="2" (
   echo.
-  echo   请输入本机的局域网 IP（如 192.168.1.100）
-  echo   查看方式：打开 CMD，输入 ipconfig，找到"IPv4 地址"
-  set /p LAN_IP="  局域网 IP: "
+  echo   Hint: run "ipconfig" in another cmd window to find your IPv4 address.
+  set /p LAN_IP="  LAN IPv4 address: "
+  if "!LAN_IP!"=="" (
+    echo [ERROR] No IP entered. Aborting.
+    pause
+    exit /b 1
+  )
   set NEXTAUTH_URL=http://!LAN_IP!
 ) else if "!addr_choice!"=="3" (
   echo.
-  set /p NEXTAUTH_URL="  请输入完整访问地址（含 http:// 或 https://）: "
+  set /p NEXTAUTH_URL="  Full URL including http:// or https:// : "
+  if "!NEXTAUTH_URL!"=="" (
+    echo [ERROR] No URL entered. Aborting.
+    pause
+    exit /b 1
+  )
 ) else (
   set NEXTAUTH_URL=http://localhost
 )
-echo   ✓ 访问地址：!NEXTAUTH_URL!
+echo   OK - access URL set to: !NEXTAUTH_URL!
 echo.
 
-:: ── 第2步：百炼 API Key（可选）────────────────────────────────
-echo 【第 2 步】知识库语义搜索（可选）
-echo   Aivestor 知识库支持两种搜索方式：
-echo   · 关键词搜索：直接可用，无需任何配置
-echo   · 语义搜索：理解含义，搜索更智能，需要填写阿里云百炼 API Key
+REM ---------- Step 2: optional Bailian key ----------
+echo [Step 2/2] Bailian embedding API key (optional)
+echo   Used for the knowledge-base semantic search. Leave empty and
+echo   Aivestor will fall back to keyword search. Other features are
+echo   unaffected.
+echo   Apply for a key at: https://bailian.console.aliyun.com/
 echo.
-echo   申请地址：https://bailian.console.aliyun.com/
-echo   （注册后免费领取额度，个人用量几乎不产生费用）
-echo.
-set /p fill_bailian="  是否现在填写百炼 API Key？直接回车可跳过 (y/N): "
+set /p fill_bailian="  Enter a Bailian key now? (y/N): "
 set BAILIAN_API_KEY=
 if /i "!fill_bailian!"=="y" (
-  set /p BAILIAN_API_KEY="  请粘贴 API Key: "
-  echo   ✓ 已填写
+  set /p BAILIAN_API_KEY="  Paste API key: "
+  echo   OK - key recorded.
 ) else (
-  echo   已跳过，将使用关键词搜索。如需升级，补填 .env.docker 中的 BAILIAN_API_KEY 后重启即可。
+  echo   Skipped. You can fill in BAILIAN_API_KEY inside .env.docker later
+  echo   and re-run "docker compose up -d" to apply.
 )
 echo.
 
-:: ── 自动生成密钥 ─────────────────────────────────────────────
-echo 正在自动生成安全密钥...
-
+REM ---------- Generate secrets ----------
+echo Generating cryptographic secrets...
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "-join ((48..57) + (65..90) + (97..122) | Get-Random -Count 20 | ForEach-Object {[char]$_})"`) do set DB_PASSWORD=%%i
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)"`) do set NEXTAUTH_SECRET=%%i
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); ($b | ForEach-Object { $_.ToString('x2') }) -join ''"`) do set ENCRYPTION_KEY=%%i
 
-echo   ✓ 数据库密码已生成
-echo   ✓ JWT 签名密钥已生成
-echo   ✓ 数据加密密钥已生成
+if "!DB_PASSWORD!"=="" (
+  echo [ERROR] Failed to generate DB_PASSWORD via PowerShell.
+  echo         Open PowerShell manually and check it runs.
+  pause
+  exit /b 1
+)
+if "!NEXTAUTH_SECRET!"=="" (
+  echo [ERROR] Failed to generate NEXTAUTH_SECRET via PowerShell.
+  pause
+  exit /b 1
+)
+if "!ENCRYPTION_KEY!"=="" (
+  echo [ERROR] Failed to generate ENCRYPTION_KEY via PowerShell.
+  pause
+  exit /b 1
+)
+
+echo   OK - DB_PASSWORD       (20 chars)
+echo   OK - NEXTAUTH_SECRET   (44 chars, base64)
+echo   OK - ENCRYPTION_KEY    (64 chars, hex)
 echo.
 
-:: ── 写入配置文件 ─────────────────────────────────────────────
-:: 把变量导出为 cmd 进程环境变量，再让 PowerShell 用 $env: 读取并写出 UTF-8（无 BOM）文件
-:: 这样可以避开 cmd 重定向在中文环境下用 GBK 写文件的问题
+REM ---------- Write .env.docker as UTF-8 (no BOM) ----------
+REM Use PowerShell so CMD redirection does not mangle bytes.
 set _NEXTAUTH_URL=!NEXTAUTH_URL!
 set _DB_PASSWORD=!DB_PASSWORD!
 set _NEXTAUTH_SECRET=!NEXTAUTH_SECRET!
 set _ENCRYPTION_KEY=!ENCRYPTION_KEY!
 set _BAILIAN_API_KEY=!BAILIAN_API_KEY!
 
-powershell -NoProfile -Command "$lines = @('# Aivestor 本地化部署配置', '# 由 setup.bat 自动生成', '# 请妥善保管此文件，不要分享给他人或上传到代码仓库', '', '# 访问地址', \"NEXTAUTH_URL=$env:_NEXTAUTH_URL\", '', '# 自动生成的安全密钥（请勿手动修改）', \"DB_PASSWORD=$env:_DB_PASSWORD\", \"NEXTAUTH_SECRET=$env:_NEXTAUTH_SECRET\", \"ENCRYPTION_KEY=$env:_ENCRYPTION_KEY\", '', '# AI 能力', '# 知识库语义搜索 Key（留空则使用关键词搜索，功能不受影响）', '# 申请地址：https://bailian.console.aliyun.com/', \"BAILIAN_API_KEY=$env:_BAILIAN_API_KEY\", '', '# 系统代付 DeepSeek Key（可选，填写后新用户有免费 AI 额度）', 'SYSTEM_DEEPSEEK_API_KEY=', '', '# 文件存储（可选）', '# 留空则文件自动存储在本机，无需任何云服务。', 'OSS_REGION=', 'OSS_ACCESS_KEY_ID=', 'OSS_ACCESS_KEY_SECRET=', 'OSS_BUCKET=', '', '# 邮件服务（可选）', '# 用于「忘记密码」邮件，不填则该功能不可用', 'ALIYUN_ACCESS_KEY_ID=', 'ALIYUN_ACCESS_KEY_SECRET=', 'ALIYUN_EMAIL_FROM=', '', '# 短信服务（可选）', '# 用于手机号验证码登录，不填则只能用邮箱登录', 'ALIYUN_SMS_SIGN=', 'ALIYUN_SMS_TEMPLATE='); [IO.File]::WriteAllLines((Join-Path (Get-Location) '.env.docker'), $lines, (New-Object Text.UTF8Encoding $false))"
+powershell -NoProfile -Command "$lines = @('# Aivestor local deployment configuration', '# Generated by setup.bat - keep this file private.', '', '# ---- Access URL ----', \"NEXTAUTH_URL=$env:_NEXTAUTH_URL\", '', '# ---- Auto-generated secrets (do not edit) ----', \"DB_PASSWORD=$env:_DB_PASSWORD\", \"NEXTAUTH_SECRET=$env:_NEXTAUTH_SECRET\", \"ENCRYPTION_KEY=$env:_ENCRYPTION_KEY\", '', '# ---- AI capabilities ----', '# Bailian embedding key (optional, leave empty for keyword search)', '# https://bailian.console.aliyun.com/', \"BAILIAN_API_KEY=$env:_BAILIAN_API_KEY\", '', '# Platform-paid DeepSeek key (optional, gives new users a free quota)', 'SYSTEM_DEEPSEEK_API_KEY=', '', '# ---- File storage (optional) ----', '# Leave empty to store files locally inside the Docker volume.', 'OSS_REGION=', 'OSS_ACCESS_KEY_ID=', 'OSS_ACCESS_KEY_SECRET=', 'OSS_BUCKET=', '', '# ---- Email (optional, used by forgot-password) ----', 'ALIYUN_ACCESS_KEY_ID=', 'ALIYUN_ACCESS_KEY_SECRET=', 'ALIYUN_EMAIL_FROM=', '', '# ---- SMS (optional, used by phone login) ----', 'ALIYUN_SMS_SIGN=', 'ALIYUN_SMS_TEMPLATE='); [IO.File]::WriteAllLines((Join-Path (Get-Location) '.env.docker'), $lines, (New-Object Text.UTF8Encoding $false))"
+
+if errorlevel 1 (
+  echo [ERROR] Failed to write .env.docker.
+  echo         Make sure this folder is writable.
+  pause
+  exit /b 1
+)
+
+if not exist ".env.docker" (
+  echo [ERROR] .env.docker was not created. Aborting.
+  pause
+  exit /b 1
+)
 
 set _NEXTAUTH_URL=
 set _DB_PASSWORD=
@@ -112,22 +157,27 @@ set _NEXTAUTH_SECRET=
 set _ENCRYPTION_KEY=
 set _BAILIAN_API_KEY=
 
-echo ╔══════════════════════════════════════════════════╗
-echo ║           配置完成！                             ║
-echo ╚══════════════════════════════════════════════════╝
+echo ==================================================
+echo    Setup complete!
+echo ==================================================
 echo.
-echo   配置已写入 .env.docker 文件。
+echo   Config written to:  %CD%\.env.docker
+echo   Access URL:         !NEXTAUTH_URL!
 echo.
-echo 下一步：启动 Aivestor
+echo Next step - start Aivestor with Docker:
 echo.
-echo   在当前文件夹打开终端，运行以下命令：
+echo   1. Make sure Docker Desktop is running.
+echo   2. In this folder, run:
 echo.
-echo   docker compose --env-file .env.docker up -d --build
+echo        docker compose --env-file .env.docker up -d --build
 echo.
-echo   首次启动约需 3-5 分钟（下载和构建镜像）。
-echo   完成后打开浏览器访问：!NEXTAUTH_URL!
+echo   First boot takes 3-10 minutes (image pull + build).
+echo   When containers are up, open:  !NEXTAUTH_URL!
 echo.
-echo 提示：如需修改配置，用记事本打开 .env.docker 即可，
-echo 修改后运行 docker compose --env-file .env.docker up -d 重启生效。
+echo To change anything later, edit .env.docker in Notepad and
+echo re-run the docker compose command above to apply.
+echo.
+echo See INSTALL.md for troubleshooting and admin commands.
 echo.
 pause
+endlocal

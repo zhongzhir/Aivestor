@@ -105,8 +105,32 @@ Aivestor 的核心理念是**数据主权归用户**。
 
 ## 快速开始
 
-### 环境要求
+### Docker 一键本地化部署（推荐）
 
+只想运行自己的 Aivestor 实例（不改代码）？用 Docker：
+
+**国内网络**（首推）：
+```bash
+curl -LO https://aivestor-releases.oss-cn-beijing.aliyuncs.com/aivestor-latest.tar.gz
+tar xzf aivestor-latest.tar.gz && cd aivestor
+./setup.sh        # Windows 双击 setup.bat
+docker compose --env-file .env.docker up -d --build
+```
+
+**GitHub**：
+```bash
+git clone https://github.com/zhongzhir/Aivestor.git && cd Aivestor
+./setup.sh
+docker compose --env-file .env.docker up -d --build
+```
+
+完整步骤、故障排查、HTTPS 配置见 **[INSTALL.md](./INSTALL.md)**。
+
+### 本地开发环境
+
+需要修改代码或参与贡献？
+
+**环境要求：**
 - Node.js 18+
 - PostgreSQL 14+（需要 pgvector 扩展）
 - 至少一个 AI 模型的 API Key（DeepSeek 费用最低，推荐新手使用）
