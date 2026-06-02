@@ -153,6 +153,6 @@ V3.1.1 末（commit `7279b39`）已经做完：
 | 项 | 说明 | 何时做 |
 |----|------|-------|
 | HSTS | nginx 443 块加 `add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;` | HTTPS 跑稳 1~2 天后 |
-| OSS CORS | 阿里云控制台 OSS bucket `aivestor` 的 CORS 来源加 `https://aivestor.cn`（保留旧的 `http://x.x.x.x` 一段时间作为兜底） | 立即（手动） |
+| ~~OSS CORS~~ | ✅ 已完成（2026-06-02 同日）：bucket `aivestor` CORS 加 `https://aivestor.cn` 与 `https://www.aivestor.cn`，旧 `http://x.x.x.x` 暂留 1~2 周作内测期兜底 | — |
 | 证书续签 | 阿里云免费证书 1 年期，到期前 30 天换；或切 Let's Encrypt 自动续签 | 2027-06 前 |
 | Footer 扩到全站 | 登录页 / 应用内页也加 Footer，满足 ICP "每页底部"严格合规 | 视监管反馈 |
