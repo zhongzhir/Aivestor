@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import Footer from "@/components/Footer";
+// Footer 由 (app)/layout.tsx 统一挂载，本组件不再自渲染
 
 export default function LandingPage() {
   return (
@@ -238,8 +238,6 @@ export default function LandingPage() {
             </a>
           </div>
         </section>
-
-        <Footer />
 
       </main>
     </>
