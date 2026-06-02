@@ -135,6 +135,29 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ---
 
+## 八、当日下午：开 HSTS（保守模式）
+
+HTTPS 跑稳后同日开 HSTS，选保守参数：
+
+```nginx
+# /etc/nginx/sites-enabled/aivestor 443 主站块
+add_header Strict-Transport-Security "max-age=31536000" always;
+```
+
+**故意不带的字段**：
+- `includeSubDomains`：将来如果起 `api.aivestor.cn` 之类子域走 HTTP，不被强制升级
+- `preload`：preload 列表是单向的、撤回需数月，不在主域跑稳前开
+
+**回滚方式**：把 `max-age` 改为 `0` 并 reload，新访问者不再被强制升级；已经访问过的用户仍记着 max-age，但因 1 年后过期、且未带 preload，最坏情况下用户清缓存就恢复。配合 V3.2 §五的 nginx + .env.local 回滚步骤构成完整回退链。
+
+验证：
+```
+$ curl -I https://aivestor.cn | grep -i strict
+strict-transport-security: max-age=31536000
+```
+
+---
+
 ## 六、配套站点底脚 + ICP
 
 V3.1.1 末（commit `7279b39`）已经做完：
@@ -152,7 +175,7 @@ V3.1.1 末（commit `7279b39`）已经做完：
 
 | 项 | 说明 | 何时做 |
 |----|------|-------|
-| HSTS | nginx 443 块加 `add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;` | HTTPS 跑稳 1~2 天后 |
+| ~~HSTS~~ | ✅ 已完成（2026-06-02 同日）：443 主站加 `add_header Strict-Transport-Security "max-age=31536000" always;`；最终选择不带 includeSubDomains/preload，理由见 §八 | — |
 | ~~OSS CORS~~ | ✅ 已完成（2026-06-02 同日）：bucket `aivestor` CORS 加 `https://aivestor.cn` 与 `https://www.aivestor.cn`，旧 `http://x.x.x.x` 暂留 1~2 周作内测期兜底 | — |
 | 证书续签 | 阿里云免费证书 1 年期，到期前 30 天换；或切 Let's Encrypt 自动续签 | 2027-06 前 |
 | Footer 扩到全站 | 登录页 / 应用内页也加 Footer，满足 ICP "每页底部"严格合规 | 视监管反馈 |
