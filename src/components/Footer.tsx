@@ -12,7 +12,7 @@ export default function Footer() {
         padding: "20px 16px",
       }}
     >
-      <div>aivestor.cn · Aivestor@qq.com · 北京链上文投有限公司</div>
+      <div>北京链上文投信息技术有限公司</div>
       <div>
         <a
           href="https://beian.miit.gov.cn"

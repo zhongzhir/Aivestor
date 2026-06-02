@@ -29,7 +29,7 @@ export default function LandingPage() {
             },
             "creator": {
               "@type": "Organization",
-              "name": "北京链上文投有限公司",
+              "name": "北京链上文投信息技术有限公司",
               "email": "Aivestor@qq.com"
             },
             "featureList": [
@@ -178,7 +178,7 @@ export default function LandingPage() {
               },
               {
                 q: "现在可以使用吗？怎么申请？",
-                a: "目前处于邀请制内测阶段。发邮件到 Aivestor@qq.com 申请，注明你的机构背景和投资阶段，内测用户享有免费使用额度和直接反馈渠道。域名 aivestor.cn 备案中，正式上线后开放注册。"
+                a: "目前处于内测阶段。个人用户可直接访问 www.aivestor.cn 注册登录使用，内测用户享有免费 AI 使用额度，欢迎反馈你的需求和问题。机构用户需求可联系 Aivestor@qq.com 提供定制化服务。"
               },
             ].map((item) => (
               <div key={item.q} style={{ border: "1px solid #E8F0FD", borderRadius: "12px", padding: "20px 24px" }}>
@@ -227,7 +227,7 @@ export default function LandingPage() {
             加入内测
           </h2>
           <p style={{ color: "#9BB8E8", marginBottom: "28px", fontSize: "16px" }}>
-            面向一级市场从业者开放，内测用户享有免费使用额度
+            面向一级市场从业者开放，平台永久免费，内测用户享有免费 AI 使用额度。
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
             <Link href="/login" style={{ background: "#1B6FE8", color: "#fff", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600" }}>
