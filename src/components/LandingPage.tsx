@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Footer from "@/components/Footer";
 
 export default function LandingPage() {
   return (
@@ -236,10 +237,9 @@ export default function LandingPage() {
               发邮件申请
             </a>
           </div>
-          <p style={{ color: "#666", fontSize: "13px", marginTop: "20px" }}>
-            aivestor.cn · Aivestor@qq.com · 北京链上文投有限公司
-          </p>
         </section>
+
+        <Footer />
 
       </main>
     </>
