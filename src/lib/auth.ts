@@ -154,22 +154,31 @@ export const authOptions: NextAuthOptions = {
       );
       return true;
     },
-    // 首次登录时把数据库用户 id 写入 JWT。
+    // 首次登录时把数据库用户 id 写入 JWT，并把 plan 同步进 token
+    // （供 middleware 在 Edge 运行时做 /admin 快路径校验；服务端最终仍以 DB 现取为准）。
     async jwt({ token, user, account }) {
       if (user) {
         if (account?.provider === "github") {
           // GitHub OAuth：user.id 是 GitHub 的 id，需按邮箱回查数据库 id
           const email = (user.email ?? token.email)?.toLowerCase().trim();
           if (email) {
-            const rows = await query<{ id: string }>(
-              "SELECT id FROM users WHERE email = $1",
+            const rows = await query<{ id: string; plan: string }>(
+              "SELECT id, plan FROM users WHERE email = $1",
               [email]
             );
-            if (rows[0]) token.uid = rows[0].id;
+            if (rows[0]) {
+              token.uid = rows[0].id;
+              token.plan = rows[0].plan;
+            }
           }
         } else {
           // credentials / phone：authorize 返回的 user.id 即数据库 id
           token.uid = user.id;
+          const rows = await query<{ plan: string }>(
+            "SELECT plan FROM users WHERE id = $1",
+            [user.id]
+          );
+          if (rows[0]) token.plan = rows[0].plan;
         }
       }
       return token;
@@ -177,6 +186,10 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user && token.uid) {
         session.user.id = token.uid as string;
+      }
+      // plan 也透出到 session，供前端做 UI 切换（如显示「进入管理后台」入口）
+      if (session.user && typeof token.plan === "string") {
+        (session.user as { plan?: string }).plan = token.plan;
       }
       return session;
     },
