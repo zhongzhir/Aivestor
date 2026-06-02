@@ -34,6 +34,9 @@ function getOSSClient() {
     accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
     accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
     bucket: process.env.OSS_BUCKET!,
+    // 强制预签名 URL 使用 https。页面已升级 HTTPS 后必须开，
+    // 否则浏览器会拦截 Mixed Content（http:// PUT 请求被阻断）。
+    secure: true,
   });
 }
 
