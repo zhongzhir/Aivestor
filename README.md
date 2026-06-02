@@ -223,12 +223,12 @@ Aivestor 的设计目标不是替代投资人的判断，而是让判断过程�
 
 ## 参与内测
 
-目前处于**邀请制内测**阶段，通过 [vestia-two.vercel.app](https://vestia-two.vercel.app) 访问。
+目前处于**邀请制内测**阶段，通过 www.aivestor.cn 访问。
 
 如果你是一级市场从业者（VC/PE/CVC），欢迎联系申请内测资格：
 
 - 📧 Email：[Aivestor@qq.com](mailto:Aivestor@qq.com)
-- 🌐 官网：[aivestor.cn](https://aivestor.cn)（备案中，即将上线）
+- 🌐 官网：[aivestor.cn](https://aivestor.cn)
 
 内测用户享有：免费使用额度（无需自备 API Key）、优先体验新功能、直接与产品团队沟通反馈渠道。
 
