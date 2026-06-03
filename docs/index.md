@@ -5,9 +5,6 @@ hero:
   name: "Aivestor"
   text: "投资人的 AI 工作台"
   tagline: 把你的判断、经验、方法论沉淀到数字世界，与 AI 一起持续进化
-  image:
-    src: /hero.png
-    alt: Aivestor
   actions:
     - theme: brand
       text: 免费开始使用
