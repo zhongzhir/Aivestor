@@ -117,7 +117,9 @@ docker compose --env-file .env.docker up -d --build
 
 > 不便用 git 时，可在 GitHub 仓库页点 `Code → Download ZIP` 下载后解压。
 
-完整步骤、故障排查、HTTPS 配置见 **[INSTALL.md](./INSTALL.md)**。
+📘 部署文档：
+- **[DEPLOY.md](./DEPLOY.md)** — 本地化部署完整指南（环境变量表 / 启动验证 / 维护命令 / FAQ）
+- **[INSTALL.md](./INSTALL.md)** — 面向首次安装用户的精简版引导
 
 ### 本地开发环境
 
