@@ -178,7 +178,7 @@ RETURNING user_id
 
 ```bash
 # 1. 拉代码
-cd /var/www/Aivestor
+cd /var/www/aivestor-app
 git pull --ff-only        # 1983fd8..9665317
 
 # 2. 跑迁移

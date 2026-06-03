@@ -4,7 +4,7 @@
 > 已上传至 ECS。本次把主生产地址从 `http://x.x.x.x` 切到
 > `https://aivestor.cn`，完成 §九"阻断性问题"中的"域名切换"项。
 
-执行机器：阿里云 ECS（x.x.x.x，Ubuntu 22.04，nginx 1.18.0）
+执行机器：阿里云 ECS（x.x.x.x，Ubuntu 22.04，nginx）
 切换时间：2026-06-02 上午
 
 ---
@@ -48,7 +48,7 @@ server {
 
 ### 服务端环境
 
-`/var/www/Aivestor/.env.local` 两行：
+`/var/www/aivestor-app/.env.local` 两行：
 ```diff
 - NEXTAUTH_URL=http://x.x.x.x
 - NEXT_PUBLIC_APP_URL=http://x.x.x.x
@@ -63,7 +63,7 @@ server {
 - **HSTS**：留到 HTTPS 跑稳 1~2 天再开 `Strict-Transport-Security`，避免证书出
   问题时无法回滚 HTTP（HSTS 一旦写入用户浏览器即生效，无法远程撤销）
 - **80 → 443 OCSP stapling**：阿里云免费证书未带 OCSP，不必配
-- **TLS 1.0/1.1 显式禁用**：已经默认禁，nginx 1.18 不再开
+- **TLS 1.0/1.1 显式禁用**：已经默认禁，当前 nginx 版本不再开
 
 ---
 
@@ -75,7 +75,7 @@ sudo nano /etc/nginx/sites-enabled/aivestor      # 覆盖
 sudo rm /etc/nginx/sites-enabled/default
 sudo nginx -t                                    # warn 但 OK
 sudo systemctl reload nginx
-cd /var/www/Aivestor && npm run build            # NEXT_PUBLIC_APP_URL 重注入
+cd /var/www/aivestor-app && npm run build            # NEXT_PUBLIC_APP_URL 重注入
 pm2 restart aivestor
 ```
 
@@ -103,7 +103,7 @@ Location: https://aivestor.cn/
 
 $ curl -I https://aivestor.cn
 HTTP/2 200
-server: nginx/1.18.0 (Ubuntu)
+server: nginx
 x-frame-options: DENY
 x-content-type-options: nosniff
 referrer-policy: strict-origin-when-cross-origin
@@ -125,9 +125,9 @@ next.config.mjs 在 V2.5 配的安全响应头都跟随到 HTTPS 主站了，含
 # 还原 nginx 配置
 sudo cp /etc/nginx/sites-enabled/aivestor.bak.20260602 /etc/nginx/sites-enabled/aivestor
 # 还原 .env.local 两行回 http://x.x.x.x
-sudo nano /var/www/Aivestor/.env.local
+sudo nano /var/www/aivestor-app/.env.local
 # 重建并重启
-cd /var/www/Aivestor && npm run build && pm2 restart aivestor
+cd /var/www/aivestor-app && npm run build && pm2 restart aivestor
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -176,6 +176,6 @@ V3.1.1 末（commit `7279b39`）已经做完：
 | 项 | 说明 | 何时做 |
 |----|------|-------|
 | ~~HSTS~~ | ✅ 已完成（2026-06-02 同日）：443 主站加 `add_header Strict-Transport-Security "max-age=31536000" always;`；最终选择不带 includeSubDomains/preload，理由见 §八 | — |
-| ~~OSS CORS~~ | ✅ 已完成（2026-06-02 同日）：bucket `aivestor` CORS 加 `https://aivestor.cn` 与 `https://www.aivestor.cn`，旧 `http://x.x.x.x` 暂留 1~2 周作内测期兜底 | — |
+| ~~OSS CORS~~ | ✅ 已完成（2026-06-02 同日）：生产 OSS bucket CORS 加 `https://aivestor.cn` 与 `https://www.aivestor.cn`，旧 `http://x.x.x.x` 暂留 1~2 周作内测期兜底 | — |
 | 证书续签 | 阿里云免费证书 1 年期，到期前 30 天换；或切 Let's Encrypt 自动续签 | 2027-06 前 |
 | Footer 扩到全站 | 登录页 / 应用内页也加 Footer，满足 ICP "每页底部"严格合规 | 视监管反馈 |
