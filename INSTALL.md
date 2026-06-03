@@ -106,7 +106,7 @@ NEXTAUTH_URL=https://aivestor.yourdomain.com
 #### DB_PASSWORD — 数据库密码
 
 ```
-DB_PASSWORD=Aivestor2026!Prod
+DB_PASSWORD=<your-strong-password-min-16-chars>
 ```
 
 建议 16 位以上，包含大小写字母、数字、特殊字符。

@@ -29,6 +29,10 @@ yarn-error.log*
 .env.docker
 !.env.docker.example
 
+# 内部上下文文档（不入库）
+AIVESTOR_CONTEXT.md
+*.context.md
+
 # typescript
 *.tsbuildinfo
 
