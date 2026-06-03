@@ -39,3 +39,8 @@ yarn-error.log*
 release/
 aivestor-*.tar.gz
 aivestor-*.zip
+
+# Docs (VitePress)
+docs/node_modules
+docs/.vitepress/cache
+docs/.vitepress/dist
