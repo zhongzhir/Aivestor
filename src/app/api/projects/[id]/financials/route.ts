@@ -30,6 +30,12 @@ const SYSTEM_PROMPT = `你是专业的财务数据提取助手，专门从投资
    - 客户数/Customers
    - ARR/MRR（SaaS指标）
    - 估值/Valuation
+
+   **现金与跑道（关键，务必提取）：**
+   - cash：现金及现金等价物 / Cash and Cash Equivalents / 货币资金，按年提取
+   - burn_rate：月均净消耗 / Monthly Burn Rate / 月均烧钱速度（负数），如只有年度数据则除以12换算
+   - runway_months：现金跑道月数 / Runway（如 BP 中明确写"预计可支撑 X 个月"则直接提取；否则用 cash / |burn_rate| 推算）
+     - runway_months 用 FinKeyMetric 格式，label="现金跑道"，value="XX个月"，year=最新年份，confidence=high（直接披露）/ low（推算值）
 5. 对每个数据点，记录：数值、年份/期间、货币单位
 6. 区分历史数据（actual）和预测数据（forecast）：
    如果表格列标注了 PF/forecast/projected/预测/E（如 2024E），type 标为 forecast；
@@ -54,6 +60,9 @@ const SYSTEM_PROMPT = `你是专业的财务数据提取助手，专门从投资
   "customers": [],
   "arr": [],
   "mrr": [],
+  "cash": [{ "year": 2024, "value": 500, "type": "actual", "confidence": "high" }],
+  "burn_rate": [{ "year": 2024, "value": -80, "type": "actual", "confidence": "high" }],
+  "runway_months": [{ "label": "现金跑道", "value": "6个月", "year": 2024, "confidence": "low", "note": "由现金/烧钱速度推算" }],
   "valuation": [],
   "key_metrics": [{ "label": "...", "value": "...", "year": 2023, "confidence": "high", "note": "" }]
 }
@@ -70,6 +79,8 @@ const POINT_KEYS = [
   "customers",
   "arr",
   "mrr",
+  "cash",
+  "burn_rate",
 ] as const;
 
 const EMPTY: FinancialData = {
@@ -87,6 +98,9 @@ const EMPTY: FinancialData = {
   customers: [],
   arr: [],
   mrr: [],
+  cash: [],
+  burn_rate: [],
+  runway_months: [],
   valuation: [],
   key_metrics: [],
 };
@@ -140,6 +154,7 @@ function extractJson(text: string): FinancialData {
       typeof parsed.extraction_note === "string" ? parsed.extraction_note : "",
     valuation: Array.isArray(parsed.valuation) ? parsed.valuation : [],
     key_metrics: coerceMetrics(parsed.key_metrics),
+    runway_months: coerceMetrics(parsed.runway_months),
   };
   for (const key of POINT_KEYS) {
     result[key] = coercePoints(parsed[key]);
@@ -175,7 +190,9 @@ export async function POST(
 
   const docs = await query<{ extracted_text: string | null }>(
     `SELECT extracted_text FROM documents
-      WHERE project_id = $1 AND extracted_text IS NOT NULL
+      WHERE project_id = $1
+        AND extracted_text IS NOT NULL
+        AND doc_kind IN ('bp', 'research', 'financial_model', 'other')
       ORDER BY created_at ASC`,
     [params.id]
   );

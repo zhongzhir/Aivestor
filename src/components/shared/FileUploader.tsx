@@ -114,6 +114,13 @@ export function FileUploader({
     // 3. 通知服务器解析
     let res: Response;
     if (target === "project") {
+      // xlsx/xls 自动归类为财务模型（用户未手动改过才自动切换）
+      const lowerName = file.name.toLowerCase();
+      const effectiveDocKind =
+        docKind === "bp" &&
+        (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls"))
+          ? "financial_model"
+          : docKind;
       res = await fetch(`/api/projects/${projectId}/documents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -121,7 +128,7 @@ export function FileUploader({
           blobUrl: fileUrl,
           filename: file.name,
           fileType: clientFileType(file.name),
-          doc_kind: docKind,
+          doc_kind: effectiveDocKind,
         }),
       });
     } else {

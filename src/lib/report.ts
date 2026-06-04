@@ -94,6 +94,8 @@ const FIN_SERIES: { key: keyof FinancialData; label: string }[] = [
   { key: "customers", label: "客户数" },
   { key: "arr", label: "ARR" },
   { key: "mrr", label: "MRR" },
+  { key: "cash", label: "现金储备" },
+  { key: "burn_rate", label: "月均消耗" },
 ];
 
 // 判断 financial_data 是否含有效数据点。
@@ -128,6 +130,16 @@ function formatFinancialContext(fd: FinancialData): string {
   for (const s of FIN_SERIES) {
     const points = (fd[s.key] as FinPoint[]) ?? [];
     if (points.length > 0) lines.push(`${s.label}：${formatPoints(points)}`);
+  }
+
+  // 现金跑道单独凸显（不在 FIN_SERIES 里，因为它是 FinKeyMetric 而非 FinPoint）
+  const runway = fd.runway_months ?? [];
+  if (runway.length > 0) {
+    const r = runway[0];
+    const src = r.confidence === "high" ? "直接来源" : "推算值";
+    lines.push(
+      `现金跑道：${r.value}（${src}${r.note ? "，" + r.note : ""}）`
+    );
   }
 
   const km = fd.key_metrics ?? [];

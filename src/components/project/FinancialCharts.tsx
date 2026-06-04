@@ -34,7 +34,9 @@ type SeriesKey =
   | "headcount"
   | "customers"
   | "arr"
-  | "mrr";
+  | "mrr"
+  | "cash"
+  | "burn_rate";
 
 const SERIES: {
   key: SeriesKey;
@@ -52,6 +54,8 @@ const SERIES: {
   { key: "customers", title: "客户数", kind: "area", color: BLUE },
   { key: "arr", title: "ARR", kind: "area", color: BLUE },
   { key: "mrr", title: "MRR", kind: "area", color: ORANGE },
+  { key: "cash", title: "现金储备", kind: "area", color: "#10b981" },
+  { key: "burn_rate", title: "月均消耗", kind: "bar", color: "#ef4444" },
 ];
 
 function ChartCard({
@@ -189,7 +193,9 @@ export function FinancialCharts({ data }: { data: FinancialData }) {
 
   const visible = SERIES.filter((s) => (data[s.key] ?? []).length > 0);
   const metrics = data.key_metrics ?? [];
-  const hasAny = visible.length > 0 || metrics.length > 0;
+  const runway = data.runway_months ?? [];
+  const hasAny =
+    visible.length > 0 || metrics.length > 0 || runway.length > 0;
 
   if (!hasAny) {
     return (
@@ -218,6 +224,26 @@ export function FinancialCharts({ data }: { data: FinancialData }) {
         <p className="mb-4 text-xs leading-5 text-ink-faint">
           {data.extraction_note}
         </p>
+      )}
+
+      {/* #24 现金跑道高亮卡片 */}
+      {data.runway_months && data.runway_months.length > 0 && (
+        <div className="mb-3 flex items-center gap-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <div className="text-3xl">⏳</div>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-amber-700">现金跑道</div>
+            <div className="text-2xl font-bold text-amber-900">
+              {data.runway_months[0].value}
+            </div>
+            <div className="mt-0.5 text-xs text-amber-600">
+              {data.runway_months[0].confidence === "high"
+                ? "来源：BP 直接披露"
+                : "来源：现金 / 烧钱速度推算"}
+              {data.runway_months[0].note &&
+                ` · ${data.runway_months[0].note}`}
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">

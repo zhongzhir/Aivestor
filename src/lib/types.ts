@@ -118,6 +118,10 @@ export interface FinancialData {
   customers: FinPoint[];
   arr: FinPoint[];
   mrr: FinPoint[];
+  // #24 新增：现金流与跑道
+  cash: FinPoint[];                    // 现金及现金等价物
+  burn_rate: FinPoint[];               // 月均净消耗（负数表示烧钱）
+  runway_months: FinKeyMetric[];       // 现金跑道（月数），用 FinKeyMetric 承载非标数值
   valuation: FinValuation[];
   key_metrics: FinKeyMetric[];
 }

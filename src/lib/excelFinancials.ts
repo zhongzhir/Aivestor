@@ -18,6 +18,9 @@ const METRIC_KEYWORDS: { field: keyof FinancialData; pattern: RegExp }[] = [
   { field: "customers", pattern: /客户数量?|customers/i },
   { field: "arr", pattern: /\barr\b/i },
   { field: "mrr", pattern: /\bmrr\b/i },
+  // #24 新增：现金 / 烧钱速度
+  { field: "cash", pattern: /现金及现金等价物|货币资金|现金储备|cash\s*and\s*cash\s*equivalents|\bcash\b/i },
+  { field: "burn_rate", pattern: /月均消耗|月均烧钱|净消耗|burn\s*rate|monthly\s*burn|\bburn\b/i },
 ];
 
 const POINT_FIELDS = new Set<keyof FinancialData>(
@@ -134,6 +137,9 @@ function emptyData(): FinancialData {
     customers: [],
     arr: [],
     mrr: [],
+    cash: [],
+    burn_rate: [],
+    runway_months: [],
     valuation: [],
     key_metrics: [],
   };
