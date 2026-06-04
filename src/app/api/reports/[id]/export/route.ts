@@ -73,14 +73,35 @@ export async function GET(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const rows = await query<{ title: string; content: string }>(
-    "SELECT title, content FROM reports WHERE id = $1 AND user_id = $2",
+  const rows = await query<{
+    title: string;
+    content: string;
+    kind: string | null;
+    project_name: string | null;
+  }>(
+    `SELECT r.title, r.content, r.kind, p.name AS project_name
+       FROM reports r
+       LEFT JOIN projects p ON p.id = r.project_id
+      WHERE r.id = $1 AND r.user_id = $2`,
     [params.id, session.user.id]
   );
   if (rows.length === 0) {
     return NextResponse.json({ error: "报告不存在" }, { status: 404 });
   }
   const report = rows[0];
+
+  // 文件名前缀按 kind 区分，兜底用 title
+  const kindPrefixMap: Record<string, string> = {
+    term_sheet: "TermSheet",
+    brief: "简要分析",
+    analysis: "项目分析报告",
+  };
+  const prefix =
+    (report.kind && kindPrefixMap[report.kind]) || "项目分析报告";
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const docName = report.project_name
+    ? `${prefix}_${report.project_name}_${dateStr}`
+    : report.title;
 
   const doc = new Document({
     sections: [
@@ -99,7 +120,7 @@ export async function GET(
   });
 
   const buffer = await Packer.toBuffer(doc);
-  const filename = encodeURIComponent(`${report.title}.docx`);
+  const filename = encodeURIComponent(`${docName}.docx`);
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {

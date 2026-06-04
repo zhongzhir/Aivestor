@@ -331,6 +331,13 @@ export function ProjectDetail({
             >
               简要分析
             </Link>
+            <Link
+              href={`/projects/${projectId}/term-sheet`}
+              title="基于项目信息生成投资条款清单初稿"
+              className="rounded-md border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
+            >
+              📋 Term Sheet 初稿
+            </Link>
             <button
               onClick={() => setShowSkillModal(true)}
               disabled={!hasParsedDoc}
