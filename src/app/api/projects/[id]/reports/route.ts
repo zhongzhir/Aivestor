@@ -72,7 +72,9 @@ export async function POST(
   // 拼接该项目下所有 BP 文档文本
   const docs = await query<{ extracted_text: string | null }>(
     `SELECT extracted_text FROM documents
-      WHERE project_id = $1 AND extracted_text IS NOT NULL
+      WHERE project_id = $1
+        AND extracted_text IS NOT NULL
+        AND doc_kind IN ('bp', 'research', 'other')
       ORDER BY created_at ASC`,
     [params.id]
   );

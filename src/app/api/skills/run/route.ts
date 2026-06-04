@@ -62,10 +62,12 @@ async function buildProjectVars(
   ].join("\n");
 
   // 取该项目下所有解析成功的文档（按上传时间正序），用户归属校验
+  // BP 上下文仅包含商业/研究/其他类文档，把 contract / financial_model / news 排除
   const docs = await query<{ filename: string; extracted_text: string | null }>(
     `SELECT filename, extracted_text FROM documents
       WHERE project_id = $1 AND user_id = $2
         AND parse_status = 'done' AND extracted_text IS NOT NULL
+        AND doc_kind IN ('bp', 'research', 'other')
       ORDER BY created_at ASC`,
     [projectId, userId]
   );
@@ -74,6 +76,28 @@ async function buildProjectVars(
   );
   const hasDocs = docParts.length > 0;
   const bpContent = hasDocs ? docParts.join("\n\n") : "（未上传文档）";
+
+  // 合同/法律文档单独取，作为 {contract_content} 占位符注入
+  const contractDocs = await query<{
+    filename: string;
+    extracted_text: string | null;
+  }>(
+    `SELECT filename, extracted_text FROM documents
+      WHERE project_id = $1 AND user_id = $2
+        AND parse_status = 'done' AND extracted_text IS NOT NULL
+        AND doc_kind = 'contract'
+      ORDER BY created_at ASC`,
+    [projectId, userId]
+  );
+  const contractContent =
+    contractDocs.length > 0
+      ? contractDocs
+          .map(
+            (d) =>
+              `【${d.filename}】\n${(d.extracted_text || "").slice(0, DOC_CHAR_LIMIT)}`
+          )
+          .join("\n\n---\n\n")
+      : "（本项目暂未上传合同/法律文件）";
 
   const financialData = p.financial_data
     ? JSON.stringify(p.financial_data)
@@ -111,6 +135,7 @@ async function buildProjectVars(
     bp_content: bpContent,
     financial_data: financialData,
     judgments,
+    contract_content: contractContent,
   };
 
   // 前置注入块：模板未引用占位符时，把真实材料拼到 prompt 前面
@@ -187,6 +212,7 @@ export async function POST(req: Request) {
     bp_content: EMPTY,
     financial_data: EMPTY,
     judgments: EMPTY,
+    contract_content: EMPTY,
   };
   let prependContext = "";
   if (project_id) {

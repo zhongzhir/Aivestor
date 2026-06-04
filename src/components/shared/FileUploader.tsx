@@ -32,6 +32,16 @@ const MAX_SIZE = 25 * 1024 * 1024;
 const ACCEPT = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx";
 const EXT_RE = /\.(pdf|docx?|pptx?|xlsx?)$/i;
 
+// 项目文档分类（与 documents.doc_kind 枚举对齐）
+const DOC_KIND_OPTIONS = [
+  { value: "bp", label: "商业计划书（BP）" },
+  { value: "contract", label: "合同文件（NDA/SPA/SHA）" },
+  { value: "research", label: "研究报告" },
+  { value: "financial_model", label: "财务模型" },
+  { value: "other", label: "其他文件" },
+] as const;
+type DocKindValue = (typeof DOC_KIND_OPTIONS)[number]["value"];
+
 // 由文件名后缀推断统一文件类型（客户端用，与 lib/fileParser 保持一致）
 function clientFileType(fileName: string): string {
   const ext = fileName.split(".").pop()?.toLowerCase();
@@ -57,6 +67,7 @@ export function FileUploader({
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState("");
+  const [docKind, setDocKind] = useState<DocKindValue>("bp");
   const inputRef = useRef<HTMLInputElement>(null);
 
   function setItem(index: number, patch: Partial<QueueItem>) {
@@ -110,6 +121,7 @@ export function FileUploader({
           blobUrl: fileUrl,
           filename: file.name,
           fileType: clientFileType(file.name),
+          doc_kind: docKind,
         }),
       });
     } else {
@@ -202,6 +214,30 @@ export function FileUploader({
 
   return (
     <div>
+      {/* 项目模式：文档分类选择 */}
+      {target === "project" && (
+        <div className="mb-3 flex items-center gap-2 text-xs">
+          <span className="text-ink-faint">文档类型：</span>
+          <select
+            value={docKind}
+            onChange={(e) => setDocKind(e.target.value as DocKindValue)}
+            disabled={busy}
+            className="rounded border border-line bg-white px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none disabled:opacity-60"
+          >
+            {DOC_KIND_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          {docKind === "contract" && (
+            <span className="text-ink-faint">
+              合同类文档将独立于 BP 上下文，仅供法律 SKILL 使用
+            </span>
+          )}
+        </div>
+      )}
+
       {/* 拖拽区 */}
       <div
         onClick={() => !busy && inputRef.current?.click()}

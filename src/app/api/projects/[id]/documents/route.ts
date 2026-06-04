@@ -7,6 +7,15 @@ import { extractExcelFinancials } from "@/lib/excelFinancials";
 import { readFileBuffer } from "@/lib/fileStorage";
 
 const SUPPORTED_TYPES = ["pdf", "docx", "pptx", "xlsx", "xls"];
+const ALLOWED_DOC_KINDS = [
+  "bp",
+  "research",
+  "contract",
+  "financial_model",
+  "news",
+  "other",
+] as const;
+type DocKind = (typeof ALLOWED_DOC_KINDS)[number];
 
 export const maxDuration = 120;
 
@@ -56,7 +65,12 @@ export async function POST(
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
   }
 
-  let body: { blobUrl?: string; filename?: string; fileType?: string };
+  let body: {
+    blobUrl?: string;
+    filename?: string;
+    fileType?: string;
+    doc_kind?: string;
+  };
   try {
     body = await req.json();
   } catch {
@@ -67,6 +81,12 @@ export async function POST(
   if (!blobUrl || !filename) {
     return NextResponse.json({ error: "缺少文件信息" }, { status: 400 });
   }
+  // 校验 doc_kind 入参，非法值兜底为 'bp'
+  const docKind: DocKind =
+    typeof body.doc_kind === "string" &&
+    (ALLOWED_DOC_KINDS as readonly string[]).includes(body.doc_kind)
+      ? (body.doc_kind as DocKind)
+      : "bp";
 
   const fileType = fileTypeRaw ?? "";
   if (!SUPPORTED_TYPES.includes(fileType)) {
@@ -112,7 +132,7 @@ export async function POST(
     `INSERT INTO documents
        (user_id, project_id, filename, file_type, file_url, file_size,
         doc_kind, extracted_text, parse_status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'bp', $7, 'done')
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'done')
      RETURNING id`,
     [
       session.user.id,
@@ -121,6 +141,7 @@ export async function POST(
       fileType,
       fileUrl,
       buffer.length,
+      docKind,
       parsed.text,
     ]
   );
