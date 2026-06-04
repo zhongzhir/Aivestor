@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
-import type { UserProfile, InvestmentStyle } from "@/lib/user-profile";
+import type {
+  UserProfile,
+  InvestmentStyle,
+  ScreeningCriteria,
+} from "@/lib/user-profile";
 import { getUserProfile } from "@/lib/user-profile";
 
 const VALID_STYLES: InvestmentStyle[] = [
@@ -18,6 +22,29 @@ function sanitizeStringArray(v: unknown): string[] {
     .map((s) => s.trim())
     .filter(Boolean)
     .slice(0, 32);
+}
+
+function sanitizeScreeningCriteria(v: unknown): ScreeningCriteria {
+  const empty: ScreeningCriteria = {
+    hard_pass: [],
+    preferred_stages: [],
+    preferred_sectors: [],
+  };
+  if (!v || typeof v !== "object") return empty;
+  const o = v as Record<string, unknown>;
+  const arr = (val: unknown, maxLen: number, perItem: number): string[] =>
+    Array.isArray(val)
+      ? val
+          .filter((x): x is string => typeof x === "string")
+          .map((s) => s.trim().slice(0, perItem))
+          .filter(Boolean)
+          .slice(0, maxLen)
+      : [];
+  return {
+    hard_pass: arr(o.hard_pass, 20, 200),
+    preferred_stages: arr(o.preferred_stages, 16, 50),
+    preferred_sectors: arr(o.preferred_sectors, 16, 50),
+  };
 }
 
 function sanitizeText(v: unknown, max = 2000): string | null {
@@ -69,14 +96,16 @@ export async function PUT(req: Request) {
     sanitizeText(body.avoid_patterns),
     sanitizeText(body.output_preference),
     sanitizeText(body.extra_context),
+    JSON.stringify(sanitizeScreeningCriteria(body.screening_criteria)),
   ];
 
   await query(
     `INSERT INTO user_profiles (
         user_id, focus_stages, focus_sectors, investment_style,
         check_size, typical_hold_period, self_intro, decision_criteria,
-        avoid_patterns, output_preference, extra_context
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        avoid_patterns, output_preference, extra_context,
+        screening_criteria
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)
      ON CONFLICT (user_id) DO UPDATE SET
         focus_stages = EXCLUDED.focus_stages,
         focus_sectors = EXCLUDED.focus_sectors,
@@ -88,6 +117,7 @@ export async function PUT(req: Request) {
         avoid_patterns = EXCLUDED.avoid_patterns,
         output_preference = EXCLUDED.output_preference,
         extra_context = EXCLUDED.extra_context,
+        screening_criteria = EXCLUDED.screening_criteria,
         updated_at = NOW()`,
     params
   );

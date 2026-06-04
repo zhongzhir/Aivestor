@@ -34,6 +34,11 @@ const EMPTY: FormState = {
   avoid_patterns: null,
   output_preference: null,
   extra_context: null,
+  screening_criteria: {
+    hard_pass: [],
+    preferred_stages: [],
+    preferred_sectors: [],
+  },
 };
 
 type TemplateKey = "early" | "growth" | "angel";
@@ -74,6 +79,7 @@ const TEMPLATES: Record<TemplateKey, Partial<FormState>> = {
 export function ProfileForm() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [sectorInput, setSectorInput] = useState("");
+  const [hardPassInput, setHardPassInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -97,6 +103,11 @@ export function ProfileForm() {
               avoid_patterns: data.profile.avoid_patterns ?? null,
               output_preference: data.profile.output_preference ?? null,
               extra_context: data.profile.extra_context ?? null,
+              screening_criteria: data.profile.screening_criteria ?? {
+                hard_pass: [],
+                preferred_stages: [],
+                preferred_sectors: [],
+              },
             });
             setEmpty(false);
           }
@@ -138,6 +149,41 @@ export function ProfileForm() {
     if (e.key === "Enter") {
       e.preventDefault();
       addSector(sectorInput);
+    }
+  }
+
+  function addHardPass(value: string) {
+    const v = value.trim();
+    if (!v) return;
+    setForm((f) => {
+      const sc = f.screening_criteria ?? {
+        hard_pass: [],
+        preferred_stages: [],
+        preferred_sectors: [],
+      };
+      if (sc.hard_pass.includes(v)) return f;
+      return {
+        ...f,
+        screening_criteria: { ...sc, hard_pass: [...sc.hard_pass, v] },
+      };
+    });
+    setHardPassInput("");
+  }
+
+  function removeHardPass(index: number) {
+    setForm((f) => {
+      const sc = f.screening_criteria;
+      if (!sc) return f;
+      const next = [...sc.hard_pass];
+      next.splice(index, 1);
+      return { ...f, screening_criteria: { ...sc, hard_pass: next } };
+    });
+  }
+
+  function onHardPassKey(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addHardPass(hardPassInput);
     }
   }
 
@@ -343,6 +389,42 @@ export function ProfileForm() {
             }
             placeholder="例如：纯To G依赖政府补贴的项目、没有壁垒的信息撮合模式、创始团队股权过于分散…"
             className="mt-1 w-full rounded border border-line bg-white px-3 py-2 text-sm focus:border-ink focus:outline-none"
+          />
+        </div>
+
+        {/* 结构化硬性否决项：命中任一直接 PASS */}
+        <div>
+          <label className="block text-xs text-ink-faint">
+            硬性否决项（结构化）
+          </label>
+          <p className="mt-0.5 text-[11px] text-ink-faint">
+            符合以下任一条件的项目，简要分析时会被直接标记 PASS。建议 3–5 条，过多会影响分析质量。
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(form.screening_criteria?.hard_pass ?? []).map((item, idx) => (
+              <span
+                key={`${idx}-${item}`}
+                className="inline-flex items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-700"
+              >
+                {item}
+                <button
+                  type="button"
+                  onClick={() => removeHardPass(idx)}
+                  className="text-red-400 hover:text-red-600"
+                  aria-label={`移除 ${item}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <input
+            type="text"
+            value={hardPassInput}
+            onChange={(e) => setHardPassInput(e.target.value)}
+            onKeyDown={onHardPassKey}
+            placeholder="例如：纯国内市场、天使轮前、无技术壁垒…（输入后按 Enter）"
+            className="mt-2 w-full rounded border border-line bg-white px-3 py-1.5 text-sm focus:border-ink focus:outline-none"
           />
         </div>
       </section>

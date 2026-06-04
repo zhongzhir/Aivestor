@@ -7,7 +7,7 @@ import {
   streamTextResponse,
   freeQuotaMetaFor,
 } from "@/lib/report";
-import { injectProfile } from "@/lib/user-profile";
+import { getUserProfile, injectProfile } from "@/lib/user-profile";
 
 export const maxDuration = 90;
 
@@ -139,8 +139,36 @@ ${
 
   const systemPrompt = await injectProfile(userId, baseSystem);
 
+  // 加载画像，构造硬性否决项核查区块
+  const profile = await getUserProfile(userId).catch(() => null);
+  const hardPass = profile?.screening_criteria?.hard_pass ?? [];
+  const hardPassBlock =
+    hardPass.length > 0
+      ? `## ⚠️ 第零步：硬性否决项核查（必须最先执行）
+
+请逐条核对以下否决条件，如命中任意一条，请直接将下方初判结论标记为 **PASS** 并简要说明命中哪一条，后续章节可大幅简化。
+
+${hardPass.map((item) => `- [ ] ${item}`).join("\n")}
+
+---
+
+`
+      : "";
+
   const userContent = `请对以下项目进行简要分析（约 500-800 字），这是一次快速入库评估，\
 不需要进入深度尽调。
+
+${hardPassBlock}## 初判结论（请放在最前）
+
+在开始正文前，先给出一个明确的初判，使用以下三个标签之一：
+
+- **【CONTINUE — 建议深入跟进】**
+- **【FLAG — 有条件跟进，需先确认以下问题】**
+- **【PASS — 暂不符合当前筛选标准】**
+
+核心理由（2-3 条），并在 FLAG 情况下列出需要优先确认的问题。
+
+---
 
 ## 项目基本信息
 - 名称：${project.name}

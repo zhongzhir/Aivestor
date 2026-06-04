@@ -10,6 +10,12 @@ export type InvestmentStyle =
   | "founder_first"
   | "thesis_driven";
 
+export interface ScreeningCriteria {
+  hard_pass: string[];
+  preferred_stages?: string[];
+  preferred_sectors?: string[];
+}
+
 export interface UserProfile {
   user_id: string;
   focus_stages: string[];
@@ -22,6 +28,31 @@ export interface UserProfile {
   avoid_patterns: string | null;
   output_preference: string | null;
   extra_context: string | null;
+  screening_criteria: ScreeningCriteria | null;
+}
+
+// pg 在某些情况下会把 JSONB 列直接以字符串返回，统一解析为对象
+function parseScreeningCriteria(
+  raw: unknown
+): ScreeningCriteria | null {
+  if (raw == null) return null;
+  let obj: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (typeof obj !== "object" || obj === null) return null;
+  const o = obj as Record<string, unknown>;
+  const toStrArr = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  return {
+    hard_pass: toStrArr(o.hard_pass),
+    preferred_stages: toStrArr(o.preferred_stages),
+    preferred_sectors: toStrArr(o.preferred_sectors),
+  };
 }
 
 const STYLE_LABEL: Record<InvestmentStyle, string> = {
@@ -37,11 +68,17 @@ export async function getUserProfile(
   const rows = await query<UserProfile>(
     `SELECT user_id, focus_stages, focus_sectors, investment_style,
             check_size, typical_hold_period, self_intro, decision_criteria,
-            avoid_patterns, output_preference, extra_context
+            avoid_patterns, output_preference, extra_context,
+            screening_criteria
        FROM user_profiles WHERE user_id = $1`,
     [userId]
   );
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...row,
+    screening_criteria: parseScreeningCriteria(row.screening_criteria),
+  };
 }
 
 // 将画像格式化为自然语言段落，注入到 system prompt 最前面。
@@ -78,6 +115,16 @@ export function formatProfileForPrompt(profile: UserProfile): string {
   }
   if (profile.extra_context) {
     lines.push(`其他补充：${profile.extra_context}`);
+  }
+
+  // 结构化硬性否决项 — 让模型在简要分析时优先核查
+  const sc = profile.screening_criteria;
+  if (sc && sc.hard_pass && sc.hard_pass.length > 0) {
+    lines.push("");
+    lines.push("## 硬性否决项（命中任一直接 PASS，无需深入分析）");
+    for (const item of sc.hard_pass) {
+      lines.push(`- ${item}`);
+    }
   }
 
   // 只有标题行说明没有任何字段填写
