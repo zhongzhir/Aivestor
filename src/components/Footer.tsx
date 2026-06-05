@@ -50,6 +50,9 @@ export default function Footer() {
           京公网安备11010802048729号
         </a>
       </div>
+      <div className="text-xs text-gray-400 mt-1">
+        AI 辅助生成内容可能存在误差，重要投资决策请以原始文件及专业判断为准
+      </div>
     </footer>
   );
 }

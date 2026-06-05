@@ -125,6 +125,17 @@ export default function HelpPage() {
           你的每一条反馈都会被认真阅读。
         </p>
       </div>
+
+      {/* 免责声明 */}
+      <section className="prose text-sm text-gray-500 mt-8">
+        <h2 className="text-base font-semibold text-slate-700">免责声明</h2>
+        <p>
+          Aivestor 生成的分析报告、数据提取结果及 Term Sheet 草稿均由 AI 辅助生成，
+          仅供参考，不构成投资建议或法律意见。AI 输出存在误判和遗漏风险，
+          报告中标注 [src:ai] 的内容尤其需要人工核实。
+          用户应对最终投资决策承担完全责任。
+        </p>
+      </section>
     </div>
   );
 }
