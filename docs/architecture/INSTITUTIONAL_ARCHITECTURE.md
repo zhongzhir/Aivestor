@@ -1,8 +1,15 @@
 # Aivestor 机构版架构设计文档
 
-> 版本：v1（2026-06-11）
-> 状态：设计定稿，待按路线图分批实施
+> 版本：v1.1（2026-06-11）
+> 状态：设计定稿（已完成 v1 评审修订），待按路线图分批实施
 > 范围：本文档是机构版全部功能的总蓝图。所有实施任务以本文档为准拆分。
+
+## 修订记录
+
+| 版本 | 日期 | 变更摘要 |
+|---|---|---|
+| v1.1 | 2026-06-11 | ① 堵住权限矩阵漏洞：投委会总报告查看权限提升为 partner+，引入 `reports.kind='committee'` 结构化标识（1.2 / 2.3 / 4.3 / 迁移 023）；② `org_invitations` 三列 UNIQUE 改为 pending 部分唯一索引（迁移 020）；③ 修正 7.3 LP 报告 project_id 约束的自相矛盾表述，明确放宽 NOT NULL + 应用层不变量（迁移 026）；④ 新增 1.5「成员移出与资产交接」（owner 转移、共享清理、409 引导）；⑤ 1.4 增加 jwt callback 重复查询的性能标记（不改设计）；⑥ `zjjr_features` ivfflat 索引改为首次全量导入后由同步服务创建（迁移 024 / 5.2 / P5 验收） |
+| v1 | 2026-06-11 | 初版（commit `f3fdfc2`） |
 
 ---
 
@@ -96,9 +103,15 @@ CREATE TABLE IF NOT EXISTS org_invitations (
   status        TEXT NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
   expires_at    TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '7 days',
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (org_id, identifier, status)
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 同一组织对同一身份同时只能有一条待处理邀请；
+-- 历史状态行（revoked / expired / accepted）不限量。
+-- 注意不能用 UNIQUE (org_id, identifier, status)：同一身份第二次被撤销/
+-- 过期时会与既有 revoked / expired 行冲突。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_org_invitations_pending
+  ON org_invitations(org_id, identifier) WHERE status = 'pending';
 
 CREATE INDEX IF NOT EXISTS idx_org_invitations_identifier
   ON org_invitations(identifier, status);
@@ -129,8 +142,9 @@ CREATE INDEX IF NOT EXISTS idx_org_invitations_identifier
 | 项目 | 删除 | ✅ | 🔶 仅自己 owner 的 | 🔶 仅自己 owner 的 | |
 | 项目 | 转移 owner | ✅ | 🔶 仅自己 owner 的 | ❌ | |
 | 报告 | 生成/修改 | ✅ | ✅ | 🔶 | 范围跟随项目可见性 |
-| 报告 | 查看/导出 | ✅ | ✅ | 🔶 | 同上 |
-| 报告 | 投委会总报告（多人判断聚合） | ✅ | ✅ | ❌ | 投委会是 partner 以上职能 |
+| 报告 | 普通报告查看/导出（analysis / brief / term_sheet / SKILL 分析） | ✅ | ✅ | 🔶 | 跟随项目可见性 |
+| 报告 | 投委会总报告查看/导出（merge 产物，`kind='committee'`） | ✅ | ✅ | ❌ | 含他人判断内容（合伙人观点对比），查看权限提升为 partner+，与生成权限对齐——否则 analyst 经自己 owner/被共享项目的总报告可绕穿「看他人判断 ❌」 |
+| 报告 | 投委会总报告生成（多人判断聚合） | ✅ | ✅ | ❌ | 投委会是 partner 以上职能 |
 | 判断 | 写自己的判断 | ✅ | ✅ | ✅ | judgments 永远 user_id 归属，他人不可改 |
 | 判断 | 看他人判断 | ✅ | ✅ | ❌ | 仅在投委会聚合视图（4.3）内可见 |
 | 知识库 | 个人层读写 | ✅ | ✅ | ✅ | org 内默认私有（第三部分） |
@@ -328,6 +342,10 @@ if (token.uid) {
 
 这同时顺带修复了 admin 模式的同类问题模板：**token 仅作快路径与 UI 提示，授权永远 DB 现取**——和 adminAuth 现行注释声明的原则完全一致，机构版只是把这个原则执行得更彻底。
 
+成员被移出时其名下组织资产（owner 项目、共享关系）的交接流程见 1.5。
+
+> **性能标记（不改设计）**：jwt callback 与 `getOrgContext` 在同一请求路径上会各查一次 org_members（且前端 `useSession` 轮询也会触发 jwt callback）。安全以 Node 层 `getOrgContext` 为准，当前单 ECS 低并发规模下重复查询无感，接受现状。若将来成为热点，优化方向是 token 内记 `orgCheckedAt` 时间戳、距上次检查超过 60s 才重读 org_members。**实施 P1 时在 `src/lib/auth.ts` 对应位置留 TODO 注释。**
+
 #### 第一部分新增 API 路由清单
 
 | 方法 | 路径 | 用途 | 权限 |
@@ -336,7 +354,7 @@ if (token.uid) {
 | PATCH | `/api/org` | 改组织名/简介/logo | org admin |
 | GET | `/api/org/members` | 成员列表 | 任意成员 |
 | PATCH | `/api/org/members/[userId]` | 改角色 | org admin |
-| DELETE | `/api/org/members/[userId]` | 移除成员 | org admin |
+| DELETE | `/api/org/members/[userId]` | 移除成员（含资产交接，见 1.5） | org admin |
 | POST | `/api/org/invitations` | 发出邀请（校验 max_members） | org admin |
 | GET | `/api/org/invitations` | 邀请列表 | org admin |
 | DELETE | `/api/org/invitations/[id]` | 撤销邀请 | org admin |
@@ -348,9 +366,27 @@ if (token.uid) {
 
 页面：`src/app/(app)/org/settings/page.tsx`（组织设置，admin 可见成员管理 tab）、`src/app/admin/orgs/page.tsx`（平台 org 管理，复用现有 admin 布局）。
 
----
+### 1.5 成员移出与资产交接
 
-## 第二部分：资源归属改造（存量表 org 化）
+`DELETE /api/org/members/[userId]` 不允许产生"幽灵 owner"（owner_id 指向已不在组织内的用户，会污染 analyst 可见性判定、Dashboard 成员活跃度统计与 owner 筛选下拉）。流程：
+
+1. **前置校验**：查 `SELECT id, name FROM projects WHERE org_id = $org AND owner_id = $leaving`。存在待交接项目时：
+   - 请求体携带 `transferOwnerTo`（必须校验为组织内其他成员）→ 事务内执行：
+
+```sql
+BEGIN;
+UPDATE projects SET owner_id = $transferOwnerTo
+ WHERE org_id = $org AND owner_id = $leaving;
+DELETE FROM project_shares
+ WHERE org_id = $org AND shared_with = $leaving;
+DELETE FROM org_members
+ WHERE org_id = $org AND user_id = $leaving;
+COMMIT;
+```
+
+   - 未携带 `transferOwnerTo` → 返回 **409**，响应体含待交接项目清单（`{ projects: [{ id, name }] }`），前端弹窗引导 org admin 选择接收人后重试。
+2. **历史痕迹保留不动**：被移出成员的 judgments / project_comments / reports 的 `user_id` 不变——这是作者史实，不是职责归属；仅 owner 职责转移。
+3. **共享关系清理**：`project_shares` 中 `shared_with = 该成员` 的行随同一事务删除（人已不在组织，共享关系无意义）；该成员名下无 owner 项目时，事务退化为"删共享 + 删成员"两条语句。
 
 ### 2.1 逐表确认
 
@@ -475,7 +511,15 @@ export function scopedProjectWhere(
 export function scopedProjectChildWhere(
   scope: AccessScope,
   startIndex: number,
-  opts?: { projectIdColumn?: string }
+  opts?: {
+    projectIdColumn?: string;
+    // reports 表专用：scope 角色为 analyst 时追加 AND kind <> 'committee'，
+    // 排除投委会总报告行（含他人判断内容，查看权限 partner+，见 1.2 矩阵）。
+    // 识别字段为 reports.kind='committee'（结构化标识，迁移 023 引入，见 4.3——
+    // 已查证现状 merge 产物仅有【总报告】标题前缀，kind 走默认 'analysis'，
+    // 标题前缀不可作为权限过滤依据，故引入结构化 kind 值）。
+    excludeMergedForAnalyst?: boolean;
+  }
 ): { sql: string; params: unknown[] };
 
 // 单资源归属断言（写操作前调用）：不可见/不可写时抛 ResourceForbiddenError
@@ -500,8 +544,8 @@ export async function assertProjectAccess(
 |---|---|
 | `src/app/api/projects/route.ts` | 列表用 `scopedProjectWhere`；创建时若有 org 且 capability `collaboration`，写入 org_id + owner_id |
 | `src/app/api/projects/[id]/documents/route.ts` | `assertProjectAccess` + 子表写入带 org_id |
-| `src/app/api/projects/[id]/reports/route.ts` | 同上 |
-| `src/app/api/projects/[id]/reports/merge/route.ts` | 同上；并按 4.3 扩展多人判断聚合 |
+| `src/app/api/projects/[id]/reports/route.ts` | 同上；列表查询带 `excludeMergedForAnalyst: true`（analyst 不见 `kind='committee'` 行） |
+| `src/app/api/projects/[id]/reports/merge/route.ts` | 同上；按 4.3 扩展多人判断聚合，组织项目下 partner+ 才可调用；产物写 `kind='committee'` |
 | `src/app/api/projects/[id]/judgments/route.ts` | 读：自己写的（org 项目下他人判断仅经 4.3 聚合接口出）；写：带 org_id |
 | `src/app/api/projects/[id]/meetings/route.ts` | `assertProjectAccess` |
 | `src/app/api/projects/[id]/meetings/[meetingId]/summarize/route.ts` | 同上 |
@@ -515,9 +559,9 @@ export async function assertProjectAccess(
 | `src/app/api/projects/[id]/pending-questions/route.ts` | 同上 |
 | `src/app/api/skills/run/route.ts` | `buildProjectVars` 内两处 `WHERE id=$1 AND user_id=$2` → `assertProjectAccess` + scoped 查询；user_custom_skills 读取放宽为 `(user_id=$2 OR org_id=$orgId)` |
 | `src/app/api/skills/custom/route.ts`、`custom/[id]/route.ts` | 支持 org 共享 SKILL 的列出/创建（partner+） |
-| `src/app/api/reports/[id]/refine/route.ts` | 报告归属 → `scopedProjectChildWhere` |
-| `src/app/api/reports/[id]/export/route.ts`、`export-ppt/route.ts` | 同上 |
-| `src/app/api/reports/[id]/digest/route.ts` | 同上 |
+| `src/app/api/reports/[id]/refine/route.ts` | 报告归属 → `scopedProjectChildWhere`（带 `excludeMergedForAnalyst: true`） |
+| `src/app/api/reports/[id]/export/route.ts`、`export-ppt/route.ts` | 同上（带 `excludeMergedForAnalyst: true`） |
+| `src/app/api/reports/[id]/digest/route.ts` | 同上（带 `excludeMergedForAnalyst: true`） |
 | `src/app/api/knowledge/route.ts` | 三层可见性（第三部分） |
 | `src/app/api/knowledge/search/route.ts` | 换用统一三层检索入口（第三部分 3.3） |
 | `src/app/api/knowledge/upload/route.ts` | 上传目标层选择（个人/机构） |
@@ -661,8 +705,8 @@ export async function searchLayeredKnowledge(
 
 ```sql
 -- ============================================================
--- 迁移 023：轻协作 — 项目评论 + 项目共享
--- 依赖：迁移 021。幂等：可重复执行。
+-- 迁移 023：轻协作 — 项目评论 + 项目共享 + 投委会总报告 kind 标识
+-- 依赖：迁移 021、018（reports.kind）。幂等：可重复执行。
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS project_comments (
@@ -727,7 +771,8 @@ interface MemberJudgments {
    - 源报告读取从 `AND user_id = $3` 放宽为 `AND (user_id = $3 OR org_id = $orgId)`（组织成员各自生成的报告均可入选）；
    - `buildMergeUserContent` 新增一段「各合伙人独立判断」：按成员分组拼入上述结构化判断（每人每阶段取最新一条，单人上限 2000 字符）；
    - `MERGE_SYSTEM` 七章节中「团队评估」之后插入一章 `## 合伙人观点对比`，prompt 追加规则："若多位合伙人判断存在分歧，必须并列呈现双方理由与各自 confidence_level，不得抹平分歧；总体『投资建议』需说明分歧对结论的影响。"
-   - 个人版（无 org）调用路径与产出完全不变。
+   - **结构化标识（v1.1 修订项 1）**：占位报告 INSERT 语句（`merge/route.ts:135-139`）写入 `kind='committee'`（替代现状的默认 'analysis' + 仅标题前缀【总报告】标识；CHECK 扩展与存量回填见迁移 023）。该 kind 是 1.2 矩阵"投委会总报告查看 partner+"与 2.3 `excludeMergedForAnalyst` 过滤的判定字段。个人版 merge 产物同样写 `kind='committee'`（统一数据语义；个人版无角色概念，本人始终可见，行为不变）。
+   - 个人版（无 org）调用路径与产出内容完全不变。
 
 ### 4.4 组织内项目可见性与最简共享（迁移 023 第 2 段）
 
@@ -747,6 +792,18 @@ CREATE TABLE IF NOT EXISTS project_shares (
 
 CREATE INDEX IF NOT EXISTS idx_project_shares_user
   ON project_shares(shared_with);
+
+-- 投委会总报告结构化标识（v1.1 修订项 1）：
+-- 现状 merge 产物仅靠标题前缀【总报告】区分（reports/merge/route.ts:135-139，
+-- kind 走默认 'analysis'），标题可被 refine 改写，不能作为权限过滤依据。
+-- 引入 kind='committee' 并回填存量行（回填方式与迁移 018 同模式）。
+ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_kind_check;
+ALTER TABLE reports
+  ADD CONSTRAINT reports_kind_check
+  CHECK (kind IN ('analysis', 'brief', 'term_sheet', 'committee'));
+
+UPDATE reports SET kind = 'committee'
+ WHERE kind = 'analysis' AND title LIKE '【总报告】%';
 ```
 
 共享/取消共享：`POST` / `DELETE /api/projects/[id]/shares`（owner 或 partner/admin 操作）。`scopedProjectWhere`（2.3）已内置 project_shares 子查询，所有项目子资源可见性自动跟随。
@@ -842,8 +899,10 @@ CREATE TABLE IF NOT EXISTS zjjr_features (
 CREATE INDEX IF NOT EXISTS idx_zjjr_features_kind ON zjjr_features(feature_kind);
 CREATE INDEX IF NOT EXISTS idx_zjjr_features_inst ON zjjr_features(institution_id);
 CREATE INDEX IF NOT EXISTS idx_zjjr_features_valid ON zjjr_features(valid_until);
-CREATE INDEX IF NOT EXISTS idx_zjjr_features_embedding ON zjjr_features
-  USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+-- 注意：embedding 的 ivfflat 索引【不在本迁移创建】。
+-- ivfflat 的聚类中心在建索引时一次性确定，空表/小样本时建索引会导致
+-- 聚类中心不具代表性、召回质量差。该索引由同步服务在首次全量导入
+-- 完成后创建（SQL 见 5.2），大批量重灌数据后需 REINDEX。
 
 -- 同步日志（增量水位 + 运维排障）
 CREATE TABLE IF NOT EXISTS zjjr_sync_log (
@@ -872,6 +931,14 @@ CREATE INDEX IF NOT EXISTS idx_zjjr_sync_log_type
 - **独立 Node 进程**：新目录 `services/zjjr-sync/`（与 `src/` 平级，不进 Next.js 构建），独立 `package.json`，共享数据库但使用**专用账号** `zjjr_sync`（对 `zjjr_*` 全权限，对业务表零权限——双向隔离）。
 - **PM2 管理**：`services/zjjr-sync/ecosystem.config.js`，`cron_restart: "30 2 * * *"`（每日 02:30 增量轮询一次后进程退出，由 PM2 按 cron 重拉——比常驻进程内 setInterval 更可恢复）。
 - **增量逻辑**：读 `zjjr_sync_log` 最近一次 success 的 `watermark` → 调 `fetchUpdates(updated_since=watermark)` → upsert（`ON CONFLICT (source_id) DO UPDATE`）→ 触发受影响实体的特征重建 → 写新水位。
+- **ivfflat 索引创建（首次全量导入后执行，迁移 024 中刻意不建，原因见该迁移注释）**：同步服务在首次全量导入流水线（`sync_type='full'`）成功收尾时执行：
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_zjjr_features_embedding ON zjjr_features
+  USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+```
+
+  此后日常增量写入由索引自动维护；若发生大批量重灌（如 `features_rebuild` 全量重建特征），重灌完成后执行 `REINDEX INDEX idx_zjjr_features_embedding;` 重算聚类中心。
 - **与主应用解耦**：同步服务挂掉不影响主应用任何功能（zjjr 层检索返回旧数据或空）；主应用不感知同步服务存在。
 
 ### 5.3 `ZjjrClient` 接口抽象（`services/zjjr-sync/src/client.ts`，主应用不引用）
@@ -1066,14 +1133,18 @@ SELECT date_trunc('week', created_at) AS wk, COUNT(*) FROM investment_judgments
   - 迁移 `db/migrations/026_lp_report_kind.sql`：
 
 ```sql
--- 迁移 026：reports.kind 纳入 lp_report。幂等：可重复执行。
+-- 迁移 026：reports 支持 LP 报告。幂等：可重复执行。
+-- ① kind CHECK 纳入 'lp_report'（值列表含迁移 023 引入的 'committee'）；
+-- ② project_id 放宽为可空：lp_report 挂组织维度，不挂单一项目。
 ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_kind_check;
 ALTER TABLE reports
   ADD CONSTRAINT reports_kind_check
-  CHECK (kind IN ('analysis', 'brief', 'term_sheet', 'lp_report'));
+  CHECK (kind IN ('analysis', 'brief', 'term_sheet', 'committee', 'lp_report'));
+
+ALTER TABLE reports ALTER COLUMN project_id DROP NOT NULL;
 ```
 
-  注意：lp_report 可不挂单一项目，但 `reports.project_id` 现为 NOT NULL（schema.sql）——**设计决定：不放宽该约束**（影响面大），LP 报告行挂在组织内任一"占位项目"语义不可取，故 lp_report **挂组织维度**：同迁移内 `ALTER TABLE reports ALTER COLUMN project_id DROP NOT NULL;` + 应用层保证仅 `kind='lp_report'` 行允许 project_id 为 NULL。现有查询影响：逐一核对 `/api/reports/[id]/*` 与 `/api/projects/[id]/reports`——前者按 report id 查不受影响；后者按 project_id 查，NULL 行天然不出现，无影响。
+  **最终方案：放宽 `project_id` 的 NOT NULL 约束**。LP 报告聚合的是组合层数据，挂在组织内任一"占位项目"上语义不可取，故 lp_report 行 `project_id IS NULL`、以 `org_id` 归属。**应用层不变量**：仅 `kind='lp_report'` 的行允许 `project_id IS NULL`；其余 kind 的全部创建路径继续强制传 project_id——该不变量在各生成接口层校验（现有报告创建路径全部经 `/api/projects/[id]/...`，project_id 来自路由参数天然非空；新的 `POST /api/org/lp-reports` 是唯一的 NULL 写入口），不依赖数据库约束。**影响面核对结论（保留 v1 结论）**：`/api/reports/[id]/*` 按 report id 查，不受影响；`/api/projects/[id]/reports` 按 project_id 查，NULL 行天然不出现，无影响。
   - 路由：`POST /api/org/lp-reports`（生成，流式）、`GET /api/org/lp-reports`（列表，按 `kind='lp_report' AND org_id=$1` 查）；页面 `src/app/(app)/org/lp-reports/page.tsx`。权限 partner+，能力位 `lp_reports`。
 - **模板章节建议**（生成 system prompt 按此固定结构）：
   1. 基金概况与报告期说明
@@ -1201,10 +1272,10 @@ prompt 规则要求 AI 引用时沿用：`来源：中鉴基金研究院，数�
 | 阶段 | 包含 | 前置依赖 | 工期 | 验收标准 |
 |---|---|---|---|---|
 | **P1 组织与权限层** | 迁移 020；`orgAuth.ts`（getOrgContext/requireOrg*/hasCapability+缓存）；JWT/middleware 改造；org 设置页 + 成员/邀请全部路由；admin 后台 org 管理 | 无 | 4–5 天 | ① 迁移生产执行后个人版全功能回归无差异；② 三角色矩阵抽样用例（admin 改角色即时生效、被移出者下个请求 403）；③ capabilities 调整 30s 内生效无需重登；④ 代码 grep 无版本名判断 |
-| **P2 资源 org 化 + 轻协作** | 迁移 021、023；`resourceAccess.ts`；2.3 清单全部路由改造；项目转入组织；评论、共享、多人判断聚合（4.3 含 merge 扩展） | P1 | 5–7 天 | ① 个人版（无 org）所有改造路由 SQL 等价回归；② analyst 可见性规则用例（owner/共享/不可见）；③ 投委会总报告含「合伙人观点对比」章节且个人版产出不变 |
+| **P2 资源 org 化 + 轻协作** | 迁移 021、023；`resourceAccess.ts`；2.3 清单全部路由改造；项目转入组织；评论、共享、多人判断聚合（4.3 含 merge 扩展） | P1 | 5–7 天 | ① 个人版（无 org）所有改造路由 SQL 等价回归；② analyst 可见性规则用例（owner/共享/不可见）；③ 投委会总报告含「合伙人观点对比」章节且个人版产出内容不变；④ merge 产物写 `kind='committee'`、存量【总报告】行已回填，analyst 对组织项目的总报告查看/导出/refine 均 403 或不可见；⑤ 成员移出走 1.5 交接流程（有 owner 项目未带 transferOwnerTo 返回 409） |
 | **P3 机构知识库 + AI 注入（前两层）** | 迁移 022；`knowledgeSearch.ts` 三层入口（zjjr 路暂空）；晋升/撤回接口与 UI；`injectOrgKnowledge` 接入首批路由 | P1（与 P2 可并行，仅共用 021 的 kb.org_id 列——021 提前到 P2 首日执行即可） | 3–4 天 | ① 晋升后 org 成员检索可命中、撤回后不可命中；② 个人版检索与注入行为零变化；③ 注入段带【机构沉淀】来源标注 |
 | **P4 机构功能模块** | org 档案视图、org Dashboard、LP 报告（迁移 026）、协会报告占位 | P2（LP 报告另依赖 026） | 4–5 天 | ① Dashboard 四组统计与 SQL 直查一致；② LP 报告七章节生成→refine→docx 全链路通；③ 协会底稿含三块聚合与"非代报送"标注 |
-| **P5 中鉴数据管道** | 迁移 024；同步服务骨架 + FixtureZjjrClient + 全流水线（清洗→消歧→特征→向量化→双轨写入）+ PM2 配置；HttpZjjrClient 实现 | 表结构/Fixture 不被阻塞；**HttpZjjrClient 被 API 文档阻塞** | 骨架 3–4 天；API 到位后联调 2–3 天 | ① Fixture 数据跑通全管道，zjjr_features 可检索；② 主应用账号对 zjjr 表仅 SELECT；③ 增量水位断点续跑 |
+| **P5 中鉴数据管道** | 迁移 024；同步服务骨架 + FixtureZjjrClient + 全流水线（清洗→消歧→特征→向量化→双轨写入）+ PM2 配置；HttpZjjrClient 实现 | 表结构/Fixture 不被阻塞；**HttpZjjrClient 被 API 文档阻塞** | 骨架 3–4 天；API 到位后联调 2–3 天 | ① Fixture 数据跑通全管道，zjjr_features 可检索；② 主应用账号对 zjjr 表仅 SELECT；③ 增量水位断点续跑；④ 首次全量导入后 ivfflat 索引已创建且向量检索走索引（EXPLAIN 验证，见 5.2） |
 | **P6 数据应用 + 中鉴注入** | 迁移 025；dataApps 框架 + 市场洞察 + 机构点查；`injectMarketContext` + 防穷举 + 导流文案 | P1 + P5 骨架（Fixture 数据即可开发，上线需 P5 联调完成） | 3–4 天 | ① 能力位关闭时导航/路由/注入全部不可达；② 点查频控与无导出验证；③ 穷举类请求触发导流话术；④ 注入≤5 条且带标注 |
 
 ### 并行性与阻塞标注
