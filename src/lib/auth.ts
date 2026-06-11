@@ -181,6 +181,25 @@ export const authOptions: NextAuthOptions = {
           if (rows[0]) token.plan = rows[0].plan;
         }
       }
+      // 机构版：每次 callback 都重读 org_members，注入组织信息。
+      // 授权以 Node 层 orgAuth.getOrgContext（DB 现取）为准，token 仅作
+      // middleware 快路径与前端 UI 提示——成员被移出后 token 残留的 orgId
+      // 最多产生一次 302/403，不泄露数据（架构文档 v1.1 第 1.4 节）。
+      // TODO(perf): 本查询与同请求内 getOrgContext 重复（useSession 轮询也会
+      // 触发）。当前单 ECS 低并发无感；若将来成为热点，优化方向是 token 内记
+      // orgCheckedAt 时间戳、距上次检查超过 60s 才重读 org_members。
+      if (token.uid) {
+        try {
+          const rows = await query<{ org_id: string; role: string }>(
+            "SELECT org_id, role FROM org_members WHERE user_id = $1",
+            [token.uid as string]
+          );
+          token.orgId = rows[0]?.org_id;
+          token.orgRole = rows[0]?.role;
+        } catch {
+          // 迁移 020 未执行时表不存在：静默跳过，个人版行为不变
+        }
+      }
       return token;
     },
     async session({ session, token }) {
@@ -190,6 +209,14 @@ export const authOptions: NextAuthOptions = {
       // plan 也透出到 session，供前端做 UI 切换（如显示「进入管理后台」入口）
       if (session.user && typeof token.plan === "string") {
         (session.user as { plan?: string }).plan = token.plan;
+      }
+      // 组织信息透出（与 plan 同方式）：仅供前端 UI 切换（如「组织设置」入口），
+      // 授权判断永远走服务端 orgAuth DB 现取
+      if (session.user && typeof token.orgId === "string") {
+        session.user.orgId = token.orgId;
+      }
+      if (session.user && typeof token.orgRole === "string") {
+        session.user.orgRole = token.orgRole;
       }
       return session;
     },

@@ -19,6 +19,15 @@ export function Sidebar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
+  // 有组织的用户追加「组织设置」入口（orgId 来自 session，仅 UI 提示；
+  // 权限判断在服务端 orgAuth）
+  const nav = session?.user?.orgId
+    ? [
+        ...NAV,
+        { href: "/org/settings", label: "组织设置", desc: "成员与组织信息" },
+      ]
+    : NAV;
+
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface">
       <div className="px-5 py-5">
@@ -51,7 +60,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-2">
-        {NAV.map((item) => {
+        {nav.map((item) => {
           // /dashboard 在根路径下也高亮（因为 / 会重定向到 /dashboard）
           const active =
             item.href === "/dashboard"

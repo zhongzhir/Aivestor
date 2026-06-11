@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { ApiKeyConfig } from "@/components/project/ApiKeyConfig";
 import { ApiKeyGuide } from "@/components/project/ApiKeyGuide";
 import { ProfileForm } from "@/components/settings/ProfileForm";
+import { PendingInvites } from "@/components/org/PendingInvites";
 import { RecommendedPlans } from "@/components/settings/RecommendedPlans";
 import { DataExport } from "@/components/settings/DataExport";
 
@@ -26,6 +27,9 @@ export default async function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-doc px-6 py-12">
+      {/* 待处理的组织邀请（无邀请时不渲染） */}
+      <PendingInvites />
+
       <h1 className="text-xl font-semibold text-ink">个人设置</h1>
 
       {/* 区块一：投资人画像（置顶） */}
