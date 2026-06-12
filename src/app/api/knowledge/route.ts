@@ -52,7 +52,11 @@ export async function GET(req: NextRequest) {
   const sourceType = ALLOWED_SOURCE_TYPES.has(sourceTypeRaw) ? sourceTypeRaw : "";
 
   // 层筛选：layer=org 显示机构沉淀层（含他人条目+作者名）；
-  // 默认（个人层）与现状逐字节等价：WHERE user_id = $1。
+  // 默认（个人层）= 本人且仍在个人层（visibility='private'）的条目。
+  // 必须带 visibility='private'：晋升是"移动不是复制"（架构 3.4），条目 user_id
+  // 不变、仅 visibility 改为 'org'（架构 3.1），若个人层只看 user_id 不看
+  // visibility，已晋升条目会同时出现在个人层与机构层（复制视觉假象）。
+  // 回归安全：未晋升条目 visibility 默认即 'private'（迁移 022），结果不变。
   const layer = (sp.get("layer") ?? "").trim();
   let baseWhere: string;
   const params: unknown[] = [];
@@ -67,7 +71,7 @@ export async function GET(req: NextRequest) {
     withAuthor = true;
   } else {
     params.push(session.user.id);
-    baseWhere = "kb.user_id = $1";
+    baseWhere = "kb.user_id = $1 AND kb.visibility = 'private'";
   }
 
   const where: string[] = [baseWhere];
