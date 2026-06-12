@@ -4,6 +4,11 @@ import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
 import { loadUserAICredentials, freeQuotaMetaFor } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 
 export const maxDuration = 120;
 
@@ -25,11 +30,18 @@ export async function POST(
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
 
+    const scope = await buildAccessScope(session.user.id);
+    try {
+      await assertProjectAccess(scope, params.id, "write");
+    } catch (e) {
+      return accessErrorResponse(e);
+    }
+
     const rows = await query<MeetingRow>(
       `SELECT title, meeting_date, participants, content
          FROM meeting_notes
-        WHERE id = $1 AND project_id = $2 AND user_id = $3`,
-      [params.meetingId, params.id, session.user.id]
+        WHERE id = $1 AND project_id = $2`,
+      [params.meetingId, params.id]
     );
     if (rows.length === 0) {
       return NextResponse.json({ error: "会议记录不存在" }, { status: 404 });

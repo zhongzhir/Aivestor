@@ -8,6 +8,12 @@ import {
   freeQuotaMetaFor,
 } from "@/lib/report";
 import { getUserProfile, injectProfile } from "@/lib/user-profile";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
+import { injectOrgKnowledge } from "@/lib/orgInject";
 
 export const maxDuration = 90;
 
@@ -44,11 +50,19 @@ export async function POST(
   }
   const userId = session.user.id;
 
-  // 1. 项目（含归属校验）
+  // 1. 项目（含归属校验，write）；orgId 用于报告跟随父项目 + 机构知识注入
+  const scope = await buildAccessScope(userId);
+  let projectOrgId: string | null = null;
+  try {
+    const info = await assertProjectAccess(scope, params.id, "write");
+    projectOrgId = info.orgId;
+  } catch (e) {
+    return accessErrorResponse(e);
+  }
   const projects = await query<ProjectRow>(
     `SELECT name, company_name, industry, stage
-       FROM projects WHERE id = $1 AND user_id = $2`,
-    [params.id, userId]
+       FROM projects WHERE id = $1`,
+    [params.id]
   );
   if (projects.length === 0) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
@@ -139,7 +153,13 @@ ${
     : ""
 }`;
 
-  const systemPrompt = await injectProfile(userId, baseSystem);
+  let systemPrompt = await injectProfile(userId, baseSystem);
+  // 机构知识注入（个人版 / 无能力位时返回原文）
+  systemPrompt = await injectOrgKnowledge(
+    scope,
+    [project.name, project.industry, project.stage].filter(Boolean).join(" "),
+    systemPrompt
+  );
 
   // 加载画像，构造硬性否决项核查区块
   const profile = await getUserProfile(userId).catch(() => null);
@@ -204,10 +224,10 @@ ${judgmentSummary ? `## 投资人已记录的初步判断\n${judgmentSummary}\n`
 
   // 7. 预创建报告占位，便于在响应头返回 reportId
   const created = await query<{ id: string }>(
-    `INSERT INTO reports (project_id, user_id, title, content, status)
-     VALUES ($1, $2, $3, '', 'draft')
+    `INSERT INTO reports (project_id, user_id, title, content, status, org_id)
+     VALUES ($1, $2, $3, '', 'draft', $4)
      RETURNING id`,
-    [params.id, userId, `【简要分析】${project.name}`]
+    [params.id, userId, `【简要分析】${project.name}`, projectOrgId]
   );
   const reportId = created[0].id;
 

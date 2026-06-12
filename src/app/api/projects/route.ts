@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { ALL_STAGES } from "@/lib/stages";
+import { buildAccessScope, scopedProjectWhere } from "@/lib/resourceAccess";
+import { hasCapability } from "@/lib/orgAuth";
 
 const ALLOWED_OUTCOMES = new Set([
   "pending",
@@ -30,8 +32,11 @@ export async function GET(req: NextRequest) {
     : "";
   const outcome = ALLOWED_OUTCOMES.has(outcomeRaw) ? outcomeRaw : "";
 
-  const where: string[] = ["p.user_id = $1"];
-  const params: unknown[] = [session.user.id];
+  // 个人版（无 org）退化为 "p.user_id = $1"，params [userId]——与现状逐字节等价。
+  const scope = await buildAccessScope(session.user.id);
+  const scoped = scopedProjectWhere(scope, 1, { alias: "p" });
+  const where: string[] = [scoped.sql];
+  const params: unknown[] = [...scoped.params];
 
   if (search) {
     params.push(`%${search}%`);
@@ -100,9 +105,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "请填写项目名称" }, { status: 400 });
   }
 
+  // 有 org 且开通 collaboration 能力位时，创建为组织项目（写 org_id + owner_id=创建者）；
+  // 否则与现状一致（纯个人项目，org_id / owner_id 均为 NULL）。
+  const scope = await buildAccessScope(session.user.id);
+  let orgId: string | null = null;
+  if (scope.org && (await hasCapability(scope.org.orgId, "collaboration"))) {
+    orgId = scope.org.orgId;
+  }
+
   const rows = await query<{ id: string }>(
-    `INSERT INTO projects (user_id, name, company_name, industry, stage)
-     VALUES ($1, $2, $3, $4, $5)
+    `INSERT INTO projects (user_id, name, company_name, industry, stage, org_id, owner_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
     [
       session.user.id,
@@ -110,6 +123,8 @@ export async function POST(req: Request) {
       body.companyName?.trim() || null,
       body.industry?.trim() || null,
       body.stage?.trim() || null,
+      orgId,
+      orgId ? session.user.id : null,
     ]
   );
 

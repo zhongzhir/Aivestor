@@ -9,6 +9,13 @@ import {
 } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
 import { STAGE_LABELS } from "@/lib/stages";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  scopedProjectChildWhere,
+  type AccessScope,
+} from "@/lib/resourceAccess";
+import { injectOrgKnowledge } from "@/lib/orgInject";
 
 export const maxDuration = 120;
 
@@ -33,13 +40,21 @@ interface ProjectVars {
   // 当模板未引用任何项目占位符时，整体前置注入的上下文块
   contextBlock: string;
   hasDocs: boolean;
+  // 机构知识注入的检索 query 用
+  project: { name: string; industry: string | null };
 }
 
 // 组装关联项目的注入变量
 async function buildProjectVars(
   projectId: string,
-  userId: string
+  scope: AccessScope
 ): Promise<ProjectVars | null> {
+  // 项目归属校验（read）：无权访问返回 null（与原 user_id 不命中等价）
+  try {
+    await assertProjectAccess(scope, projectId, "read");
+  } catch {
+    return null;
+  }
   const projects = await query<{
     name: string;
     industry: string | null;
@@ -48,11 +63,14 @@ async function buildProjectVars(
     financial_data: unknown;
   }>(
     `SELECT name, industry, summary, process_stage, financial_data
-       FROM projects WHERE id = $1 AND user_id = $2`,
-    [projectId, userId]
+       FROM projects WHERE id = $1`,
+    [projectId]
   );
   if (projects.length === 0) return null;
   const p = projects[0];
+
+  // 子资源（文档）可见性跟随项目；个人版退化为 user_id = $2，与现状等价。
+  const docScope = scopedProjectChildWhere(scope, 2);
 
   const projectInfo = [
     `项目名称：${p.name}`,
@@ -65,11 +83,11 @@ async function buildProjectVars(
   // BP 上下文仅包含商业/研究/其他类文档，把 contract / financial_model / news 排除
   const docs = await query<{ filename: string; extracted_text: string | null }>(
     `SELECT filename, extracted_text FROM documents
-      WHERE project_id = $1 AND user_id = $2
+      WHERE project_id = $1 AND ${docScope.sql}
         AND parse_status = 'done' AND extracted_text IS NOT NULL
         AND doc_kind IN ('bp', 'research', 'other')
       ORDER BY created_at ASC`,
-    [projectId, userId]
+    [projectId, ...docScope.params]
   );
   const docParts = docs.map(
     (d) => `【${d.filename}】\n${(d.extracted_text || "").slice(0, DOC_CHAR_LIMIT)}`
@@ -83,11 +101,11 @@ async function buildProjectVars(
     extracted_text: string | null;
   }>(
     `SELECT filename, extracted_text FROM documents
-      WHERE project_id = $1 AND user_id = $2
+      WHERE project_id = $1 AND ${docScope.sql}
         AND parse_status = 'done' AND extracted_text IS NOT NULL
         AND doc_kind = 'contract'
       ORDER BY created_at ASC`,
-    [projectId, userId]
+    [projectId, ...docScope.params]
   );
   const contractContent =
     contractDocs.length > 0
@@ -103,13 +121,14 @@ async function buildProjectVars(
     ? JSON.stringify(p.financial_data)
     : "（暂无财务数据）";
 
+  // 判断记录仅取本人（组织项目下他人判断不经此路径，见 1.2 矩阵）
   const judgmentRows = await query<JudgmentRow>(
     `SELECT stage, bull_case, bear_case, founder_assessment,
             key_hypothesis, confidence_level, created_at
        FROM investment_judgments
       WHERE project_id = $1 AND user_id = $2
       ORDER BY created_at DESC`,
-    [projectId, userId]
+    [projectId, scope.userId]
   );
   const judgments =
     judgmentRows.length === 0
@@ -149,7 +168,12 @@ async function buildProjectVars(
     .filter(Boolean)
     .join("\n");
 
-  return { vars, contextBlock, hasDocs };
+  return {
+    vars,
+    contextBlock,
+    hasDocs,
+    project: { name: p.name, industry: p.industry },
+  };
 }
 
 // POST /api/skills/run — 运行 SKILL（流式）
@@ -176,6 +200,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "参数不合法" }, { status: 422 });
   }
 
+  const scope = await buildAccessScope(session.user.id);
+
   // 1. 读取 SKILL 模板
   let promptTemplate: string;
   if (skill_type === "catalog") {
@@ -188,9 +214,13 @@ export async function POST(req: Request) {
     }
     promptTemplate = rows[0].prompt_template;
   } else {
+    // 自建 SKILL：本人的 + 组织共享的（org_id = 本 org）均可运行（1.2 矩阵）。
+    // 个人版退化为仅 user_id = $2，与现状等价。
+    const orgId = scope.org?.orgId ?? null;
     const rows = await query<{ prompt_template: string }>(
-      "SELECT prompt_template FROM user_custom_skills WHERE id = $1 AND user_id = $2",
-      [skill_id, session.user.id]
+      `SELECT prompt_template FROM user_custom_skills
+        WHERE id = $1 AND (user_id = $2${orgId ? " OR org_id = $3" : ""})`,
+      orgId ? [skill_id, session.user.id, orgId] : [skill_id, session.user.id]
     );
     if (rows.length === 0) {
       return NextResponse.json({ error: "SKILL 不存在" }, { status: 404 });
@@ -215,12 +245,14 @@ export async function POST(req: Request) {
     contract_content: EMPTY,
   };
   let prependContext = "";
+  let project: { name: string; industry: string | null } | null = null;
   if (project_id) {
-    const projectVars = await buildProjectVars(project_id, session.user.id);
+    const projectVars = await buildProjectVars(project_id, scope);
     if (!projectVars) {
       return NextResponse.json({ error: "项目不存在" }, { status: 404 });
     }
     vars = projectVars.vars;
+    project = projectVars.project;
 
     // 若模板未引用任何项目占位符（常见于用户自建 SKILL），
     // 则把项目资料整体前置注入，确保 AI 能拿到真实材料。
@@ -244,16 +276,23 @@ export async function POST(req: Request) {
     prompt += `\n\n## 投资人补充说明\n${extra_input.trim()}`;
   }
 
-  // 4. 流式调用 AI
+  // 4. 注入链：个人画像 → 机构知识沉淀（个人版 / 无能力位时返回原文）
+  let system = await injectProfile(
+    session.user.id,
+    "你是一位资深的一级股权投资专家，输出使用简体中文与 Markdown 格式，专业、具体、有洞察力。"
+  );
+  const retrievalQuery = [project?.name, project?.industry, extra_input]
+    .filter(Boolean)
+    .join(" ");
+  system = await injectOrgKnowledge(scope, retrievalQuery, system);
+
+  // 5. 流式调用 AI
   const generator = streamChat({
     provider: creds.provider,
     apiKey: creds.apiKey,
     baseURL: creds.baseURL,
     freeQuotaMeta: freeQuotaMetaFor(creds, session.user.id, "skill-run"),
-    system: await injectProfile(
-      session.user.id,
-      "你是一位资深的一级股权投资专家，输出使用简体中文与 Markdown 格式，专业、具体、有洞察力。"
-    ),
+    system,
     messages: [{ role: "user", content: prompt }],
   });
 

@@ -4,6 +4,10 @@ import { query } from "@/lib/db";
 import { ProjectDetail } from "@/components/project/ProjectDetail";
 import type { Judgment } from "@/components/project/StageProgress";
 import type { FinancialData } from "@/lib/types";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+} from "@/lib/resourceAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +16,8 @@ interface ProjectRow {
   name: string;
   judgment_points: string[];
   financial_data: FinancialData | null;
+  org_id: string | null;
+  owner_id: string | null;
 }
 
 interface DocRow {
@@ -32,13 +38,22 @@ export default async function ProjectDetailPage({
 }) {
   const session = await requireAuth();
 
+  // 访问校验：个人项目仅本人；组织项目按角色/共享可见（与 API 同一规则）。
+  const scope = await buildAccessScope(session.user.id);
+  try {
+    await assertProjectAccess(scope, params.id, "read");
+  } catch {
+    notFound();
+  }
+
   const projects = await query<ProjectRow>(
-    `SELECT id, name, judgment_points, financial_data
-       FROM projects WHERE id = $1 AND user_id = $2`,
-    [params.id, session.user.id]
+    `SELECT id, name, judgment_points, financial_data, org_id, owner_id
+       FROM projects WHERE id = $1`,
+    [params.id]
   );
   if (projects.length === 0) notFound();
   const project = projects[0];
+  const isOrgProject = !!project.org_id;
 
   // process_stage 与 investment_judgments 新字段来自迁移 004。
   // 迁移可能尚未应用（或仅部分应用），此处容错处理以免整页 500。
@@ -128,6 +143,9 @@ export default async function ProjectDetailPage({
       }
       latestReportId={latest[0]?.id ?? null}
       initialFinancialData={project.financial_data}
+      isOrgProject={isOrgProject}
+      hasOrg={!!scope.org}
+      currentUserId={session.user.id}
     />
   );
 }

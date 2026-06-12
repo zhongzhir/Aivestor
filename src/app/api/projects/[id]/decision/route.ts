@@ -9,6 +9,11 @@ import {
 } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
 import { STAGE_LABELS } from "@/lib/stages";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 
 export const maxDuration = 120;
 
@@ -181,11 +186,19 @@ export async function POST(
     );
   }
 
-  // 1. 项目信息
+  // 校验项目归属（read）
+  const scope = await buildAccessScope(session.user.id);
+  try {
+    await assertProjectAccess(scope, params.id, "read");
+  } catch (e) {
+    return accessErrorResponse(e);
+  }
+
+  // 1. 项目信息（访问已校验，按 id 取）
   const projects = await query<ProjectRow>(
     `SELECT name, summary, industry, process_stage, financial_data
-       FROM projects WHERE id = $1 AND user_id = $2`,
-    [params.id, session.user.id]
+       FROM projects WHERE id = $1`,
+    [params.id]
   );
   if (projects.length === 0) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });

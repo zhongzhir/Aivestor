@@ -5,6 +5,10 @@ import { streamChat } from "@/lib/ai";
 import { loadUserAICredentials, freeQuotaMetaFor } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
 import { generateEmbedding } from "@/lib/embedding";
+import {
+  buildAccessScope,
+  scopedProjectChildWhere,
+} from "@/lib/resourceAccess";
 
 export const maxDuration = 120;
 
@@ -102,6 +106,12 @@ export async function POST(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
+  // 报告可见性跟随项目；analyst 不可见 kind='committee'。个人版退化等价。
+  const scope = await buildAccessScope(session.user.id);
+  const child = scopedProjectChildWhere(scope, 2, {
+    alias: "r",
+    excludeMergedForAnalyst: true,
+  });
   let rows: ReportRow[];
   try {
     rows = await query<ReportRow>(
@@ -109,8 +119,8 @@ export async function POST(
               p.name AS project_name
          FROM reports r
          JOIN projects p ON p.id = r.project_id
-        WHERE r.id = $1 AND r.user_id = $2`,
-      [params.id, session.user.id]
+        WHERE r.id = $1 AND ${child.sql}`,
+      [params.id, ...child.params]
     );
   } catch (e) {
     const info = describePgError(e);
@@ -239,12 +249,16 @@ export async function PUT(
     return NextResponse.json({ error: "缺少项目信息" }, { status: 422 });
   }
 
-  // 验证报告归属
+  // 验证报告归属（可见性跟随项目；analyst 不可见 committee）。个人版退化等价。
+  const scope = await buildAccessScope(session.user.id);
+  const child = scopedProjectChildWhere(scope, 2, {
+    excludeMergedForAnalyst: true,
+  });
   let owned: { id: string }[];
   try {
     owned = await query<{ id: string }>(
-      "SELECT id FROM reports WHERE id = $1 AND user_id = $2",
-      [params.id, session.user.id]
+      `SELECT id FROM reports WHERE id = $1 AND ${child.sql}`,
+      [params.id, ...child.params]
     );
   } catch (e) {
     const info = describePgError(e);

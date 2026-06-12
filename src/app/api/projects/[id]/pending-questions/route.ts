@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { buildAccessScope, assertProjectAccess } from "@/lib/resourceAccess";
 
 const MAX_ITEMS = 10;
 
@@ -17,18 +18,11 @@ export async function GET(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  // 校验项目归属（容错：表异常时返回空，避免 500 阻塞页面渲染）
-  let owned: { id: string }[] = [];
+  // 校验项目归属（容错：无权/异常时返回空，避免 500 阻塞页面渲染）
   try {
-    owned = await query<{ id: string }>(
-      "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
-      [params.id, session.user.id]
-    );
+    const scope = await buildAccessScope(session.user.id);
+    await assertProjectAccess(scope, params.id, "read");
   } catch (e) {
-    console.error("[pending-questions] 项目归属查询失败:", e);
-    return NextResponse.json({ questions: [] });
-  }
-  if (owned.length === 0) {
     return NextResponse.json({ questions: [] });
   }
 

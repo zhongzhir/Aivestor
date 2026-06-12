@@ -4,6 +4,11 @@ import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
 import { loadUserAICredentials, freeQuotaMetaFor } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 import type { FinancialData } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -172,12 +177,11 @@ export async function POST(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  const projects = await query<{ id: string }>(
-    "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
-    [params.id, session.user.id]
-  );
-  if (projects.length === 0) {
-    return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+  const scope = await buildAccessScope(session.user.id);
+  try {
+    await assertProjectAccess(scope, params.id, "write");
+  } catch (e) {
+    return accessErrorResponse(e);
   }
 
   const creds = await loadUserAICredentials(session.user.id);

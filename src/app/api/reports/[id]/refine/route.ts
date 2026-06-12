@@ -9,6 +9,10 @@ import {
   freeQuotaMetaFor,
 } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
+import {
+  buildAccessScope,
+  scopedProjectChildWhere,
+} from "@/lib/resourceAccess";
 
 export const maxDuration = 120;
 
@@ -48,10 +52,16 @@ export async function POST(
     return NextResponse.json({ error: "请输入修改指令" }, { status: 400 });
   }
 
+  // 报告可见性跟随项目；analyst 不可见 kind='committee'。
+  // 个人版退化为 "user_id = $2"，与现状等价。
+  const scope = await buildAccessScope(session.user.id);
+  const child = scopedProjectChildWhere(scope, 2, {
+    excludeMergedForAnalyst: true,
+  });
   const reports = await query<ReportRow>(
     `SELECT content, version, conversation_history
-       FROM reports WHERE id = $1 AND user_id = $2`,
-    [params.id, session.user.id]
+       FROM reports WHERE id = $1 AND ${child.sql}`,
+    [params.id, ...child.params]
   );
   if (reports.length === 0) {
     return NextResponse.json({ error: "报告不存在" }, { status: 404 });

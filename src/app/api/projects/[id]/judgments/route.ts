@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { isValidStage } from "@/lib/stages";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+  type AccessScope,
+} from "@/lib/resourceAccess";
 
 interface JudgmentRow {
   id: string;
@@ -14,15 +20,8 @@ interface JudgmentRow {
   created_at: string;
 }
 
-async function assertOwned(projectId: string, userId: string): Promise<boolean> {
-  const owned = await query<{ id: string }>(
-    "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
-    [projectId, userId]
-  );
-  return owned.length > 0;
-}
-
-// GET /api/projects/[id]/judgments — 该项目所有判断记录，按时间倒序
+// GET /api/projects/[id]/judgments — 当前用户在该项目下的判断记录，按时间倒序。
+// 注意：永远只返回本人判断；组织项目下他人判断仅经聚合接口（4.3）出。
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
@@ -33,8 +32,11 @@ export async function GET(
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
 
-    if (!(await assertOwned(params.id, session.user.id))) {
-      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    const scope: AccessScope = await buildAccessScope(session.user.id);
+    try {
+      await assertProjectAccess(scope, params.id, "read");
+    } catch (e) {
+      return accessErrorResponse(e);
     }
 
     const rows = await query<JudgmentRow>(
@@ -67,8 +69,13 @@ export async function POST(
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
 
-    if (!(await assertOwned(params.id, session.user.id))) {
-      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    const scope: AccessScope = await buildAccessScope(session.user.id);
+    let projectOrgId: string | null = null;
+    try {
+      const info = await assertProjectAccess(scope, params.id, "write");
+      projectOrgId = info.orgId;
+    } catch (e) {
+      return accessErrorResponse(e);
     }
 
     let body: {
@@ -125,8 +132,8 @@ export async function POST(
     const rows = await query<JudgmentRow>(
       `INSERT INTO investment_judgments
          (user_id, project_id, stage, content, bull_case, bear_case,
-          founder_assessment, key_hypothesis, confidence_level)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          founder_assessment, key_hypothesis, confidence_level, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, stage, bull_case, bear_case, founder_assessment,
                  key_hypothesis, confidence_level, created_at`,
       [
@@ -139,6 +146,7 @@ export async function POST(
         founder,
         hypothesis,
         confidence,
+        projectOrgId,
       ]
     );
 

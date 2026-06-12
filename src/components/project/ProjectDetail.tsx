@@ -7,6 +7,9 @@ import { FinancialCharts } from "./FinancialCharts";
 import { StageProgress, type Judgment } from "./StageProgress";
 import { DecisionTools } from "./DecisionTools";
 import { PostInvestment } from "./PostInvestment";
+import { CommentPanel } from "./CommentPanel";
+import { JudgmentsByMember } from "./JudgmentsByMember";
+import { ShareControl } from "./ShareControl";
 import { FileUploader, type UploadResult } from "@/components/shared/FileUploader";
 import { SkillRunModal } from "@/components/skills/SkillRunModal";
 import { stashJudgmentPoints, readError } from "@/lib/clientAI";
@@ -63,6 +66,9 @@ interface Props {
   initialPoints: string[];
   latestReportId: string | null;
   initialFinancialData: FinancialData | null;
+  isOrgProject?: boolean;
+  hasOrg?: boolean;
+  currentUserId?: string;
 }
 
 export function ProjectDetail({
@@ -77,6 +83,9 @@ export function ProjectDetail({
   initialPoints,
   latestReportId,
   initialFinancialData,
+  isOrgProject = false,
+  hasOrg = false,
+  currentUserId,
 }: Props) {
   const router = useRouter();
 
@@ -94,6 +103,31 @@ export function ProjectDetail({
     if (results.some((r) => r.status === "done")) {
       setNewUpload(true);
       router.refresh();
+    }
+  }
+
+  // 个人项目转入组织（不可逆，二次确认）
+  const [transferring, setTransferring] = useState(false);
+  async function handleTransferToOrg() {
+    if (
+      !window.confirm(
+        "转入后不可撤销：项目及其文档、报告、判断、会议记录将归属组织，组织管理层可见。确定转入？"
+      )
+    ) {
+      return;
+    }
+    setTransferring(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/transfer-to-org`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        router.refresh();
+      } else {
+        alert(await readError(res));
+      }
+    } finally {
+      setTransferring(false);
     }
   }
 
@@ -332,6 +366,37 @@ export function ProjectDetail({
 
       {tab === "analysis" && (
       <>
+      {/* 组织协作：转入入口 / 多人判断 / 评论（仅相关时渲染） */}
+      {!isOrgProject && hasOrg && (
+        <div className="mt-6 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface p-4">
+          <p className="text-xs text-ink-soft">
+            将本项目转为组织项目，团队成员可协作查看与评论。
+          </p>
+          <button
+            onClick={handleTransferToOrg}
+            disabled={transferring}
+            className="shrink-0 text-xs font-medium text-accent hover:underline disabled:opacity-50"
+          >
+            {transferring ? "转入中…" : "转为组织项目 →"}
+          </button>
+        </div>
+      )}
+
+      {isOrgProject && (
+        <div className="mt-6 grid gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-4">
+            <h2 className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+              团队判断
+            </h2>
+            <JudgmentsByMember projectId={projectId} />
+          </div>
+          <div className="space-y-6 rounded-lg border border-line bg-surface p-4">
+            <ShareControl projectId={projectId} />
+            <CommentPanel projectId={projectId} currentUserId={currentUserId} />
+          </div>
+        </div>
+      )}
+
       {/* 项目文档：多文件上传 */}
       <div className="mt-6 rounded-lg border border-line bg-surface p-5">
         <h2 className="text-xs font-medium uppercase tracking-wide text-ink-faint">

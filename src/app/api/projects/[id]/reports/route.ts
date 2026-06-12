@@ -9,6 +9,12 @@ import {
   freeQuotaMetaFor,
 } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
+import { injectOrgKnowledge } from "@/lib/orgInject";
 import type { FinancialData } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -58,11 +64,21 @@ export async function POST(
     );
   }
 
-  // 加载项目
+  // 校验项目归属（write）；orgId 用于报告跟随父项目 + 机构知识注入
+  const scope = await buildAccessScope(session.user.id);
+  let projectOrgId: string | null = null;
+  try {
+    const info = await assertProjectAccess(scope, params.id, "write");
+    projectOrgId = info.orgId;
+  } catch (e) {
+    return accessErrorResponse(e);
+  }
+
+  // 加载项目（访问已校验，按 id 取字段即可）
   const projects = await query<ProjectRow>(
     `SELECT name, company_name, industry, stage, financial_data
-       FROM projects WHERE id = $1 AND user_id = $2`,
-    [params.id, session.user.id]
+       FROM projects WHERE id = $1`,
+    [params.id]
   );
   if (projects.length === 0) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
@@ -95,12 +111,12 @@ export async function POST(
     params.id,
   ]);
 
-  // 先创建报告占位行，便于把 reportId 通过响应头返回
+  // 先创建报告占位行，便于把 reportId 通过响应头返回（org_id 跟随父项目）
   const created = await query<{ id: string }>(
-    `INSERT INTO reports (project_id, user_id, title, content, status)
-     VALUES ($1, $2, $3, '', 'draft')
+    `INSERT INTO reports (project_id, user_id, title, content, status, org_id)
+     VALUES ($1, $2, $3, '', 'draft', $4)
      RETURNING id`,
-    [params.id, session.user.id, `${project.name} · 项目分析报告`]
+    [params.id, session.user.id, `${project.name} · 项目分析报告`, projectOrgId]
   );
   const reportId = created[0].id;
 
@@ -114,12 +130,19 @@ export async function POST(
     financialData: project.financial_data,
   });
 
+  // 注入链：个人画像 → 机构知识沉淀（个人版 / 无能力位时均返回原文）
+  const retrievalQuery = [project.name, project.industry, ...judgmentPoints]
+    .filter(Boolean)
+    .join(" ");
+  let injectedSystem = await injectProfile(session.user.id, system);
+  injectedSystem = await injectOrgKnowledge(scope, retrievalQuery, injectedSystem);
+
   const generator = streamChat({
     provider: creds.provider,
     apiKey: creds.apiKey,
     baseURL: creds.baseURL,
     freeQuotaMeta: freeQuotaMetaFor(creds, session.user.id, "report-generate"),
-    system: await injectProfile(session.user.id, system),
+    system: injectedSystem,
     messages,
   });
 

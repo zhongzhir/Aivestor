@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { isValidUpdateType } from "@/lib/postInvestment";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  scopedProjectChildWhere,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 
 interface UpdateRow {
   id: string;
@@ -9,14 +15,6 @@ interface UpdateRow {
   content: string;
   period: string | null;
   created_at: string;
-}
-
-async function assertOwned(projectId: string, userId: string): Promise<boolean> {
-  const owned = await query<{ id: string }>(
-    "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
-    [projectId, userId]
-  );
-  return owned.length > 0;
 }
 
 // GET /api/projects/[id]/updates — 项目所有投后跟踪记录
@@ -29,16 +27,19 @@ export async function GET(
     if (!session?.user) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
-    if (!(await assertOwned(params.id, session.user.id))) {
-      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    const scope = await buildAccessScope(session.user.id);
+    try {
+      await assertProjectAccess(scope, params.id, "read");
+    } catch (e) {
+      return accessErrorResponse(e);
     }
-
+    const child = scopedProjectChildWhere(scope, 2);
     const rows = await query<UpdateRow>(
       `SELECT id, update_type, content, period, created_at
          FROM post_investment_updates
-        WHERE project_id = $1 AND user_id = $2
+        WHERE project_id = $1 AND ${child.sql}
         ORDER BY created_at DESC`,
-      [params.id, session.user.id]
+      [params.id, ...child.params]
     );
     return NextResponse.json({ updates: rows });
   } catch (e) {
@@ -60,8 +61,13 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
-    if (!(await assertOwned(params.id, session.user.id))) {
-      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    const scope = await buildAccessScope(session.user.id);
+    let projectOrgId: string | null = null;
+    try {
+      const info = await assertProjectAccess(scope, params.id, "write");
+      projectOrgId = info.orgId;
+    } catch (e) {
+      return accessErrorResponse(e);
     }
 
     let body: { update_type?: string; content?: string; period?: string };
@@ -82,8 +88,8 @@ export async function POST(
 
     const rows = await query<UpdateRow>(
       `INSERT INTO post_investment_updates
-         (user_id, project_id, update_type, content, period)
-       VALUES ($1, $2, $3, $4, $5)
+         (user_id, project_id, update_type, content, period, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, update_type, content, period, created_at`,
       [
         session.user.id,
@@ -91,6 +97,7 @@ export async function POST(
         updateType,
         content,
         body.period?.trim() || null,
+        projectOrgId,
       ]
     );
 

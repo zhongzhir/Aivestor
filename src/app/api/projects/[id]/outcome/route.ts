@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { isValidOutcome } from "@/lib/outcome";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 
 // PATCH /api/projects/[id]/outcome — 更新项目投资结果
 export async function PATCH(
@@ -24,6 +29,13 @@ export async function PATCH(
     return NextResponse.json({ error: "结果值不合法" }, { status: 422 });
   }
 
+  const scope = await buildAccessScope(session.user.id);
+  try {
+    await assertProjectAccess(scope, params.id, "write");
+  } catch (e) {
+    return accessErrorResponse(e);
+  }
+
   const rows = await query<{
     id: string;
     outcome: string;
@@ -32,13 +44,12 @@ export async function PATCH(
   }>(
     `UPDATE projects
         SET outcome = $1, outcome_note = $2, outcome_at = NOW()
-      WHERE id = $3 AND user_id = $4
+      WHERE id = $3
       RETURNING id, outcome, outcome_note, outcome_at`,
     [
       body.outcome,
       body.outcome_note?.trim() || null,
       params.id,
-      session.user.id,
     ]
   );
 

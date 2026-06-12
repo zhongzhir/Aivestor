@@ -10,6 +10,10 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
+import {
+  buildAccessScope,
+  scopedProjectChildWhere,
+} from "@/lib/resourceAccess";
 
 // 把一行文本中的 **加粗** 标记转为 docx TextRun。
 function inlineRuns(text: string): TextRun[] {
@@ -73,6 +77,12 @@ export async function GET(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
+  // 报告可见性跟随项目；analyst 不可见 kind='committee'。个人版退化等价。
+  const scope = await buildAccessScope(session.user.id);
+  const child = scopedProjectChildWhere(scope, 2, {
+    alias: "r",
+    excludeMergedForAnalyst: true,
+  });
   const rows = await query<{
     title: string;
     content: string;
@@ -82,8 +92,8 @@ export async function GET(
     `SELECT r.title, r.content, r.kind, p.name AS project_name
        FROM reports r
        LEFT JOIN projects p ON p.id = r.project_id
-      WHERE r.id = $1 AND r.user_id = $2`,
-    [params.id, session.user.id]
+      WHERE r.id = $1 AND ${child.sql}`,
+    [params.id, ...child.params]
   );
   if (rows.length === 0) {
     return NextResponse.json({ error: "报告不存在" }, { status: 404 });

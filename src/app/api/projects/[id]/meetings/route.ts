@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { isValidMeetingType } from "@/lib/postInvestment";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  scopedProjectChildWhere,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 
 interface MeetingRow {
   id: string;
@@ -13,14 +19,6 @@ interface MeetingRow {
   ai_summary: unknown;
   next_meeting_date: string | null;
   created_at: string;
-}
-
-async function assertOwned(projectId: string, userId: string): Promise<boolean> {
-  const owned = await query<{ id: string }>(
-    "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
-    [projectId, userId]
-  );
-  return owned.length > 0;
 }
 
 // 把参与方输入（字符串或数组）归一化为字符串数组
@@ -47,17 +45,20 @@ export async function GET(
     if (!session?.user) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
-    if (!(await assertOwned(params.id, session.user.id))) {
-      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    const scope = await buildAccessScope(session.user.id);
+    try {
+      await assertProjectAccess(scope, params.id, "read");
+    } catch (e) {
+      return accessErrorResponse(e);
     }
-
+    const child = scopedProjectChildWhere(scope, 2);
     const rows = await query<MeetingRow>(
       `SELECT id, title, meeting_date, meeting_type, participants,
               content, ai_summary, next_meeting_date, created_at
          FROM meeting_notes
-        WHERE project_id = $1 AND user_id = $2
+        WHERE project_id = $1 AND ${child.sql}
         ORDER BY meeting_date DESC NULLS LAST, created_at DESC`,
-      [params.id, session.user.id]
+      [params.id, ...child.params]
     );
     return NextResponse.json({ meetings: rows });
   } catch (e) {
@@ -79,8 +80,13 @@ export async function POST(
     if (!session?.user) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
-    if (!(await assertOwned(params.id, session.user.id))) {
-      return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    const scope = await buildAccessScope(session.user.id);
+    let projectOrgId: string | null = null;
+    try {
+      const info = await assertProjectAccess(scope, params.id, "write");
+      projectOrgId = info.orgId;
+    } catch (e) {
+      return accessErrorResponse(e);
     }
 
     let body: {
@@ -116,8 +122,8 @@ export async function POST(
     const rows = await query<MeetingRow>(
       `INSERT INTO meeting_notes
          (user_id, project_id, title, meeting_date, meeting_type,
-          participants, content, next_meeting_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          participants, content, next_meeting_date, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id, title, meeting_date, meeting_type, participants,
                  content, ai_summary, next_meeting_date, created_at`,
       [
@@ -129,6 +135,7 @@ export async function POST(
         JSON.stringify(normalizeParticipants(body.participants)),
         content,
         body.next_meeting_date || null,
+        projectOrgId,
       ]
     );
 

@@ -4,6 +4,10 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
+import {
+  buildAccessScope,
+  scopedProjectChildWhere,
+} from "@/lib/resourceAccess";
 import type { FinancialData } from "@/lib/types";
 
 // 品牌色
@@ -67,6 +71,12 @@ export async function GET(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
+  // 报告可见性跟随项目；analyst 不可见 kind='committee'。个人版退化等价。
+  const scope = await buildAccessScope(session.user.id);
+  const child = scopedProjectChildWhere(scope, 2, {
+    alias: "r",
+    excludeMergedForAnalyst: true,
+  });
   const rows = await query<{
     title: string;
     content: string;
@@ -78,8 +88,8 @@ export async function GET(
     `SELECT r.title, r.content, p.name AS project_name,
             p.industry, p.stage, p.financial_data
      FROM reports r JOIN projects p ON p.id = r.project_id
-     WHERE r.id = $1 AND r.user_id = $2`,
-    [params.id, session.user.id]
+     WHERE r.id = $1 AND ${child.sql}`,
+    [params.id, ...child.params]
   );
   if (rows.length === 0) {
     return NextResponse.json({ error: "报告不存在" }, { status: 404 });

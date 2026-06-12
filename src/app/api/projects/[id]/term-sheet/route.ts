@@ -8,6 +8,11 @@ import {
   freeQuotaMetaFor,
 } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 import type { FinancialData } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -137,11 +142,19 @@ export async function POST(
     // 空 body 也允许
   }
 
-  // 1. 项目（含归属校验）
+  // 1. 项目（含归属校验，write）；orgId 用于报告跟随父项目
+  const scope = await buildAccessScope(userId);
+  let projectOrgId: string | null = null;
+  try {
+    const info = await assertProjectAccess(scope, params.id, "write");
+    projectOrgId = info.orgId;
+  } catch (e) {
+    return accessErrorResponse(e);
+  }
   const projects = await query<ProjectRow>(
     `SELECT name, company_name, industry, stage, financial_data
-       FROM projects WHERE id = $1 AND user_id = $2`,
-    [params.id, userId]
+       FROM projects WHERE id = $1`,
+    [params.id]
   );
   if (projects.length === 0) {
     return NextResponse.json({ error: "项目不存在" }, { status: 404 });
@@ -265,10 +278,10 @@ ${extraInput ? `## 投资人补充说明（请优先参考）\n${extraInput}\n` 
 
   // 7. 预创建报告占位（kind = term_sheet）
   const created = await query<{ id: string }>(
-    `INSERT INTO reports (project_id, user_id, title, content, status, kind)
-     VALUES ($1, $2, $3, '', 'draft', 'term_sheet')
+    `INSERT INTO reports (project_id, user_id, title, content, status, kind, org_id)
+     VALUES ($1, $2, $3, '', 'draft', 'term_sheet', $4)
      RETURNING id`,
-    [params.id, userId, `【Term Sheet 初稿】${project.name}`]
+    [params.id, userId, `【Term Sheet 初稿】${project.name}`, projectOrgId]
   );
   const reportId = created[0].id;
 

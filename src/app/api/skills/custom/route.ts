@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { isValidSkillCategory, SKILL_STAGES } from "@/lib/skills";
+import { buildAccessScope } from "@/lib/resourceAccess";
 
 interface CustomSkillRow {
   id: string;
@@ -10,24 +11,28 @@ interface CustomSkillRow {
   category: string | null;
   prompt_template: string;
   applicable_stages: string[];
+  org_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
-// GET /api/skills/custom — 当前用户的自建 SKILL 列表
+// GET /api/skills/custom — 自建 SKILL 列表：本人的 + 组织共享的
 export async function GET() {
   try {
     const session = await getSession();
     if (!session?.user) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
+    // 个人版退化为仅 user_id = $1，与现状等价。
+    const scope = await buildAccessScope(session.user.id);
+    const orgId = scope.org?.orgId ?? null;
     const skills = await query<CustomSkillRow>(
       `SELECT id, name, description, category, prompt_template,
-              applicable_stages, created_at, updated_at
+              applicable_stages, org_id, created_at, updated_at
          FROM user_custom_skills
-        WHERE user_id = $1
+        WHERE user_id = $1${orgId ? " OR org_id = $2" : ""}
         ORDER BY created_at DESC`,
-      [session.user.id]
+      orgId ? [session.user.id, orgId] : [session.user.id]
     );
     return NextResponse.json({ skills });
   } catch (e) {
@@ -62,6 +67,7 @@ export async function POST(req: Request) {
       category?: string;
       prompt_template?: string;
       applicable_stages?: unknown;
+      shared?: boolean;
     };
     try {
       body = await req.json();
@@ -85,12 +91,28 @@ export async function POST(req: Request) {
         ? body.category
         : null;
 
+    // 组织共享 SKILL：需 partner+ 且有 org（1.2 矩阵）；否则创建为个人 SKILL。
+    let orgId: string | null = null;
+    if (body.shared) {
+      const scope = await buildAccessScope(session.user.id);
+      if (
+        !scope.org ||
+        (scope.org.role !== "admin" && scope.org.role !== "partner")
+      ) {
+        return NextResponse.json(
+          { error: "仅 partner 及以上可创建组织共享 SKILL" },
+          { status: 403 }
+        );
+      }
+      orgId = scope.org.orgId;
+    }
+
     const rows = await query<CustomSkillRow>(
       `INSERT INTO user_custom_skills
-         (user_id, name, description, category, prompt_template, applicable_stages)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (user_id, name, description, category, prompt_template, applicable_stages, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, name, description, category, prompt_template,
-                 applicable_stages, created_at, updated_at`,
+                 applicable_stages, org_id, created_at, updated_at`,
       [
         session.user.id,
         name,
@@ -98,6 +120,7 @@ export async function POST(req: Request) {
         category,
         promptTemplate,
         normalizeStages(body.applicable_stages),
+        orgId,
       ]
     );
 

@@ -11,6 +11,12 @@ import {
   ESTIMATED_TOKENS_PER_IMAGE,
 } from "@/lib/imageExtract";
 import { isQwenVLAvailable } from "@/lib/qwenVL";
+import {
+  buildAccessScope,
+  assertProjectAccess,
+  scopedProjectChildWhere,
+  accessErrorResponse,
+} from "@/lib/resourceAccess";
 
 const SUPPORTED_TYPES = ["pdf", "docx", "pptx", "xlsx", "xls"];
 const ALLOWED_DOC_KINDS = [
@@ -34,20 +40,20 @@ export async function GET(
   if (!session?.user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
-  // 同步校验项目归属
-  const owned = await query<{ id: string }>(
-    "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
-    [params.id, session.user.id]
-  );
-  if (owned.length === 0) {
-    return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+  const scope = await buildAccessScope(session.user.id);
+  try {
+    await assertProjectAccess(scope, params.id, "read");
+  } catch (e) {
+    return accessErrorResponse(e);
   }
+  // 个人版退化为 "user_id = $2"——与现状逐字节等价。
+  const child = scopedProjectChildWhere(scope, 2);
   const documents = await query(
     `SELECT id, filename, file_type, doc_kind, parse_status, created_at
        FROM documents
-      WHERE project_id = $1 AND user_id = $2
+      WHERE project_id = $1 AND ${child.sql}
       ORDER BY created_at DESC`,
-    [params.id, session.user.id]
+    [params.id, ...child.params]
   );
   return NextResponse.json({ documents });
 }
@@ -62,13 +68,14 @@ export async function POST(
     return NextResponse.json({ error: "未登录" }, { status: 401 });
   }
 
-  // 校验项目归属
-  const owned = await query<{ id: string }>(
-    "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
-    [params.id, session.user.id]
-  );
-  if (owned.length === 0) {
-    return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+  // 校验项目归属（write）；orgId 用于子资源跟随父项目
+  const scope = await buildAccessScope(session.user.id);
+  let projectOrgId: string | null = null;
+  try {
+    const info = await assertProjectAccess(scope, params.id, "write");
+    projectOrgId = info.orgId;
+  } catch (e) {
+    return accessErrorResponse(e);
   }
 
   let body: {
@@ -137,8 +144,8 @@ export async function POST(
   const rows = await query<{ id: string }>(
     `INSERT INTO documents
        (user_id, project_id, filename, file_type, file_url, file_size,
-        doc_kind, extracted_text, parse_status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'done')
+        doc_kind, extracted_text, parse_status, org_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'done', $9)
      RETURNING id`,
     [
       session.user.id,
@@ -149,6 +156,7 @@ export async function POST(
       buffer.length,
       docKind,
       parsed.text,
+      projectOrgId,
     ]
   );
 
