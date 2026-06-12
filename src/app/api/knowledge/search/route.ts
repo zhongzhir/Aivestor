@@ -130,6 +130,7 @@ export async function POST(req: NextRequest) {
             ts_rank(search_vector, plainto_tsquery('simple', $2)) AS score
        FROM knowledge_base_entries
       WHERE user_id = $1
+        AND visibility = 'private'
         AND search_vector @@ plainto_tsquery('simple', $2)
         ${ftsExtra.sql}
       ORDER BY score DESC
@@ -158,6 +159,7 @@ export async function POST(req: NextRequest) {
               1 - (embedding <=> $2::vector) AS score
          FROM knowledge_base_entries
         WHERE user_id = $1
+          AND visibility = 'private'
           AND embedding IS NOT NULL
           ${vecExtra.sql}
         ORDER BY embedding <=> $2::vector

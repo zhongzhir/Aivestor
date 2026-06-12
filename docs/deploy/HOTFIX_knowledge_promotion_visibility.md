@@ -93,6 +93,6 @@ ORDER BY created_at DESC;
 
 ---
 
-## 五、附：一个超范围的次要观察（本次未改，供决策）
+## 五、附：同模式的第二处实例（后续补丁已修复）
 
-`/api/knowledge/search`（知识问答）的**个人检索**子句仍是 `WHERE user_id = $1`（无 visibility 过滤），其作者本人搜索时，自己已晋升的条目可能在"个人检索"与"机构层增补"各出现一次（按 content 前缀去重，影响轻微，仅作者本人可见）。这不是本次报告的 tab bug，未改动以控制范围；如需严格遵循"移动不是复制"，可后续给该子句也加 `AND visibility='private'`。
+`/api/knowledge/search`（知识问答）的**个人检索**子句原同样是 `WHERE user_id = $1`（无 visibility 过滤），作者本人搜索时自己已晋升的条目会在"个人检索"与"机构层增补"各出现一次。已在后续补丁中按同模式修复：向量检索与全文检索两处个人层子句均补 `AND visibility = 'private'`（commit `fix: knowledge search personal clause visibility filter`）。机构层增补（`searchLayeredKnowledge`，`visibility='org'`）与 document_chunks 检索（无 visibility 列、不涉及晋升）未动。
