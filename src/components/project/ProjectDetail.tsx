@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FinancialCharts } from "./FinancialCharts";
@@ -16,11 +16,31 @@ import type { FinancialData } from "@/lib/types";
 type Tab = "analysis" | "decision" | "post";
 
 export interface DocMeta {
+  id: string;
   filename: string;
   chars: number;
   fileType: string;
+  docKind: string;
   parseStatus: string;
   uploadedAt: string;
+}
+
+// 每张图片预估 token（与后端 ESTIMATED_TOKENS_PER_IMAGE 保持一致，用于额度提示）
+const EST_TOKENS_PER_IMAGE = 600;
+// 每张图片预估识别耗时约 30 秒，向上取整到分钟，最少 1 分钟
+function estimateMinutes(imageCount: number): number {
+  return Math.max(1, Math.ceil(imageCount / 2));
+}
+
+// 单个文档的图片识别状态（按需查询 / 触发）
+interface ImgState {
+  loading: boolean; // 状态查询中
+  supported: boolean; // 可做图片识别（bp + 支持格式 + 系统已配置）
+  imageCount: number; // 嵌入图片数（已识别则为已识别张数）
+  analyzed: boolean; // 已识别过
+  analyzing: boolean; // 正在识别
+  note: string; // 完成后摘要
+  error: string;
 }
 
 const FILE_TYPE_ICON: Record<string, string> = {
@@ -74,6 +94,110 @@ export function ProjectDetail({
     if (results.some((r) => r.status === "done")) {
       setNewUpload(true);
       router.refresh();
+    }
+  }
+
+  // —— BP 图片识别（项目页按需触发）——
+  // 每个 BP 文档的图片识别状态；剩余免费额度（用于额度不足提示）
+  const [imgStates, setImgStates] = useState<Record<string, ImgState>>({});
+  const [quotaRemaining, setQuotaRemaining] = useState<number | null>(null);
+
+  // 挂载 / SSR 数据变化时，对已解析的 BP 文档异步查询图片状态（不阻塞首屏）
+  useEffect(() => {
+    const bpDocs = docMeta.filter(
+      (d) => d.docKind === "bp" && d.parseStatus === "done"
+    );
+    if (bpDocs.length === 0) return;
+
+    // 额度状态（一次性，余额不足在按钮区提示）
+    fetch("/api/user/quota-status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((q) => {
+        if (q?.enabled) setQuotaRemaining(q.tokensRemaining ?? null);
+      })
+      .catch(() => {});
+
+    // 逐个查询图片状态。已在识别中 / 已完成的本地态不覆盖，避免 refresh 打断。
+    for (const d of bpDocs) {
+      setImgStates((prev) =>
+        prev[d.id]?.analyzing || prev[d.id]?.note
+          ? prev
+          : {
+              ...prev,
+              [d.id]: {
+                loading: true,
+                supported: false,
+                imageCount: 0,
+                analyzed: false,
+                analyzing: false,
+                note: "",
+                error: "",
+              },
+            }
+      );
+      fetch(`/api/documents/${d.id}/image-status`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data) return;
+          setImgStates((prev) => {
+            // 识别中 / 已出摘要的不覆盖
+            if (prev[d.id]?.analyzing || prev[d.id]?.note) return prev;
+            return {
+              ...prev,
+              [d.id]: {
+                loading: false,
+                supported: !!data.supported,
+                imageCount: data.imageCount ?? 0,
+                analyzed: !!data.analyzed,
+                analyzing: false,
+                note: "",
+                error: "",
+              },
+            };
+          });
+        })
+        .catch(() => {
+          setImgStates((prev) => ({
+            ...prev,
+            [d.id]: { ...prev[d.id], loading: false },
+          }));
+        });
+    }
+  }, [docMeta]);
+
+  // 用户点击「提取图片信息」：调用 Qwen-VL 识别（后台进行，不阻塞页面其他操作）
+  async function analyzeImages(docId: string) {
+    setImgStates((prev) => ({
+      ...prev,
+      [docId]: { ...prev[docId], analyzing: true, error: "" },
+    }));
+    try {
+      const res = await fetch(`/api/documents/${docId}/image-analysis`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "图片识别失败");
+      const parts = [`已识别 ${data.count} 张图片`];
+      if (data.failed > 0) parts.push(`${data.failed} 张失败`);
+      if (data.skipped > 0) parts.push(`另有 ${data.skipped} 张未处理`);
+      setImgStates((prev) => ({
+        ...prev,
+        [docId]: {
+          ...prev[docId],
+          analyzing: false,
+          analyzed: true,
+          note: parts.join("，"),
+        },
+      }));
+    } catch (e) {
+      setImgStates((prev) => ({
+        ...prev,
+        [docId]: {
+          ...prev[docId],
+          analyzing: false,
+          error: e instanceof Error ? e.message : "图片识别失败",
+        },
+      }));
     }
   }
 
@@ -271,6 +395,54 @@ export function ProjectDetail({
                   .join("、")
               : "尚未上传文档"}
           </p>
+
+          {/* BP 图片识别：项目页按需触发，不阻塞其他操作 */}
+          {docMeta
+            .filter((d) => d.docKind === "bp")
+            .map((d) => {
+              const st = imgStates[d.id];
+              // 状态未知 / 查询中 / 不支持 → 不显示按钮
+              if (!st || st.loading || !st.supported) return null;
+              // 既未识别又无图片 → 不显示
+              if (!st.analyzed && st.imageCount === 0) return null;
+              const insufficient =
+                !st.analyzed &&
+                quotaRemaining !== null &&
+                quotaRemaining < st.imageCount * EST_TOKENS_PER_IMAGE;
+              return (
+                <div key={d.id} className="mt-2 text-xs">
+                  {st.analyzed ? (
+                    <p className="text-accent">
+                      ✓ 已提取图片信息
+                      {st.note ? `（${st.note}）` : ""}
+                    </p>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => analyzeImages(d.id)}
+                        disabled={st.analyzing}
+                        className="rounded-md border border-accent px-3 py-1.5 font-medium text-accent transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
+                      >
+                        {st.analyzing
+                          ? "识别中…（可继续其他操作）"
+                          : `提取图片信息（${st.imageCount}张，约${estimateMinutes(
+                              st.imageCount
+                            )}分钟）`}
+                      </button>
+                      {insufficient && (
+                        <p className="mt-1 text-amber-600">
+                          ⚠️ 当前剩余额度可能不足以完成图片识别，建议配置自己的 API Key
+                        </p>
+                      )}
+                      {st.error && (
+                        <p className="mt-1 text-red-600">{st.error}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+
           <div className="mt-2 h-[420px] overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-xs leading-6 text-ink-soft">
             {bpText || "（无可显示的文本）"}
           </div>

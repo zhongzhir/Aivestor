@@ -15,10 +15,12 @@ interface ProjectRow {
 }
 
 interface DocRow {
+  id: string;
   filename: string;
   chars: number;
   extracted_text: string | null;
   file_type: string;
+  doc_kind: string;
   parse_status: string;
   created_at: string;
 }
@@ -84,9 +86,9 @@ export default async function ProjectDetailPage({
   }
 
   const docs = await query<DocRow>(
-    `SELECT filename,
+    `SELECT id, filename,
             COALESCE(char_length(extracted_text), 0) AS chars,
-            extracted_text, file_type, parse_status, created_at
+            extracted_text, file_type, doc_kind, parse_status, created_at
        FROM documents
       WHERE project_id = $1
       ORDER BY created_at ASC`,
@@ -113,9 +115,11 @@ export default async function ProjectDetailPage({
       judgments={judgments}
       bpText={bpText}
       docMeta={docs.map((d) => ({
+        id: d.id,
         filename: d.filename,
         chars: d.chars,
         fileType: d.file_type,
+        docKind: d.doc_kind,
         parseStatus: d.parse_status,
         uploadedAt: d.created_at,
       }))}
