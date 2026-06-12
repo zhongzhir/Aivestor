@@ -6,6 +6,8 @@ import { decrypt } from "@/lib/crypto";
 import OpenAI from "openai";
 import Anthropic from "@anthropic-ai/sdk";
 import { injectProfile } from "@/lib/user-profile";
+import { buildAccessScope } from "@/lib/resourceAccess";
+import { searchLayeredKnowledge } from "@/lib/knowledgeSearch";
 
 export const maxDuration = 60;
 
@@ -197,6 +199,29 @@ export async function POST(req: NextRequest) {
       chunkRows.map((r) => ({ content: r.content, source_type: "document", score: 0.5 })),
       1
     );
+  }
+
+  // 3.5 机构沉淀层条目（三层检索的 org 路；个人版 scope.org=null 时无命中）
+  try {
+    const scope = await buildAccessScope(session.user.id);
+    if (scope.org) {
+      const layered = await searchLayeredKnowledge(scope, question, {
+        topKPersonal: 0,
+        topKOrg: 6,
+      });
+      addChunks(
+        layered
+          .filter((h) => h.layer === "org")
+          .map((h) => ({
+            content: `【机构沉淀·${h.authorName ?? "机构成员"}】${h.content}`,
+            source_type: "机构沉淀",
+            score: h.similarity,
+          })),
+        1.1
+      );
+    }
+  } catch (e) {
+    console.warn("[knowledge/search] 机构层检索失败（忽略）:", e);
   }
 
   // 4. 检索相关项目的投资判断记录

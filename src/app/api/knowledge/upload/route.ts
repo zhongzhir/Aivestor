@@ -5,6 +5,8 @@ import { generateEmbedding } from "@/lib/embedding";
 import { parseFile, getFileType } from "@/lib/fileParser";
 import { isValidCategory } from "@/lib/knowledgeCategories";
 import { readFileBuffer } from "@/lib/fileStorage";
+import { buildAccessScope } from "@/lib/resourceAccess";
+import { hasCapability } from "@/lib/orgAuth";
 
 export const maxDuration = 120;
 
@@ -21,6 +23,7 @@ export async function POST(req: Request) {
       fileName?: string;
       fileSize?: number;
       category?: string;
+      shared?: boolean;
     };
     try {
       body = await req.json();
@@ -79,6 +82,19 @@ export async function POST(req: Request) {
       embeddingModel = result.model;
     }
 
+    // 目标层：默认个人私有；shared 且开通 org_knowledge 时直接收录到机构层。
+    let orgId: string | null = null;
+    let visibility = "private";
+    let promotedBy: string | null = null;
+    if (body.shared) {
+      const scope = await buildAccessScope(session.user.id);
+      if (scope.org && (await hasCapability(scope.org.orgId, "org_knowledge"))) {
+        orgId = scope.org.orgId;
+        visibility = "org";
+        promotedBy = session.user.id;
+      }
+    }
+
     // 4. 写入 knowledge_base_entries
     const metadata = {
       fileName,
@@ -88,8 +104,10 @@ export async function POST(req: Request) {
     };
     const inserted = await query<{ id: string }>(
       `INSERT INTO knowledge_base_entries
-         (user_id, content, source_type, tags, embedding, embedding_model, metadata)
-       VALUES ($1, $2, 'document', $3, $4, $5, $6)
+         (user_id, content, source_type, tags, embedding, embedding_model, metadata,
+          org_id, visibility, promoted_by, promoted_at)
+       VALUES ($1, $2, 'document', $3, $4, $5, $6, $7, $8, $9,
+               CASE WHEN $9::uuid IS NULL THEN NULL ELSE NOW() END)
        RETURNING id`,
       [
         session.user.id,
@@ -98,6 +116,9 @@ export async function POST(req: Request) {
         embeddingVector ? `[${embeddingVector.join(",")}]` : null,
         embeddingModel,
         JSON.stringify(metadata),
+        orgId,
+        visibility,
+        promotedBy,
       ]
     );
 

@@ -1,14 +1,14 @@
 import { query } from "@/lib/db";
-import { generateEmbedding } from "@/lib/embedding";
 import { getUserProfile, formatProfileForPrompt } from "@/lib/user-profile";
+import { buildAccessScope } from "@/lib/resourceAccess";
+import { searchLayeredKnowledge } from "@/lib/knowledgeSearch";
 
 // 对话上下文记忆：把投资人画像 + 近期沉淀 + 相关知识库片段
 // 三段拼成自然语言注入到 system prompt 头部。
 
-// 短消息（如「继续」「展开」）不触发向量检索 —— 噪声大、价值低
-const MIN_QUERY_LEN = 10;
 const RECENT_DIGEST_LIMIT = 10;
 const KB_TOPK = 5;
+const KB_CHAR_LIMIT = 200;
 
 interface DigestRow {
   content: string;
@@ -28,40 +28,6 @@ async function recentDigests(userId: string): Promise<DigestRow[]> {
         WHERE user_id = $1 AND entry_type = 'conversation_digest'
         ORDER BY created_at DESC LIMIT $2`,
       [userId, RECENT_DIGEST_LIMIT]
-    );
-  } catch {
-    return [];
-  }
-}
-
-// 复用知识库的向量检索（与 /api/knowledge/search 同一思路）。
-// 优先向量；百炼未配置时回退全文检索；任一失败都返回空数组。
-async function searchKnowledgeBase(
-  userId: string,
-  question: string,
-  topK: number
-): Promise<KBHit[]> {
-  if (!question || question.length < MIN_QUERY_LEN) return [];
-  try {
-    const emb = await generateEmbedding(question);
-    if (emb) {
-      return await query<KBHit>(
-        `SELECT content, source_type
-           FROM knowledge_base_entries
-          WHERE user_id = $1 AND embedding IS NOT NULL
-          ORDER BY embedding <=> $2::vector
-          LIMIT $3`,
-        [userId, `[${emb.vector.join(",")}]`, topK]
-      );
-    }
-    return await query<KBHit>(
-      `SELECT content, source_type
-         FROM knowledge_base_entries
-        WHERE user_id = $1
-          AND search_vector @@ plainto_tsquery('simple', $2)
-        ORDER BY ts_rank(search_vector, plainto_tsquery('simple', $2)) DESC
-        LIMIT $3`,
-      [userId, question, topK]
     );
   } catch {
     return [];
@@ -97,20 +63,27 @@ export async function buildMemoryContext(
     parts.push(`## 近期认知沉淀\n${lines}`);
   }
 
-  // 3. 与当前消息相关的知识库条目
-  const hits = await searchKnowledgeBase(userId, userMessage, KB_TOPK);
+  // 3. 与当前消息相关的知识库条目（三层检索；个人版自动退化为现状单层）
+  const scope = await buildAccessScope(userId);
+  const hits = await searchLayeredKnowledge(scope, userMessage, {
+    topKPersonal: KB_TOPK,
+    topKOrg: KB_TOPK,
+  });
   if (hits.length > 0) {
     const lines = hits
-      .map(
-        (h, i) =>
-          `[${i + 1}] (来源: ${h.source_type ?? "未知"}) ${h.content.slice(0, 200)}`
-      )
+      .map((h, i) => {
+        const prefix =
+          h.layer === "org"
+            ? `【机构沉淀·${h.authorName ?? "机构成员"}】`
+            : `(来源: ${h.sourceType ?? "未知"})`;
+        return `[${i + 1}] ${prefix} ${h.content.slice(0, KB_CHAR_LIMIT)}`;
+      })
       .join("\n\n");
     parts.push(`## 相关知识库条目\n${lines}`);
   }
 
   return {
     context: parts.join("\n\n"),
-    sources: hits,
+    sources: hits.map((h) => ({ content: h.content, source_type: h.sourceType })),
   };
 }

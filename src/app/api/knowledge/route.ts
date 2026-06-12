@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { generateEmbedding } from "@/lib/embedding";
+import { buildAccessScope } from "@/lib/resourceAccess";
+import { hasCapability } from "@/lib/orgAuth";
 
 export const maxDuration = 30;
 
@@ -15,6 +17,7 @@ interface KBRow {
   embedding_model: string | null;
   metadata?: Record<string, unknown>;
   created_at: string;
+  author_name?: string | null;
 }
 
 const ALLOWED_ENTRY_TYPES = new Set([
@@ -48,33 +51,54 @@ export async function GET(req: NextRequest) {
   const sourceTypeRaw = (sp.get("source_type") ?? "").trim();
   const sourceType = ALLOWED_SOURCE_TYPES.has(sourceTypeRaw) ? sourceTypeRaw : "";
 
-  const where: string[] = ["user_id = $1"];
-  const params: unknown[] = [session.user.id];
+  // 层筛选：layer=org 显示机构沉淀层（含他人条目+作者名）；
+  // 默认（个人层）与现状逐字节等价：WHERE user_id = $1。
+  const layer = (sp.get("layer") ?? "").trim();
+  let baseWhere: string;
+  const params: unknown[] = [];
+  let withAuthor = false;
+  if (layer === "org") {
+    const scope = await buildAccessScope(session.user.id);
+    if (!scope.org || !(await hasCapability(scope.org.orgId, "org_knowledge"))) {
+      return NextResponse.json({ entries: [], total: 0, page });
+    }
+    params.push(scope.org.orgId);
+    baseWhere = "kb.org_id = $1 AND kb.visibility = 'org'";
+    withAuthor = true;
+  } else {
+    params.push(session.user.id);
+    baseWhere = "kb.user_id = $1";
+  }
 
+  const where: string[] = [baseWhere];
   if (entryTypes.length > 0) {
     params.push(entryTypes);
-    where.push(`entry_type = ANY($${params.length}::text[])`);
+    where.push(`kb.entry_type = ANY($${params.length}::text[])`);
   }
   if (sourceType) {
     params.push(sourceType);
-    where.push(`source_type = $${params.length}`);
+    where.push(`kb.source_type = $${params.length}`);
   }
+
+  const authorSelect = withAuthor ? ", u.name AS author_name" : "";
+  const authorJoin = withAuthor ? "LEFT JOIN users u ON u.id = kb.user_id" : "";
 
   params.push(limit);
   params.push(offset);
   const entries = await query<KBRow>(
-    `SELECT id, content, source_type, entry_type, structured_data,
-            tags, embedding_model, metadata, created_at
-       FROM knowledge_base_entries
+    `SELECT kb.id, kb.content, kb.source_type, kb.entry_type, kb.structured_data,
+            kb.tags, kb.embedding_model, kb.metadata, kb.created_at${authorSelect}
+       FROM knowledge_base_entries kb
+       ${authorJoin}
       WHERE ${where.join(" AND ")}
-      ORDER BY created_at DESC
+      ORDER BY kb.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   );
 
   const countRows = await query<{ count: number }>(
     `SELECT COUNT(*)::int AS count
-       FROM knowledge_base_entries
+       FROM knowledge_base_entries kb
       WHERE ${where.join(" AND ")}`,
     params.slice(0, params.length - 2)
   );

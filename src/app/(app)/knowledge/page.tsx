@@ -31,6 +31,7 @@ interface KBEntry {
     project_name?: string;
     digested_at?: string;
   } | null;
+  author_name?: string | null;
   created_at: string;
 }
 
@@ -94,13 +95,27 @@ export default function KnowledgePage() {
   // 列表筛选
   const [filterEntryTypes, setFilterEntryTypes] = useState<string[]>([]);
   const [filterSourceType, setFilterSourceType] = useState<string>("");
+  // 层筛选：个人层 / 机构沉淀层（仅开通 org_knowledge 时可切换）
+  const [layer, setLayer] = useState<"personal" | "org">("personal");
+  const [canShareToOrg, setCanShareToOrg] = useState(false);
   // 排序：无搜索词时即「最近沉淀」；有搜索词时按相关度（向量搜索本身已排序）
   const hasQuery = question.trim().length > 0;
+
+  // 检测当前用户组织是否开通机构知识沉淀能力（决定晋升入口与层切换）
+  useEffect(() => {
+    fetch("/api/org")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const caps = d?.capabilities ?? d?.org?.capabilities;
+        if (caps && caps.org_knowledge === true) setCanShareToOrg(true);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!hasQuery) fetchEntries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterEntryTypes, filterSourceType, hasQuery]);
+  }, [filterEntryTypes, filterSourceType, hasQuery, layer]);
 
   async function fetchEntries() {
     setLoading(true);
@@ -108,12 +123,18 @@ export default function KnowledgePage() {
     if (filterEntryTypes.length > 0)
       sp.set("entry_type", filterEntryTypes.join(","));
     if (filterSourceType) sp.set("source_type", filterSourceType);
+    if (layer === "org") sp.set("layer", "org");
     const qs = sp.toString();
     const res = await fetch(`/api/knowledge${qs ? `?${qs}` : ""}`);
     const data = await res.json();
     setEntries(data.entries ?? []);
     setTotal(data.total ?? 0);
     setLoading(false);
+  }
+
+  async function promoteEntry(id: string) {
+    const res = await fetch(`/api/knowledge/${id}/promote`, { method: "POST" });
+    if (res.ok) fetchEntries();
   }
 
   function toggleEntryType(value: string) {
@@ -356,9 +377,28 @@ export default function KnowledgePage() {
 
       {/* 条目列表 */}
       <div>
-        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-faint">
-          已收录内容
-        </p>
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            {layer === "org" ? "机构沉淀" : "已收录内容"}
+          </p>
+          {canShareToOrg && (
+            <div className="flex gap-1 text-xs">
+              {(["personal", "org"] as const).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setLayer(l)}
+                  className={`rounded-full border px-2 py-0.5 ${
+                    layer === l
+                      ? "border-[#0D1B3E] bg-[#0D1B3E] text-white"
+                      : "border-line text-ink-soft hover:border-[#0D1B3E]"
+                  }`}
+                >
+                  {l === "personal" ? "个人层" : "机构沉淀层"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {loading ? (
           <p className="text-sm text-ink-faint">加载中…</p>
         ) : entries.length === 0 ? (
@@ -370,7 +410,13 @@ export default function KnowledgePage() {
         ) : (
           <div className="space-y-2">
             {entries.map((entry) => (
-              <KBEntryItem key={entry.id} entry={entry} />
+              <KBEntryItem
+                key={entry.id}
+                entry={entry}
+                isOrgLayer={layer === "org"}
+                canShareToOrg={canShareToOrg && layer === "personal"}
+                onPromote={promoteEntry}
+              />
             ))}
           </div>
         )}
@@ -408,8 +454,19 @@ function CognitionPanel() {
   );
 }
 
-function KBEntryItem({ entry }: { entry: KBEntry }) {
+function KBEntryItem({
+  entry,
+  isOrgLayer = false,
+  canShareToOrg = false,
+  onPromote,
+}: {
+  entry: KBEntry;
+  isOrgLayer?: boolean;
+  canShareToOrg?: boolean;
+  onPromote?: (id: string) => void;
+}) {
   const [open, setOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const isDigest = entry.entry_type === "conversation_digest";
   const sd = entry.structured_data;
   const icon = isDigest ? "💬" : "📄";
@@ -483,12 +540,33 @@ function KBEntryItem({ entry }: { entry: KBEntry }) {
         </div>
       )}
 
-      <p className="mt-2 text-xs text-ink-faint">
-        {new Date(entry.created_at).toLocaleDateString("zh-CN")}
-        {isDigest && entry.metadata?.project_name && (
-          <span className="ml-2">· 来自项目「{entry.metadata.project_name}」</span>
+      <div className="mt-2 flex items-center justify-between">
+        <p className="text-xs text-ink-faint">
+          {new Date(entry.created_at).toLocaleDateString("zh-CN")}
+          {isOrgLayer && (
+            <span className="ml-2 rounded bg-[#FF6B35] px-1.5 py-0.5 text-white">
+              【机构沉淀】{entry.author_name ?? "机构成员"}
+            </span>
+          )}
+          {isDigest && entry.metadata?.project_name && (
+            <span className="ml-2">· 来自项目「{entry.metadata.project_name}」</span>
+          )}
+        </p>
+        {canShareToOrg && onPromote && (
+          <button
+            type="button"
+            disabled={sharing}
+            onClick={async () => {
+              setSharing(true);
+              await onPromote(entry.id);
+              setSharing(false);
+            }}
+            className="shrink-0 text-xs font-medium text-[#FF6B35] hover:underline disabled:opacity-50"
+          >
+            {sharing ? "分享中…" : "分享到机构知识库"}
+          </button>
         )}
-      </p>
+      </div>
     </div>
   );
 }
