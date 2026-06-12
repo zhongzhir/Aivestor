@@ -14,6 +14,17 @@ export interface ParseFileResult {
 const EXCEL_WARNING =
   "Excel文件已提取文本，财务数据建议使用专项解析功能";
 
+// NUL 字符（U+0000）。用 fromCharCode 构造，避免源码里直接出现 NUL 字节。
+const NUL_CHAR = String.fromCharCode(0);
+
+// 去除文本中的 NUL 字符。部分 PDF 经 unpdf 解析后含 NUL，
+// 而 Postgres text 字段不允许 NUL，写入会报
+// 「invalid byte sequence for encoding "UTF8": 0x00」。
+// 在解析层统一清理，覆盖所有文件类型与所有调用方（项目文档 / 知识库上传）。
+function stripNul(text: string): string {
+  return text.split(NUL_CHAR).join("");
+}
+
 // 由文件名后缀推断统一文件类型；无法识别返回空字符串。
 export function getFileType(fileName: string): string {
   const ext = fileName.split(".").pop()?.toLowerCase();
@@ -48,26 +59,33 @@ export async function parseFile(
   fileType: string,
   fileName: string
 ): Promise<ParseFileResult> {
+  let text: string;
+  let warning: string | undefined;
+
   switch (fileType) {
     case "pdf":
     case "docx": {
       // 复用现有 unpdf / mammoth 解析逻辑
-      const { text } = await parseDocument(buffer, fileType);
-      return { text };
+      ({ text } = await parseDocument(buffer, fileType));
+      break;
     }
     case "pptx": {
       // officeparser 提取 PPT 文本
       const { parseOffice } = await import("officeparser");
       const ast = await parseOffice(buffer);
-      const text = ast.toText().replace(/\n{3,}/g, "\n\n").trim();
-      return { text };
+      text = ast.toText().replace(/\n{3,}/g, "\n\n").trim();
+      break;
     }
     case "xlsx":
     case "xls": {
-      const text = parseExcel(buffer).replace(/\n{3,}/g, "\n\n").trim();
-      return { text, warning: EXCEL_WARNING };
+      text = parseExcel(buffer).replace(/\n{3,}/g, "\n\n").trim();
+      warning = EXCEL_WARNING;
+      break;
     }
     default:
       throw new Error(`不支持的文件格式: ${fileType || fileName}`);
   }
+
+  // 统一清理 NUL 字符，避免写入 Postgres text 字段时报 0x00 编码错误
+  return { text: stripNul(text), warning };
 }
