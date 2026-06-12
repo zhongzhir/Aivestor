@@ -2,8 +2,17 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { formatTokens } from "@/lib/tokensFormat";
 
-type Phase = "idle" | "working" | "done" | "error";
+// idle → working（创建+上传解析）→ confirm_images（BP 检测到图片，等待确认）
+//   → analyzing（Qwen-VL 识别中）→ done；任意环节出错落入 error
+type Phase =
+  | "idle"
+  | "working"
+  | "confirm_images"
+  | "analyzing"
+  | "done"
+  | "error";
 
 export default function NewProjectPage() {
   const [name, setName] = useState("");
@@ -18,6 +27,13 @@ export default function NewProjectPage() {
   const [charCount, setCharCount] = useState(0);
   const [projectId, setProjectId] = useState("");
   const [error, setError] = useState("");
+
+  // BP 图片识别相关状态
+  const [documentId, setDocumentId] = useState("");
+  const [imageCount, setImageCount] = useState(0);
+  const [estimatedTokens, setEstimatedTokens] = useState(0);
+  const [quotaHint, setQuotaHint] = useState("");
+  const [imageNote, setImageNote] = useState("");
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -35,7 +51,14 @@ export default function NewProjectPage() {
     setFile(f);
   }
 
-  async function uploadDocument(pid: string): Promise<{ charCount: number }> {
+  interface UploadResponse {
+    id: string;
+    charCount: number;
+    imageCount?: number;
+    estimatedTokens?: number;
+  }
+
+  async function uploadDocument(pid: string): Promise<UploadResponse> {
     if (!file) throw new Error("未选择文件");
 
     setProgress(10);
@@ -114,15 +137,99 @@ export default function NewProjectPage() {
       const { id } = await res.json();
       setProjectId(id);
 
-      const { charCount: count } = await uploadDocument(id);
-      setCharCount(count);
-      setPhase("done");
+      const uploaded = await uploadDocument(id);
+      setCharCount(uploaded.charCount);
+      setDocumentId(uploaded.id);
+
+      // BP 检测到内嵌图片：先停在确认态，让用户决定是否识别（按需 Qwen-VL）
+      if (uploaded.imageCount && uploaded.imageCount > 0) {
+        setImageCount(uploaded.imageCount);
+        setEstimatedTokens(uploaded.estimatedTokens || 0);
+        setQuotaHint(await checkQuotaHint(uploaded.estimatedTokens || 0));
+        setPhase("confirm_images");
+      } else {
+        setPhase("done");
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[upload] 错误：", e);
       setError(msg || "操作失败，请打开浏览器控制台查看详情");
       setPhase("error");
     }
+  }
+
+  // 检测到图片时拉取免费额度状态，余额不足则在确认提示中告知
+  async function checkQuotaHint(tokens: number): Promise<string> {
+    try {
+      const res = await fetch("/api/user/quota-status");
+      if (!res.ok) return "";
+      const q = await res.json();
+      if (q.enabled && q.tokensRemaining < tokens) {
+        return "当前剩余额度可能不足以完成图片识别，建议配置自己的 API Key";
+      }
+    } catch {
+      // 查询失败不影响主流程
+    }
+    return "";
+  }
+
+  // 用户确认提取图片信息：调用 Qwen-VL 识别，完成后进入 done
+  async function analyzeImages() {
+    setPhase("analyzing");
+    try {
+      const res = await fetch(`/api/documents/${documentId}/image-analysis`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "图片识别失败");
+      const parts = [`已识别 ${data.count} 张图片`];
+      if (data.failed > 0) parts.push(`${data.failed} 张失败`);
+      if (data.skipped > 0) parts.push(`另有 ${data.skipped} 张未处理`);
+      setImageNote(parts.join("，"));
+    } catch (e) {
+      setImageNote(e instanceof Error ? e.message : "图片识别失败");
+    }
+    setPhase("done");
+  }
+
+  // BP 检测到图片：确认是否识别（analyzing 时按钮转 loading 态）
+  if (phase === "confirm_images" || phase === "analyzing") {
+    const analyzing = phase === "analyzing";
+    return (
+      <div className="mx-auto max-w-doc px-6 py-16">
+        <h1 className="text-xl font-semibold text-ink">项目已创建</h1>
+        <div className="mt-6 rounded-lg border border-line bg-accent-soft/40 p-5">
+          <p className="text-sm text-ink">
+            解析完成，共提取 {charCount.toLocaleString()} 字。
+          </p>
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-sm text-ink">
+              检测到 {imageCount} 张图片，识别可补充产品截图/图表等信息，预计消耗约{" "}
+              {formatTokens(estimatedTokens)}。是否提取图片信息？
+            </p>
+            {quotaHint && (
+              <p className="mt-1.5 text-xs text-amber-600">⚠️ {quotaHint}</p>
+            )}
+            <div className="mt-3 flex gap-2">
+              <button
+                onClick={analyzeImages}
+                disabled={analyzing}
+                className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {analyzing ? "图片识别中…" : "提取图片信息"}
+              </button>
+              <button
+                onClick={() => setPhase("done")}
+                disabled={analyzing}
+                className="rounded-md border border-line px-3 py-1.5 text-sm text-ink-soft hover:bg-gray-50 disabled:opacity-50"
+              >
+                跳过
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (phase === "done") {
@@ -133,6 +240,9 @@ export default function NewProjectPage() {
           <p className="text-sm text-ink">
             解析完成，共提取 {charCount.toLocaleString()} 字。
           </p>
+          {imageNote && (
+            <p className="mt-1 text-xs text-ink-faint">{imageNote}</p>
+          )}
           <p className="mt-1 text-xs text-ink-faint">
             下一步：填写判断要点并生成分析报告。
           </p>
