@@ -155,10 +155,14 @@ ${
 
   let systemPrompt = await injectProfile(userId, baseSystem);
   // 机构知识注入（个人版 / 无能力位时返回原文）
-  systemPrompt = await injectOrgKnowledge(
-    scope,
-    [project.name, project.industry, project.stage].filter(Boolean).join(" "),
-    systemPrompt
+  // [DIAG] 临时诊断日志（任务完成后移除）
+  const orgQuery = [project.name, project.industry, project.stage]
+    .filter(Boolean)
+    .join(" ");
+  const beforeLen = systemPrompt.length;
+  systemPrompt = await injectOrgKnowledge(scope, orgQuery, systemPrompt);
+  console.log(
+    `[brief-analysis][diag] injectOrgKnowledge query="${orgQuery}" systemLen ${beforeLen} -> ${systemPrompt.length} (delta=${systemPrompt.length - beforeLen})`
   );
 
   // 加载画像，构造硬性否决项核查区块
