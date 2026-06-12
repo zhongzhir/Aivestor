@@ -10,7 +10,9 @@ import { deflateSync } from "zlib";
 // —— 可调参数（建议值，可根据实测调整）——
 export const MIN_IMAGE_DIMENSION = 100; // px，宽或高低于此值跳过
 export const MAX_IMAGES_PER_DOC = 10; // 单文档图片数量上限
-export const ESTIMATED_TOKENS_PER_IMAGE = 1500; // 单张图片预估 token（输入+输出，量级参考）
+export const ESTIMATED_TOKENS_PER_IMAGE = 600; // 单张图片预估 token（量级参考）
+// 实测（qwen3.5-plus + enable_thinking:false）：简单图 ~250 tokens，
+// 含图表/截图的复杂图描述更长，取 600 作偏保守的量级估算。
 
 export interface ExtractedImage {
   base64: string; // 图片内容（PNG/JPEG 等编码后）

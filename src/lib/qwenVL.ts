@@ -4,7 +4,9 @@
 
 const QWEN_VL_ENDPOINT =
   "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
-const QWEN_VL_MODEL = "qwen-vl-plus";
+// qwen-vl-plus 于 2026-07-13 下线；改用 qwen3.5-plus（原生多模态，支持 image_url 输入）。
+// 注意：不要用 qwen-plus（纯文本模型，不接受图片输入）。
+const QWEN_VL_MODEL = "qwen3.5-plus";
 
 // 统一的图片描述 prompt：聚焦投资分析需要的信息
 const IMAGE_PROMPT = `你正在协助分析一份商业计划书（BP），请描述这张图片中的关键信息：
@@ -41,6 +43,9 @@ export async function describeImage(
       },
       body: JSON.stringify({
         model: QWEN_VL_MODEL,
+        // qwen3.5-plus 默认开启思考链，单张图片描述会多烧 ~4000 推理 token；
+        // 关闭后实测 token 降至 ~1/17，描述质量不受影响。
+        enable_thinking: false,
         messages: [
           {
             role: "user",
