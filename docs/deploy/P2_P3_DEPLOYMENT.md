@@ -6,6 +6,18 @@
 
 ---
 
+## 部署前核查修复记录（2026-06-12）
+
+对 P2/P3 做了一轮部署前静态核查（5 项），结论：**无功能性代码缺陷，未改任何业务逻辑**；仅把回填核对升级为可执行 SQL、并补全文档。逐项结论：
+
+1. **committee 对 analyst 的不可见性 —— 通过**。`scopedProjectChildWhere` 的 `excludeMergedForAnalyst` 默认 `false`，但全部 5 个读 reports 的改造路由（refine / export / export-ppt / digest 的 POST+PUT）均显式传 `true`，analyst 角色时 SQL 层追加 `AND kind <> 'committee'`，不依赖应用层后续过滤。其余 `FROM reports` 读取（archive 详情、report 页、projects 列表的 latest 指针）均 `user_id` 收口，而 committee 报告 `user_id` 是生成它的 partner，analyst 的 `user_id` 永不命中，无内容泄露。**无需修复**。
+2. **knowledge/upload 机构层目标校验 —— 通过**。服务端在写 `org_id+visibility='org'` 前校验 `body.shared && scope.org && hasCapability('org_knowledge')`，三者缺一即静默落个人层；未传层级参数时写入个人层（`org_id=NULL, visibility='private'`），落库行与改造前一致。非纯前端隐藏。**无需修复**。
+3. **committee 回填准确性 —— 通过（无需扩大迁移）**。merge 产物标题自首个 commit `8fb1970` 起恒为「【总报告】」前缀；refine 不改 title；代码库无 `UPDATE reports SET title` 路径。漏判范围预期为 0。已把迁移 023 末尾的核对从注释升级为**内联可执行的双计数 SELECT**（见下文「023 回填核对」），并写明不一致即停止部署。
+4. **项目详情页 scoped 改造（2.3 清单外补充）—— 等价性确认**。无组织用户访问决策与 `notFound` 行为与改造前完全等价（详见下文回归清单对应条目）；已补入回归清单与架构文档附录 C。
+5. **通用静态核查 —— 通过**。`npm run build` 全路由通过；能力位纯洁性 grep 无新增版本名判断（仅 admin 预设按钮标签与注释命中，设计允许）；021/022/023 均声明前序依赖且幂等（`IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `DROP CONSTRAINT IF EXISTS` / `ON CONFLICT`）；`injectMarketContext` 仅为注释签名占位，无 export、无任何路由 import，不会运行时报错。
+
+---
+
 ## 一、迁移执行顺序（务必先迁移、后部署代码）
 
 历史事故教训：metadata 列未迁移先上代码曾导致线上 500。**所有依赖新列/新表的代码必须在迁移于生产库手动执行完成后才能部署。**
@@ -20,15 +32,21 @@
 
 > 021 与 022/023 之间无强依赖顺序约束，但建议按编号顺序执行。022 依赖 021 的 `knowledge_base_entries.org_id`；023 依赖 021 的 `projects.org_id/owner_id` 与 018 的 `reports.kind`。
 
-### 023 的 committee 回填人工核对（执行后立即做）
+### 023 的 committee 回填核对（执行后立即做，可直接复制运行）
 
-023 会把存量【总报告】标题前缀的报告回填为 `kind='committee'`。回填后执行：
+023 会把存量【总报告】标题前缀的报告回填为 `kind='committee'`，并在迁移末尾内联执行下列核对（也可单独复制运行）：
 
 ```sql
-SELECT COUNT(*) FROM reports WHERE kind = 'committee';
+-- 两者必须相等。不相等则停止部署，人工核对后再决定是否补回填。
+SELECT
+  (SELECT COUNT(*) FROM reports WHERE kind = 'committee')        AS committee_count,
+  (SELECT COUNT(*) FROM reports WHERE title LIKE '【总报告】%')  AS prefix_count;
 ```
 
-核对该计数与档案页橙色「总报告」角标数量一致。若不一致，排查是否有【总报告】前缀被 refine 改写过的历史行（需人工补 `UPDATE`）。
+- `committee_count`：回填后 `kind='committee'` 的数量。
+- `prefix_count`：按原识别逻辑（标题前缀）应为总报告的数量。
+- **判定**：`committee_count == prefix_count` → 通过；不相等 → **停止部署**，排查是否有标题前缀被改写、或前缀行的原 kind 非 `analysis`（如被误标为 brief/term_sheet）的边界行，人工补 `UPDATE` 后再继续。
+- 漏判范围评估（静态核查结论）：merge 产物自首个 commit `8fb1970` 起标题恒为「【总报告】」前缀；refine 路由只改 content/version/conversation_history，**不改 title**；代码库无任何 `UPDATE reports SET title` 路径。故标题前缀稳定、漏判范围预期为 0，本核对仅作兜底。
 
 ### GRANT 补授权提醒
 
@@ -51,7 +69,7 @@ SELECT COUNT(*) FROM reports WHERE kind = 'committee';
 逐项以**无组织账号**验证（应与改造前完全一致）：
 
 - [ ] `GET /api/projects` 列表只见本人项目；创建项目 `org_id/owner_id` 均为 NULL
-- [ ] 项目详情页可正常打开（仅本人项目）
+- [ ] 项目详情页 `projects/[id]/page.tsx`（**本轮 scoped 改造，2.3 清单外补充**）：无组织用户打开自己的项目正常；打开非本人项目 → `notFound`。等价性说明：原为单条 `WHERE id=$1 AND user_id=$2` 收口；现拆为 `assertProjectAccess(read)` 门禁（个人分支 = `user_id===本人 且 org_id 为 NULL`）+ 按 id 取数。非逐字节同 SQL，但访问决策与 `notFound` 行为对无组织用户**完全等价**；其余子查询（judgments 按 project_id+user_id、docs/latest 按 project_id）未改动
 - [ ] documents：GET 列表 / POST 上传解析正常；新文档 `org_id` 为 NULL
 - [ ] reports：生成 / brief-analysis / term-sheet / financials 正常；新报告 `org_id` 为 NULL
 - [ ] reports/merge：产出与改造前一致（现写 `kind='committee'`，本人始终可见，无行为差异）

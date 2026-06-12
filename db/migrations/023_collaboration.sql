@@ -60,6 +60,15 @@ UPDATE reports SET kind = 'committee'
  WHERE kind = 'analysis' AND title LIKE '【总报告】%';
 
 -- ------------------------------------------------------------
--- 人工核对（回填后执行，确认与档案页橙色「总报告」角标数量一致）：
---   SELECT COUNT(*) FROM reports WHERE kind = 'committee';
+-- 回填核对（本迁移内联执行，输出两条计数；两者必须相等，否则停止部署）
+--   committee_count：回填后 kind='committee' 的报告数量。
+--   prefix_count   ：按原识别逻辑（标题前缀）应为总报告的数量。
+-- 二者不一致，说明存在标题前缀被改写 / 非 analysis 原 kind 等边界情况，
+-- 需人工核对后再决定是否补回填，**不一致时不要继续部署代码**。
+-- 历史核查结论（截至 2026-06-12）：merge 产物自首个 commit(8fb1970) 起标题恒为
+-- 「【总报告】」前缀，refine 不修改 title，代码库无任何 UPDATE reports SET title
+-- 路径，故漏判范围预期为 0；本核对用于兜底确认。
 -- ------------------------------------------------------------
+SELECT
+  (SELECT COUNT(*) FROM reports WHERE kind = 'committee')              AS committee_count,
+  (SELECT COUNT(*) FROM reports WHERE title LIKE '【总报告】%')        AS prefix_count;

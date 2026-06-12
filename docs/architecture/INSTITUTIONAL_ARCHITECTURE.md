@@ -1333,4 +1333,5 @@ prompt 规则要求 AI 引用时沿用：`来源：中鉴基金研究院，数�
 | 新增组件 | `src/components/project/CommentPanel.tsx`、`src/components/project/JudgmentsByMember.tsx`、`src/components/data-apps/MarketInsights.tsx`、`src/components/data-apps/InstitutionLookup.tsx` |
 | 新增 API | 第一部分 13 条 org/admin 路由；4.2/4.4 评论与共享 5 条；4.3 聚合 1 条；2.4 转入 1 条；3.4 晋升/撤回 2 条；6.2/6.3 数据应用 3 条；7.3/7.4 机构报告 3 条 |
 | 改造 API | 第二部分 2.3 清单（24 个路由文件） |
+| 改造页面（2.3 清单外补充） | `src/app/(app)/projects/[id]/page.tsx` —— P2 实施时主动补：原页面以 `WHERE id=$1 AND user_id=$2` 收口，组织成员无法打开他人的组织项目，端到端协作不可用。改为 `buildAccessScope` + `assertProjectAccess(read)` 门禁后按 id 取数。无组织用户访问决策与 `notFound` 行为与改造前等价（详见 `docs/deploy/P2_P3_DEPLOYMENT.md` 回归清单）。原因：端到端协作可用性要求。同批附带 `knowledge/page.tsx`（层切换+晋升入口）、`ProjectDetail.tsx`（协作区）、`ShareControl.tsx` 等 UI 改造 |
 | 独立服务 | `services/zjjr-sync/`（client / pipeline / insights / ecosystem.config.js） |
