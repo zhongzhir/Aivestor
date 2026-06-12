@@ -11,8 +11,11 @@ import type { AccessScope } from "@/lib/resourceAccess";
 // 注入预算（8.2）：机构层 5 条上限、单条 300 字符截断。
 const ORG_MAX_FRAGMENTS = 5;
 const ORG_CHAR_LIMIT = 300;
-// 短 query（如「继续」）不触发检索——噪声大、价值低（与 memoryContext 一致）。
-const MIN_QUERY_LEN = 10;
+// 检索 query 是项目描述符（名称+行业+阶段 / 报告标题等），不是对话消息，
+// 不存在「继续」「展开」这类噪声 query；只需排除空/单字符的退化 query。
+// 注意：中文项目名常仅 2–4 字（且行业/阶段可能未填），原 10 字门槛会把
+// 「大美非遗」「喷空」这类合法短名一并误杀、导致机构知识检索从不触发。
+const MIN_QUERY_LEN = 2;
 
 interface OrgHit {
   content: string;
@@ -25,23 +28,12 @@ async function searchOrgKnowledge(
   orgId: string,
   question: string
 ): Promise<OrgHit[]> {
-  const qlen = question?.trim().length ?? 0;
-  if (!question || qlen < MIN_QUERY_LEN) {
-    // [DIAG] 临时诊断日志（任务完成后移除）
-    console.log(
-      `[orgInject][diag] query too short (len=${qlen} < ${MIN_QUERY_LEN}), skip retrieval. query="${question}"`
-    );
-    return [];
-  }
+  if (!question || question.trim().length < MIN_QUERY_LEN) return [];
   try {
     const emb = await generateEmbedding(question);
     if (emb) {
-      // [DIAG] 额外取 id + 相似度用于诊断（注入逻辑只用 content/author_name）
-      const rows = await query<
-        OrgHit & { id: string; similarity: number }
-      >(
-        `SELECT kb.id, kb.content, u.name AS author_name,
-                1 - (kb.embedding <=> $2::vector) AS similarity
+      return await query<OrgHit>(
+        `SELECT kb.content, u.name AS author_name
            FROM knowledge_base_entries kb
            LEFT JOIN users u ON u.id = kb.user_id
           WHERE kb.org_id = $1 AND kb.visibility = 'org'
@@ -50,19 +42,9 @@ async function searchOrgKnowledge(
           LIMIT $3`,
         [orgId, `[${emb.vector.join(",")}]`, ORG_MAX_FRAGMENTS]
       );
-      console.log(
-        `[orgInject][diag] vector retrieval org=${orgId} candidates=${rows.length} (无相似度阈值，命中即注入)`
-      );
-      for (const r of rows) {
-        console.log(
-          `[orgInject][diag]   id=${r.id} sim=${Number(r.similarity).toFixed(4)} content="${r.content.slice(0, 50)}"`
-        );
-      }
-      return rows.map((r) => ({ content: r.content, author_name: r.author_name }));
     }
-    // [DIAG] 全文检索兜底（百炼未生成 embedding 时）
-    const rows = await query<OrgHit & { id: string }>(
-      `SELECT kb.id, kb.content, u.name AS author_name
+    return await query<OrgHit>(
+      `SELECT kb.content, u.name AS author_name
          FROM knowledge_base_entries kb
          LEFT JOIN users u ON u.id = kb.user_id
         WHERE kb.org_id = $1 AND kb.visibility = 'org'
@@ -71,17 +53,7 @@ async function searchOrgKnowledge(
         LIMIT $3`,
       [orgId, question, ORG_MAX_FRAGMENTS]
     );
-    console.log(
-      `[orgInject][diag] FTS fallback (embedding 不可用) org=${orgId} candidates=${rows.length}`
-    );
-    for (const r of rows) {
-      console.log(
-        `[orgInject][diag]   id=${r.id} (fts) content="${r.content.slice(0, 50)}"`
-      );
-    }
-    return rows.map((r) => ({ content: r.content, author_name: r.author_name }));
-  } catch (e) {
-    console.log("[orgInject][diag] retrieval threw, returning []:", e);
+  } catch {
     return [];
   }
 }
@@ -94,23 +66,12 @@ export async function injectOrgKnowledge(
   originalSystem: string
 ): Promise<string> {
   try {
-    if (!scope.org) {
-      console.log("[orgInject][diag] no org on scope → return original");
-      return originalSystem;
-    }
-    const cap = await hasCapability(scope.org.orgId, "org_knowledge");
-    console.log(
-      `[orgInject][diag] called org=${scope.org.orgId} role=${scope.org.role} org_knowledge=${cap} queryLen=${question?.length ?? 0} query="${question}"`
-    );
-    if (!cap) {
-      console.log("[orgInject][diag] no org_knowledge capability → return original");
+    if (!scope.org) return originalSystem;
+    if (!(await hasCapability(scope.org.orgId, "org_knowledge"))) {
       return originalSystem;
     }
     const hits = await searchOrgKnowledge(scope.org.orgId, question);
-    if (hits.length === 0) {
-      console.log("[orgInject][diag] retrieval empty → no section, return original");
-      return originalSystem;
-    }
+    if (hits.length === 0) return originalSystem;
 
     const lines = hits
       .map((h) => {
@@ -119,12 +80,8 @@ export async function injectOrgKnowledge(
       })
       .join("\n\n");
 
-    console.log(
-      `[orgInject][diag] section GENERATED, ${hits.length} hits. injected block:\n## 机构知识沉淀\n${lines}`
-    );
     return `${originalSystem}\n\n## 机构知识沉淀\n以下是本机构成员沉淀的相关判断与认知，供参考（请结合当前项目实际情况判断其适用性）：\n\n${lines}`;
-  } catch (e) {
-    console.log("[orgInject][diag] injectOrgKnowledge threw → return original:", e);
+  } catch {
     return originalSystem;
   }
 }
