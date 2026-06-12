@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { formatTokens } from "@/lib/tokensFormat";
 
 export interface UploadResult {
   fileName: string;
@@ -17,13 +18,24 @@ interface FileUploaderProps {
   onUploadComplete?: (results: UploadResult[]) => void;
 }
 
-type ItemStatus = "pending" | "uploading" | "done" | "error";
+type ItemStatus =
+  | "pending"
+  | "uploading"
+  | "confirm_images" // BP 检测到图片，等待用户确认是否识别
+  | "analyzing" // Qwen-VL 图片识别中
+  | "done"
+  | "error";
 
 interface QueueItem {
   file: File;
   status: ItemStatus;
   warning?: string;
   error?: string;
+  documentId?: string;
+  imageCount?: number;
+  estimatedTokens?: number;
+  imageNote?: string; // 图片识别结果摘要（完成后展示）
+  quotaHint?: string; // 额度不足提示（确认弹层内展示）
 }
 
 const MAX_FILES = 20;
@@ -148,7 +160,51 @@ export function FileUploader({
     if (!res.ok) {
       throw new Error(data.error || "解析失败");
     }
-    return { file, status: "done", warning: data.warning };
+    return {
+      file,
+      status: data.imageCount > 0 ? "confirm_images" : "done",
+      warning: data.warning,
+      documentId: data.id,
+      imageCount: data.imageCount,
+      estimatedTokens: data.estimatedTokens,
+    };
+  }
+
+  // 检测到图片时拉取一次免费额度状态，余额不足则在确认提示中告知
+  async function checkQuotaHint(estimatedTokens: number): Promise<string> {
+    try {
+      const res = await fetch("/api/user/quota-status");
+      if (!res.ok) return "";
+      const q = await res.json();
+      if (q.enabled && q.tokensRemaining < estimatedTokens) {
+        return "当前剩余额度可能不足以完成图片识别，建议配置自己的 API Key";
+      }
+    } catch {
+      // 查询失败不影响主流程
+    }
+    return "";
+  }
+
+  // 用户确认提取图片信息：调用 Qwen-VL 识别
+  async function analyzeImages(index: number, item: QueueItem) {
+    setItem(index, { status: "analyzing" });
+    try {
+      const res = await fetch(
+        `/api/documents/${item.documentId}/image-analysis`,
+        { method: "POST" }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "图片识别失败");
+      const parts = [`已识别 ${data.count} 张图片`];
+      if (data.failed > 0) parts.push(`${data.failed} 张失败`);
+      if (data.skipped > 0) parts.push(`另有 ${data.skipped} 张未处理`);
+      setItem(index, { status: "done", imageNote: parts.join("，") });
+    } catch (e) {
+      setItem(index, {
+        status: "done",
+        warning: e instanceof Error ? e.message : "图片识别失败",
+      });
+    }
   }
 
   async function runQueue(items: QueueItem[]) {
@@ -163,7 +219,11 @@ export function FileUploader({
         setItem(i, { status: "uploading" });
         try {
           const done = await uploadOne(items[i].file);
-          setItem(i, { status: "done", warning: done.warning });
+          const quotaHint =
+            done.status === "confirm_images"
+              ? await checkQuotaHint(done.estimatedTokens || 0)
+              : "";
+          setItem(i, { ...done, file: items[i].file, quotaHint });
           results[i] = { fileName: items[i].file.name, status: "done", warning: done.warning };
         } catch (e) {
           const msg = e instanceof Error ? e.message : "上传失败";
@@ -210,7 +270,11 @@ export function FileUploader({
     setItem(index, { status: "uploading", error: undefined });
     try {
       const done = await uploadOne(queue[index].file);
-      setItem(index, { status: "done", warning: done.warning });
+      const quotaHint =
+        done.status === "confirm_images"
+          ? await checkQuotaHint(done.estimatedTokens || 0)
+          : "";
+      setItem(index, { ...done, file: queue[index].file, quotaHint });
     } catch (e) {
       setItem(index, {
         status: "error",
@@ -287,44 +351,87 @@ export function FileUploader({
           {queue.map((it, i) => (
             <div
               key={i}
-              className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-xs"
+              className="rounded-md border border-line px-3 py-2 text-xs"
             >
-              <span className="flex-1 truncate text-ink">{it.file.name}</span>
-              {it.status === "uploading" && (
-                <span className="text-ink-faint">解析中…</span>
-              )}
-              {it.status === "pending" && (
-                <span className="text-ink-faint">等待中</span>
-              )}
-              {it.status === "done" && (
-                <span className="text-accent">✅ 完成</span>
-              )}
-              {it.status === "error" && (
-                <>
-                  <span className="text-red-600">❌ 失败</span>
-                  <button
-                    onClick={() => retry(i)}
-                    className="text-accent hover:underline"
+              <div className="flex items-center gap-2">
+                <span className="flex-1 truncate text-ink">{it.file.name}</span>
+                {it.status === "uploading" && (
+                  <span className="text-ink-faint">解析中…</span>
+                )}
+                {it.status === "pending" && (
+                  <span className="text-ink-faint">等待中</span>
+                )}
+                {it.status === "confirm_images" && (
+                  <span className="text-accent">✅ 解析完成</span>
+                )}
+                {it.status === "analyzing" && (
+                  <span className="text-ink-faint">图片识别中…</span>
+                )}
+                {it.status === "done" && (
+                  <span className="text-accent">✅ 完成</span>
+                )}
+                {it.status === "error" && (
+                  <>
+                    <span className="text-red-600">❌ 失败</span>
+                    <button
+                      onClick={() => retry(i)}
+                      className="text-accent hover:underline"
+                    >
+                      重试
+                    </button>
+                  </>
+                )}
+                {it.status === "done" && it.imageNote && (
+                  <span
+                    className="max-w-[55%] truncate text-ink-faint"
+                    title={it.imageNote}
                   >
-                    重试
-                  </button>
-                </>
-              )}
-              {it.status === "done" && it.warning && (
-                <span
-                  className="max-w-[55%] truncate text-amber-600"
-                  title={it.warning}
-                >
-                  ⚠️ {it.warning}
-                </span>
-              )}
-              {it.status === "error" && it.error && (
-                <span
-                  className="max-w-[45%] truncate text-ink-faint"
-                  title={it.error}
-                >
-                  {it.error}
-                </span>
+                    {it.imageNote}
+                  </span>
+                )}
+                {it.status === "done" && it.warning && (
+                  <span
+                    className="max-w-[55%] truncate text-amber-600"
+                    title={it.warning}
+                  >
+                    ⚠️ {it.warning}
+                  </span>
+                )}
+                {it.status === "error" && it.error && (
+                  <span
+                    className="max-w-[45%] truncate text-ink-faint"
+                    title={it.error}
+                  >
+                    {it.error}
+                  </span>
+                )}
+              </div>
+
+              {/* BP 图片识别确认（按需触发 Qwen-VL） */}
+              {it.status === "confirm_images" && (
+                <div className="mt-2 border-t border-line pt-2">
+                  <p className="text-ink-soft">
+                    检测到 {it.imageCount} 张图片，识别可补充产品截图/图表等信息，
+                    预计消耗约 {formatTokens(it.estimatedTokens || 0)}。是否提取图片信息？
+                  </p>
+                  {it.quotaHint && (
+                    <p className="mt-1 text-amber-600">⚠️ {it.quotaHint}</p>
+                  )}
+                  <div className="mt-1.5 flex gap-2">
+                    <button
+                      onClick={() => analyzeImages(i, it)}
+                      className="rounded bg-accent px-2.5 py-1 text-white hover:opacity-90"
+                    >
+                      提取图片信息
+                    </button>
+                    <button
+                      onClick={() => setItem(i, { status: "done" })}
+                      className="rounded border border-line px-2.5 py-1 text-ink-soft hover:bg-gray-50"
+                    >
+                      跳过
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           ))}

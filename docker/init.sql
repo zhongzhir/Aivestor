@@ -103,6 +103,8 @@ CREATE TABLE documents (
                   CHECK (doc_kind IN ('bp', 'research', 'contract',
                                       'financial_model', 'news', 'other')),
   extracted_text TEXT,                      -- 解析出的纯文本
+  -- BP 图片识别结果（Qwen-VL）：[{ position, description }]，非 NULL 表示已识别过
+  image_analysis JSONB,
   -- AI 自动 + 用户手动标签（行业/阶段/类型等）
   tags          JSONB NOT NULL DEFAULT '[]'::jsonb,
   -- 解析状态：pending / processing / done / failed

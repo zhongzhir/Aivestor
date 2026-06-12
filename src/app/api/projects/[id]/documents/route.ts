@@ -5,6 +5,12 @@ import { parseFile } from "@/lib/fileParser";
 import { processDocumentChunks } from "@/lib/documentChunks";
 import { extractExcelFinancials } from "@/lib/excelFinancials";
 import { readFileBuffer } from "@/lib/fileStorage";
+import {
+  extractDocumentImages,
+  supportsImageExtraction,
+  ESTIMATED_TOKENS_PER_IMAGE,
+} from "@/lib/imageExtract";
+import { isQwenVLAvailable } from "@/lib/qwenVL";
 
 const SUPPORTED_TYPES = ["pdf", "docx", "pptx", "xlsx", "xls"];
 const ALLOWED_DOC_KINDS = [
@@ -167,12 +173,27 @@ export async function POST(
     }
   }
 
+  // BP 文档：检测内嵌图片（经预筛选），供前端弹确认提示（按需 Qwen-VL 识别）
+  let imageCount = 0;
+  let estimatedTokens = 0;
+  if (docKind === "bp" && supportsImageExtraction(fileType) && isQwenVLAvailable()) {
+    try {
+      const detected = await extractDocumentImages(buffer, fileType);
+      imageCount = detected.images.length;
+      estimatedTokens = imageCount * ESTIMATED_TOKENS_PER_IMAGE;
+    } catch (e) {
+      console.warn("[documents] 图片检测失败（不影响上传）:", e);
+    }
+  }
+
   return NextResponse.json(
     {
       id: documentId,
       filename,
       charCount: parsed.text.length,
       warning: parsed.warning,
+      imageCount,
+      estimatedTokens,
     },
     { status: 201 }
   );
