@@ -30,12 +30,12 @@ export function OrgArchiveFilters({
 
   function pushParams(next: Record<string, string>) {
     const params = new URLSearchParams(searchParams.toString());
+    params.set("view", "org"); // 始终保留机构档案视图标识
     for (const [k, v] of Object.entries(next)) {
       if (v) params.set(k, v);
       else params.delete(k);
     }
-    const qs = params.toString();
-    router.replace(qs ? `/org/archive?${qs}` : "/org/archive");
+    router.replace(`/archive?${params.toString()}`);
   }
 
   useEffect(() => {
@@ -106,7 +106,7 @@ export function OrgArchiveFilters({
             type="button"
             onClick={() => {
               setSearch("");
-              router.replace("/org/archive");
+              router.replace("/archive?view=org");
             }}
             className="rounded border border-line px-2 py-1 text-ink-soft hover:bg-surface"
           >

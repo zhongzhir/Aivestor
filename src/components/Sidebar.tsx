@@ -19,33 +19,19 @@ export function Sidebar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
-  // 有组织的用户追加机构入口（orgId/orgRole 来自 session，仅 UI 提示；
-  // 真正的权限/能力位判断在服务端 orgAuth，能力位未开通时页面会重定向）。
-  const orgRole = session?.user?.orgRole;
-  const isManager = orgRole === "partner" || orgRole === "admin";
-  const orgNav: { href: string; label: string; desc: string }[] = [];
-  if (session?.user?.orgId) {
-    if (isManager) {
-      orgNav.push(
-        { href: "/org/archive", label: "机构档案", desc: "组织项目统一视图" },
-        { href: "/org/dashboard", label: "机构 Dashboard", desc: "组织统计分析" },
-        { href: "/org/lp-reports", label: "LP 报告", desc: "投后数据生成报告" }
-      );
-    }
-    if (orgRole === "admin") {
-      orgNav.push({
-        href: "/org/assoc-report",
-        label: "协会报告",
-        desc: "报送底稿辅助",
-      });
-    }
-    orgNav.push({
-      href: "/org/settings",
-      label: "组织设置",
-      desc: "成员与组织信息",
-    });
-  }
-  const nav = [...NAV, ...orgNav];
+  // 有组织的用户追加「组织工作台」一级入口（机构档案/Dashboard/LP/协会/成员设置
+  // 均整合于此）。orgId 来自 session，仅 UI 提示；具体 tab 内容按能力位/角色在
+  // 服务端守门。工作台始终展示以保证「成员与设置」对全体成员可达。
+  const nav = session?.user?.orgId
+    ? [
+        ...NAV,
+        {
+          href: "/org/workspace",
+          label: "组织工作台",
+          desc: "统计 · 成员 · 对外报告",
+        },
+      ]
+    : NAV;
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface">

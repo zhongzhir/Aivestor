@@ -61,6 +61,10 @@ interface Props {
   capabilities: Record<string, boolean | number>;
   members: Member[];
   invitations: Invitation[];
+  // 嵌入「组织工作台」tab 时：去掉页级外壳（标题/边距），由工作台统一提供。
+  embedded?: boolean;
+  // 能力位只读区是否在此渲染（导航整合后改由工作台「概览」tab 展示，故默认隐藏）。
+  showCapabilities?: boolean;
 }
 
 function fmtDate(s: string): string {
@@ -75,6 +79,8 @@ export function OrgSettingsClient({
   capabilities,
   members,
   invitations,
+  embedded = false,
+  showCapabilities = true,
 }: Props) {
   const router = useRouter();
   const isAdmin = myRole === "admin";
@@ -180,12 +186,16 @@ export function OrgSettingsClient({
   }
 
   return (
-    <div className="mx-auto max-w-doc px-6 py-12">
-      <h1 className="text-xl font-semibold text-ink">组织设置</h1>
-      <p className="mt-1 text-xs text-ink-faint">
-        {org.name} · 我的角色：{ROLE_LABEL[myRole] ?? myRole} · 创建于{" "}
-        {fmtDate(org.createdAt)}
-      </p>
+    <div className={embedded ? "" : "mx-auto max-w-doc px-6 py-12"}>
+      {!embedded && (
+        <>
+          <h1 className="text-xl font-semibold text-ink">组织设置</h1>
+          <p className="mt-1 text-xs text-ink-faint">
+            {org.name} · 我的角色：{ROLE_LABEL[myRole] ?? myRole} · 创建于{" "}
+            {fmtDate(org.createdAt)}
+          </p>
+        </>
+      )}
 
       {error && (
         <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -430,8 +440,8 @@ export function OrgSettingsClient({
         </section>
       )}
 
-      {/* 能力位 / 套餐状态（仅 admin，只读） */}
-      {isAdmin && (
+      {/* 能力位 / 套餐状态（仅 admin，只读）。导航整合后默认由工作台「概览」展示。 */}
+      {showCapabilities && isAdmin && (
         <section className="mt-12 border-t border-line pt-8">
           <h2 className="text-sm font-medium text-ink">已开通能力</h2>
           <p className="mt-1 text-xs text-ink-faint">

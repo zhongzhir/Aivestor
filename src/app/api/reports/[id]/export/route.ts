@@ -55,6 +55,8 @@ export async function GET(
     ? `${prefix}_${report.project_name}_${dateStr}`
     : report.title;
 
+  // 导出前剥离溯源标记 [src:doc]/[src:data]/[src:ai]——它们仅用于前端徽章渲染，
+  // 在 Word 导出中是纯文本噪声。对全部 kind 统一剥离，自然覆盖对外文档 lp_report。
   const buffer = await buildDocxBuffer(
     report.title,
     stripSourceBadges(extractConfidence(report.content).cleanContent)
