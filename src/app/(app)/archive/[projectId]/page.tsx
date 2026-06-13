@@ -3,6 +3,11 @@ import { notFound } from "next/navigation";
 import { requireAuth } from "@/lib/auth";
 import { query } from "@/lib/db";
 import {
+  buildAccessScope,
+  assertProjectAccess,
+  ResourceForbiddenError,
+} from "@/lib/resourceAccess";
+import {
   ArchiveTabs,
   type ArchiveDoc,
   type ArchiveReport,
@@ -27,12 +32,22 @@ export default async function ProjectArchivePage({
 }) {
   const session = await requireAuth();
 
-  // 项目主信息 + 归属校验
+  // 归属校验：个人项目仅创建者；组织项目按角色（partner/admin 全部，
+  // analyst 仅 owner+共享）。个人版退化为"仅本人"，与原 user_id=$2 等价。
+  const scope = await buildAccessScope(session.user.id);
+  let isAnalyst = false;
+  try {
+    await assertProjectAccess(scope, params.projectId, "read");
+    isAnalyst = scope.org?.role === "analyst";
+  } catch (e) {
+    if (e instanceof ResourceForbiddenError) notFound();
+    throw e;
+  }
+
+  // 访问已校验，按 id 取项目字段即可。
   const projects = await query<ProjectRow>(
-    `SELECT id, name, industry, stage, status
-       FROM projects
-      WHERE id = $1 AND user_id = $2`,
-    [params.projectId, session.user.id]
+    `SELECT id, name, industry, stage, status FROM projects WHERE id = $1`,
+    [params.projectId]
   );
   if (projects.length === 0) notFound();
   const project = projects[0];
@@ -47,21 +62,22 @@ export default async function ProjectArchivePage({
     docs = await query<ArchiveDoc>(
       `SELECT id, filename, file_type, doc_kind, parse_status, created_at
          FROM documents
-        WHERE project_id = $1 AND user_id = $2
+        WHERE project_id = $1
         ORDER BY created_at DESC`,
-      [params.projectId, session.user.id]
+      [params.projectId]
     );
   } catch (e) {
     console.error("[archive/[projectId]] documents 读取失败:", e);
   }
 
   try {
+    // analyst 不可见投委会总报告（kind='committee'，含他人判断内容，见 1.2 矩阵）。
     reports = await query<ArchiveReport>(
       `SELECT id, title, version, status, updated_at
          FROM reports
-        WHERE project_id = $1 AND user_id = $2
+        WHERE project_id = $1 ${isAnalyst ? "AND kind <> 'committee'" : ""}
         ORDER BY updated_at DESC`,
-      [params.projectId, session.user.id]
+      [params.projectId]
     );
   } catch (e) {
     console.error("[archive/[projectId]] reports 读取失败:", e);

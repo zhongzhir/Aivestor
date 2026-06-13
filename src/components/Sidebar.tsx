@@ -19,14 +19,33 @@ export function Sidebar() {
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
-  // 有组织的用户追加「组织设置」入口（orgId 来自 session，仅 UI 提示；
-  // 权限判断在服务端 orgAuth）
-  const nav = session?.user?.orgId
-    ? [
-        ...NAV,
-        { href: "/org/settings", label: "组织设置", desc: "成员与组织信息" },
-      ]
-    : NAV;
+  // 有组织的用户追加机构入口（orgId/orgRole 来自 session，仅 UI 提示；
+  // 真正的权限/能力位判断在服务端 orgAuth，能力位未开通时页面会重定向）。
+  const orgRole = session?.user?.orgRole;
+  const isManager = orgRole === "partner" || orgRole === "admin";
+  const orgNav: { href: string; label: string; desc: string }[] = [];
+  if (session?.user?.orgId) {
+    if (isManager) {
+      orgNav.push(
+        { href: "/org/archive", label: "机构档案", desc: "组织项目统一视图" },
+        { href: "/org/dashboard", label: "机构 Dashboard", desc: "组织统计分析" },
+        { href: "/org/lp-reports", label: "LP 报告", desc: "投后数据生成报告" }
+      );
+    }
+    if (orgRole === "admin") {
+      orgNav.push({
+        href: "/org/assoc-report",
+        label: "协会报告",
+        desc: "报送底稿辅助",
+      });
+    }
+    orgNav.push({
+      href: "/org/settings",
+      label: "组织设置",
+      desc: "成员与组织信息",
+    });
+  }
+  const nav = [...NAV, ...orgNav];
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface">
