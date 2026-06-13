@@ -64,6 +64,9 @@ export function OrgWorkspaceClient({
 
   const lpEnabled = capabilities["lp_reports"] === true;
   const assocEnabled = capabilities["assoc_report"] === true && myRole === "admin";
+  // 统计看板仅管理层（partner/admin）可见（1.2 矩阵）。客户端再判一次，
+  // 与服务端「不向 analyst 下发 dashboard 数据」形成纵深防御。
+  const canViewDashboard = myRole === "partner" || myRole === "admin";
 
   return (
     <div className="mx-auto max-w-doc px-6 py-10">
@@ -90,13 +93,18 @@ export function OrgWorkspaceClient({
       {/* 概览 */}
       {tab === "overview" && (
         <div className="mt-6 space-y-6">
-          {dashboard ? (
+          {!canViewDashboard ? (
+            <div className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-soft">
+              统计看板仅管理层可见。
+            </div>
+          ) : dashboard ? (
             <OrgDashboardView data={dashboard} />
           ) : (
             <div className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-soft">
-              暂无统计看板（需管理层角色并开通「机构统计分析」能力）。
+              组织未开通「机构统计分析」能力，暂无统计看板。
             </div>
           )}
+          {/* 已开通能力：所有成员可见自己组织开通了什么，不受角色限制。 */}
           <OrgCapabilityStatus capabilities={capabilities} />
         </div>
       )}
