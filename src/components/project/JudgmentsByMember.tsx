@@ -28,7 +28,14 @@ const ROLE_LABEL: Record<string, string> = {
 
 // 组织项目判断 tab：按人分组的并列视图（partner/admin 可见，见 4.3）。
 // analyst 调用聚合接口会得到 403，组件静默隐藏。
-export function JudgmentsByMember({ projectId }: { projectId: string }) {
+// onHasData：上报是否有可展示的团队判断，供父级决定单栏/双栏布局（方案 B）。
+export function JudgmentsByMember({
+  projectId,
+  onHasData,
+}: {
+  projectId: string;
+  onHasData?: (hasData: boolean) => void;
+}) {
   const [members, setMembers] = useState<MemberJudgments[] | null>(null);
   const [forbidden, setForbidden] = useState(false);
 
@@ -39,10 +46,16 @@ export function JudgmentsByMember({ projectId }: { projectId: string }) {
       );
       if (res.status === 403) {
         setForbidden(true);
+        onHasData?.(false);
         return;
       }
-      if (res.ok) setMembers((await res.json()).members ?? []);
+      if (res.ok) {
+        const list: MemberJudgments[] = (await res.json()).members ?? [];
+        setMembers(list);
+        onHasData?.(list.length > 0);
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   if (forbidden || members === null) return null;

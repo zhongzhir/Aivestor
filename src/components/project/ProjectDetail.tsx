@@ -99,6 +99,9 @@ export function ProjectDetail({
   // 新文件上传完成提示
   const [newUpload, setNewUpload] = useState(false);
 
+  // 团队判断是否有数据：为空时项目详情页协作区收为单栏（方案 B），有数据时双栏。
+  const [hasTeamJudgments, setHasTeamJudgments] = useState(false);
+
   function handleUploadComplete(results: UploadResult[]) {
     if (results.some((r) => r.status === "done")) {
       setNewUpload(true);
@@ -382,20 +385,42 @@ export function ProjectDetail({
         </div>
       )}
 
-      {isOrgProject && (
-        <div className="mt-6 grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-              团队判断
-            </h2>
-            <JudgmentsByMember projectId={projectId} />
+      {isOrgProject &&
+        (hasTeamJudgments ? (
+          // 有团队判断：左右分栏（判断占主列，共享/评论占侧列）。
+          <div className="mt-6 grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 space-y-4">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+                团队判断
+              </h2>
+              <JudgmentsByMember
+                projectId={projectId}
+                onHasData={setHasTeamJudgments}
+              />
+            </div>
+            <div className="space-y-6 rounded-lg border border-line bg-surface p-4">
+              <ShareControl projectId={projectId} />
+              <CommentPanel projectId={projectId} currentUserId={currentUserId} />
+            </div>
           </div>
-          <div className="space-y-6 rounded-lg border border-line bg-surface p-4">
-            <ShareControl projectId={projectId} />
-            <CommentPanel projectId={projectId} currentUserId={currentUserId} />
+        ) : (
+          // 无团队判断：不分栏，共享/评论占满宽度（避免左侧大片空白）。
+          <div className="mt-6 space-y-6">
+            <div className="space-y-4">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+                团队判断
+              </h2>
+              <JudgmentsByMember
+                projectId={projectId}
+                onHasData={setHasTeamJudgments}
+              />
+            </div>
+            <div className="space-y-6 rounded-lg border border-line bg-surface p-4">
+              <ShareControl projectId={projectId} />
+              <CommentPanel projectId={projectId} currentUserId={currentUserId} />
+            </div>
           </div>
-        </div>
-      )}
+        ))}
 
       {/* 项目文档：多文件上传 */}
       <div className="mt-6 rounded-lg border border-line bg-surface p-5">
