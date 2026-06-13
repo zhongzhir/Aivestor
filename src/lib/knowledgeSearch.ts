@@ -14,6 +14,8 @@ export type KnowledgeLayer = "personal" | "org" | "zjjr";
 
 export interface LayeredHit {
   layer: KnowledgeLayer;
+  id: string | null; // kb.id（zjjr 层为 null）；用于同源对去重
+  sourceEntryId: string | null; // 机构层副本指向的个人层原记录 id；其余 null
   content: string;
   sourceType: string | null; // 个人/机构层：kb.source_type；zjjr 层固定 "zjjr_feature"
   title: string | null;
@@ -39,6 +41,8 @@ const LAYER_WEIGHT: Record<KnowledgeLayer, number> = {
 const MIN_QUERY_LEN = 10;
 
 interface RawHit {
+  id?: string | null;
+  source_entry_id?: string | null;
   content: string;
   source_type: string | null;
   author_name?: string | null;
@@ -56,7 +60,8 @@ async function searchPersonal(
     let rows: RawHit[];
     if (vec) {
       rows = await query<RawHit>(
-        `SELECT content, source_type, 1 - (embedding <=> $2::vector) AS similarity
+        `SELECT id, source_entry_id, content, source_type,
+                1 - (embedding <=> $2::vector) AS similarity
            FROM knowledge_base_entries
           WHERE user_id = $1 AND visibility = 'private' AND embedding IS NOT NULL
           ORDER BY embedding <=> $2::vector
@@ -65,7 +70,7 @@ async function searchPersonal(
       );
     } else {
       rows = await query<RawHit>(
-        `SELECT content, source_type,
+        `SELECT id, source_entry_id, content, source_type,
                 ts_rank(search_vector, plainto_tsquery('simple', $2)) AS similarity
            FROM knowledge_base_entries
           WHERE user_id = $1 AND visibility = 'private'
@@ -92,7 +97,7 @@ async function searchOrg(
     let rows: RawHit[];
     if (vec) {
       rows = await query<RawHit>(
-        `SELECT kb.content, kb.source_type, u.name AS author_name,
+        `SELECT kb.id, kb.source_entry_id, kb.content, kb.source_type, u.name AS author_name,
                 1 - (kb.embedding <=> $2::vector) AS similarity
            FROM knowledge_base_entries kb
            LEFT JOIN users u ON u.id = kb.user_id
@@ -103,7 +108,7 @@ async function searchOrg(
       );
     } else {
       rows = await query<RawHit>(
-        `SELECT kb.content, kb.source_type, u.name AS author_name,
+        `SELECT kb.id, kb.source_entry_id, kb.content, kb.source_type, u.name AS author_name,
                 ts_rank(kb.search_vector, plainto_tsquery('simple', $2)) AS similarity
            FROM knowledge_base_entries kb
            LEFT JOIN users u ON u.id = kb.user_id
@@ -129,6 +134,8 @@ function toHit(layer: KnowledgeLayer, r: RawHit): LayeredHit {
   const similarity = Number(r.similarity) || 0;
   return {
     layer,
+    id: r.id ?? null,
+    sourceEntryId: r.source_entry_id ?? null,
     content: r.content,
     sourceType: r.source_type ?? null,
     title: null,
@@ -177,5 +184,18 @@ export async function searchLayeredKnowledge(
     searchZjjr(),
   ]);
 
-  return [...personal, ...org, ...zjjr].sort((a, b) => b.weighted - a.weighted);
+  // 同源对去重：晋升为复制后，个人层原记录与机构层副本内容相同。
+  // 若某条机构层结果的 sourceEntryId 命中某条个人层结果的 id，丢弃个人层那条，
+  // 只保留机构层副本（带作者标识），避免同一内容注入两次。
+  // 非同源命中（个人独有 / 他人晋升的机构条目）不受影响。
+  const promotedSourceIds = new Set(
+    org.map((h) => h.sourceEntryId).filter((x): x is string => !!x)
+  );
+  const dedupedPersonal = personal.filter(
+    (h) => !(h.id && promotedSourceIds.has(h.id))
+  );
+
+  return [...dedupedPersonal, ...org, ...zjjr].sort(
+    (a, b) => b.weighted - a.weighted
+  );
 }

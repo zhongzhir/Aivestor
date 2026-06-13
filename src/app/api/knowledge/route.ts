@@ -18,6 +18,7 @@ interface KBRow {
   metadata?: Record<string, unknown>;
   created_at: string;
   author_name?: string | null;
+  shared_to_org?: boolean;
 }
 
 const ALLOWED_ENTRY_TYPES = new Set([
@@ -52,11 +53,11 @@ export async function GET(req: NextRequest) {
   const sourceType = ALLOWED_SOURCE_TYPES.has(sourceTypeRaw) ? sourceTypeRaw : "";
 
   // 层筛选：layer=org 显示机构沉淀层（含他人条目+作者名）；
-  // 默认（个人层）= 本人且仍在个人层（visibility='private'）的条目。
-  // 必须带 visibility='private'：晋升是"移动不是复制"（架构 3.4），条目 user_id
-  // 不变、仅 visibility 改为 'org'（架构 3.1），若个人层只看 user_id 不看
-  // visibility，已晋升条目会同时出现在个人层与机构层（复制视觉假象）。
-  // 回归安全：未晋升条目 visibility 默认即 'private'（迁移 022），结果不变。
+  // 默认（个人层）= 本人且在个人层（visibility='private'）的原记录。
+  // 晋升改为"复制"（架构 3.4 修订）：机构层副本是独立行（visibility='org'、
+  // source_entry_id 指向原记录），个人层原记录永不变动，仍以 visibility='private'
+  // 收敛——晋升后个人层条目不消失，机构层另有一份副本。
+  // 回归安全：未晋升条目 visibility 默认即 'private'、source_entry_id 为 NULL，结果不变。
   const layer = (sp.get("layer") ?? "").trim();
   let baseWhere: string;
   const params: unknown[] = [];
@@ -86,12 +87,17 @@ export async function GET(req: NextRequest) {
 
   const authorSelect = withAuthor ? ", u.name AS author_name" : "";
   const authorJoin = withAuthor ? "LEFT JOIN users u ON u.id = kb.user_id" : "";
+  // 个人层：标记原记录是否已晋升（存在指向它的机构层副本），驱动"已分享"态。
+  const sharedSelect = withAuthor
+    ? ""
+    : `, EXISTS (SELECT 1 FROM knowledge_base_entries c
+                  WHERE c.source_entry_id = kb.id AND c.visibility = 'org') AS shared_to_org`;
 
   params.push(limit);
   params.push(offset);
   const entries = await query<KBRow>(
     `SELECT kb.id, kb.content, kb.source_type, kb.entry_type, kb.structured_data,
-            kb.tags, kb.embedding_model, kb.metadata, kb.created_at${authorSelect}
+            kb.tags, kb.embedding_model, kb.metadata, kb.created_at${authorSelect}${sharedSelect}
        FROM knowledge_base_entries kb
        ${authorJoin}
       WHERE ${where.join(" AND ")}

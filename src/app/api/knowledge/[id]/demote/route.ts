@@ -3,8 +3,9 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { buildAccessScope } from "@/lib/resourceAccess";
 
-// POST /api/knowledge/[id]/demote — 从机构层撤回条目（架构文档 3.4）
-// 撤回限作者或 org admin。撤回后回到个人私有层。
+// POST /api/knowledge/[id]/demote — 撤回机构层副本（架构文档 3.4 修订）
+// 晋升是复制：撤回即删除机构层副本，个人层原记录（source_entry_id 指向）永不受影响。
+// 撤回限副本作者或 org admin。
 export async function POST(
   _req: Request,
   { params }: { params: { id: string } }
@@ -37,13 +38,11 @@ export async function POST(
     return NextResponse.json({ error: "无权撤回该条目" }, { status: 403 });
   }
 
-  // 回到个人私有层（清除机构归属与晋升痕迹）。
+  // 删除机构层副本本身；个人层原记录从未变动，不受影响。
   await query(
-    `UPDATE knowledge_base_entries
-        SET visibility = 'private', org_id = NULL,
-            promoted_by = NULL, promoted_at = NULL
-      WHERE id = $1`,
-    [params.id]
+    `DELETE FROM knowledge_base_entries
+      WHERE id = $1 AND visibility = 'org' AND org_id = $2`,
+    [params.id, entry.org_id]
   );
   return NextResponse.json({ success: true });
 }

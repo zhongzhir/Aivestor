@@ -32,6 +32,7 @@ interface KBEntry {
     digested_at?: string;
   } | null;
   author_name?: string | null;
+  shared_to_org?: boolean;
   created_at: string;
 }
 
@@ -134,6 +135,12 @@ export default function KnowledgePage() {
 
   async function promoteEntry(id: string) {
     const res = await fetch(`/api/knowledge/${id}/promote`, { method: "POST" });
+    if (res.ok) fetchEntries();
+  }
+
+  // 撤回机构层副本：只删副本，个人层原记录不受影响（架构 3.4 修订）。
+  async function demoteEntry(id: string) {
+    const res = await fetch(`/api/knowledge/${id}/demote`, { method: "POST" });
     if (res.ok) fetchEntries();
   }
 
@@ -416,6 +423,7 @@ export default function KnowledgePage() {
                 isOrgLayer={layer === "org"}
                 canShareToOrg={canShareToOrg && layer === "personal"}
                 onPromote={promoteEntry}
+                onDemote={demoteEntry}
               />
             ))}
           </div>
@@ -459,14 +467,17 @@ function KBEntryItem({
   isOrgLayer = false,
   canShareToOrg = false,
   onPromote,
+  onDemote,
 }: {
   entry: KBEntry;
   isOrgLayer?: boolean;
   canShareToOrg?: boolean;
   onPromote?: (id: string) => void;
+  onDemote?: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
   const isDigest = entry.entry_type === "conversation_digest";
   const sd = entry.structured_data;
   const icon = isDigest ? "💬" : "📄";
@@ -552,20 +563,44 @@ function KBEntryItem({
             <span className="ml-2">· 来自项目「{entry.metadata.project_name}」</span>
           )}
         </p>
-        {canShareToOrg && onPromote && (
+        {isOrgLayer && onDemote && (
           <button
             type="button"
-            disabled={sharing}
+            disabled={withdrawing}
             onClick={async () => {
-              setSharing(true);
-              await onPromote(entry.id);
-              setSharing(false);
+              setWithdrawing(true);
+              await onDemote(entry.id);
+              setWithdrawing(false);
             }}
-            className="shrink-0 text-xs font-medium text-[#FF6B35] hover:underline disabled:opacity-50"
+            className="shrink-0 text-xs font-medium text-ink-soft hover:text-[#FF6B35] hover:underline disabled:opacity-50"
           >
-            {sharing ? "分享中…" : "分享到机构知识库"}
+            {withdrawing ? "撤回中…" : "撤回"}
           </button>
         )}
+        {canShareToOrg &&
+          (entry.shared_to_org ? (
+            <span
+              className="shrink-0 text-xs font-medium text-ink-faint"
+              title="已存在机构层副本，可在机构沉淀层查看或撤回"
+            >
+              已分享到机构知识库
+            </span>
+          ) : (
+            onPromote && (
+              <button
+                type="button"
+                disabled={sharing}
+                onClick={async () => {
+                  setSharing(true);
+                  await onPromote(entry.id);
+                  setSharing(false);
+                }}
+                className="shrink-0 text-xs font-medium text-[#FF6B35] hover:underline disabled:opacity-50"
+              >
+                {sharing ? "分享中…" : "分享到机构知识库"}
+              </button>
+            )
+          ))}
       </div>
     </div>
   );
