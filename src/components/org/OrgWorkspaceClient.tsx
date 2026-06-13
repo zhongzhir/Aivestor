@@ -62,11 +62,15 @@ export function OrgWorkspaceClient({
     window.history.replaceState(null, "", `/org/workspace?tab=${next}`);
   }
 
-  const lpEnabled = capabilities["lp_reports"] === true;
-  const assocEnabled = capabilities["assoc_report"] === true && myRole === "admin";
   // 统计看板仅管理层（partner/admin）可见（1.2 矩阵）。客户端再判一次，
   // 与服务端「不向 analyst 下发 dashboard 数据」形成纵深防御。
-  const canViewDashboard = myRole === "partner" || myRole === "admin";
+  const isAdmin = myRole === "admin";
+  const isManager = myRole === "partner" || myRole === "admin";
+  const canViewDashboard = isManager;
+  // 对外报告列表条目按角色裁剪：LP 报告对 partner+ 可见，协会底稿仅 admin。
+  // 条目内再按能力位决定可点/禁用态。
+  const lpEnabled = capabilities["lp_reports"] === true;
+  const assocEnabled = capabilities["assoc_report"] === true;
 
   return (
     <div className="mx-auto max-w-doc px-6 py-10">
@@ -128,25 +132,31 @@ export function OrgWorkspaceClient({
       {/* 对外报告 */}
       {tab === "reports" && (
         <div className="mt-6 space-y-3">
-          <ReportRow
-            title="LP 报告"
-            desc="聚合投后数据，按模板生成 LP 报告并导出"
-            href="/org/lp-reports"
-            enabled={lpEnabled}
-            disabledHint="组织未开通 LP 报告能力"
-          />
-          <ReportRow
-            title="协会报告底稿"
-            desc="信息聚合底稿，辅助起草，非代报送"
-            href="/org/assoc-report"
-            enabled={assocEnabled}
-            disabledHint={
-              capabilities["assoc_report"] === true
-                ? "仅管理员可访问"
-                : "组织未开通协会报告能力"
-            }
-          />
-          <p className="pt-2 text-xs text-ink-faint">更多报告类型即将上线</p>
+          {!isManager ? (
+            <div className="rounded-lg border border-line bg-surface px-4 py-6 text-sm text-ink-soft">
+              暂无可用的对外报告，需管理层权限。
+            </div>
+          ) : (
+            <>
+              <ReportRow
+                title="LP 报告"
+                desc="聚合投后数据，按模板生成 LP 报告并导出"
+                href="/org/lp-reports"
+                enabled={lpEnabled}
+                disabledHint="组织未开通 LP 报告能力"
+              />
+              {isAdmin && (
+                <ReportRow
+                  title="协会报告底稿"
+                  desc="信息聚合底稿，辅助起草，非代报送"
+                  href="/org/assoc-report"
+                  enabled={assocEnabled}
+                  disabledHint="组织未开通协会报告能力"
+                />
+              )}
+              <p className="pt-2 text-xs text-ink-faint">更多报告类型即将上线</p>
+            </>
+          )}
         </div>
       )}
     </div>
