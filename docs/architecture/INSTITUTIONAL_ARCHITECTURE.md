@@ -1335,3 +1335,20 @@ prompt 规则要求 AI 引用时沿用：`来源：中鉴基金研究院，数�
 | 改造 API | 第二部分 2.3 清单（24 个路由文件） |
 | 改造页面（2.3 清单外补充） | `src/app/(app)/projects/[id]/page.tsx` —— P2 实施时主动补：原页面以 `WHERE id=$1 AND user_id=$2` 收口，组织成员无法打开他人的组织项目，端到端协作不可用。改为 `buildAccessScope` + `assertProjectAccess(read)` 门禁后按 id 取数。无组织用户访问决策与 `notFound` 行为与改造前等价（详见 `docs/deploy/P2_P3_DEPLOYMENT.md` 回归清单）。原因：端到端协作可用性要求。同批附带 `knowledge/page.tsx`（层切换+晋升入口）、`ProjectDetail.tsx`（协作区）、`ShareControl.tsx` 等 UI 改造 |
 | 独立服务 | `services/zjjr-sync/`（client / pipeline / insights / ecosystem.config.js） |
+
+### 附录 C 补充：P4 机构模块 + 导航整合（2026-06-13）+ P5 数据管道骨架（2026-06-15）
+
+P4 与导航整合阶段实际新增/改造的关键文件（在前表基础上补充，含落地后命名调整）：
+
+| 类型 | 路径 | 说明 |
+|---|---|---|
+| 导航整合·组织工作台 | `src/app/(app)/org/workspace/page.tsx` + `src/components/org/OrgWorkspaceClient.tsx` | 三 tab（概览 / 成员与设置 / 对外报告）合并原 dashboard/settings/报告入口，org 成员一级入口 |
+| 导航整合·档案双视图 | `src/app/(app)/archive/page.tsx`（`?view=personal\|org`）、`src/app/(app)/archive/ArchiveFilters.tsx` | 个人归档 + 机构档案并入同一页；`src/app/(app)/org/archive/page.tsx` 改为 `redirect("/archive?view=org")`；`src/app/(app)/org/archive/OrgArchiveFilters.tsx` 提供 owner 下拉 |
+| P4·机构 Dashboard | `src/app/(app)/org/dashboard/page.tsx` + `src/components/org/OrgDashboardView.tsx` | 漏斗/行业/成员活跃度/12 周趋势，partner+ 且 `org_dashboard` |
+| P4·LP 报告 | `src/app/(app)/org/lp-reports/page.tsx` + `src/components/org/LpReportClient.tsx` | 依赖迁移 026（`reports.kind='lp_report'`，`project_id` 可空） |
+| P4·协会报告底稿 | `src/app/(app)/org/assoc-report/page.tsx` + `src/components/org/AssocReportClient.tsx` | 信息聚合底稿，admin + `assoc_report` |
+| P4·能力位状态 | `src/components/org/OrgCapabilityStatus.tsx` | 全员可见本组织开通的能力 |
+| P5·迁移 | `db/migrations/028_zjjr_pipeline.sql` | 四张 zjjr 表 + pg_trgm；ivfflat 索引首次全量后由同步服务建（不在迁移内）；编号顺延 026/027 后取 028 |
+| P5·独立服务（落地结构） | `services/zjjr-sync/`：`src/client.ts`（ZjjrClient 接口 + FixtureZjjrClient + HttpZjjrClient stub）、`src/pipeline/{clean,resolve,extract,narrate,embed,write}.ts`、`src/sync-core.ts`、`src/{full-sync,incremental-sync,insights}.ts`、`fixtures/sample.json`、`scripts/smoke-test.ts`、`ecosystem.config.js`、`README.md` | 与 `src/` 平级，不进 Next.js 构建（根 tsconfig `exclude: ["services"]`）；HttpZjjrClient 待 API 文档（5.3 七项）实现 |
+| P5·三层检索接通 | `src/lib/knowledgeSearch.ts`（`searchZjjr`） | `zjjr_data` 能力位 + 有向量时对 `zjjr_features` 检索；过期 freshness 0.5 降权不剔除；无数据静默空数组 |
+| 发布工程 | `docker/init.sql` | 追加 020–027（含两个 021）+ `reports.kind` 前置补建；028 不并入（物理隔离，DBA 手动） |

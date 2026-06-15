@@ -125,9 +125,60 @@ async function searchOrg(
   }
 }
 
-// 中鉴层检索：本期留空（P6 接入 zjjr_features）。
-async function searchZjjr(): Promise<LayeredHit[]> {
-  return [];
+// 中鉴层检索（架构文档 v1.1 第 3.3 / 5.5 节，P5 接通）。
+//   - 仅向量检索（zjjr 层无全文兜底，vec 为空时由调用方跳过本路）。
+//   - 过期降权不剔除：valid_until 未过期 freshness=1.0，过期=0.5（5.5）。
+//   - 来源标注：特征正文在生成时已内置「来源：中鉴基金研究院，数据截止…，仅供参考」
+//     （services/zjjr-sync narrate.ts）；此处兜底确保标注存在。
+//   - 静默降级：表为空 / 查询异常（如迁移 028 未执行）→ 返回 []，不阻塞主流程。
+interface ZjjrRawHit {
+  title: string | null;
+  content: string;
+  data_as_of: string | null;
+  valid_until: string | null;
+  similarity: number;
+  fresh: boolean;
+}
+
+const ZJJR_SOURCE_TAG = "中鉴基金研究院";
+
+async function searchZjjr(vec: string, topK: number): Promise<LayeredHit[]> {
+  try {
+    const rows = await query<ZjjrRawHit>(
+      `SELECT title, content,
+              data_as_of::text  AS data_as_of,
+              valid_until::text AS valid_until,
+              1 - (embedding <=> $1::vector) AS similarity,
+              (valid_until > NOW()) AS fresh
+         FROM zjjr_features
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> $1::vector
+        LIMIT $2`,
+      [vec, topK]
+    );
+    return rows.map((r) => {
+      const similarity = Number(r.similarity) || 0;
+      const freshness = r.fresh ? 1.0 : 0.5; // 过期降权不剔除（5.5）
+      const content = r.content.includes(ZJJR_SOURCE_TAG)
+        ? r.content
+        : `${r.content}（来源：${ZJJR_SOURCE_TAG}，数据截止 ${r.data_as_of ?? "未知"}，仅供参考）`;
+      return {
+        layer: "zjjr" as const,
+        id: null,
+        sourceEntryId: null,
+        content,
+        sourceType: "zjjr_feature",
+        title: r.title,
+        authorName: null,
+        validUntil: r.valid_until,
+        similarity,
+        weighted: similarity * LAYER_WEIGHT.zjjr * freshness,
+      };
+    });
+  } catch {
+    // 迁移 028 未执行 / 无 zjjr 数据 / 主应用账号无 SELECT 权限 → 静默空数组。
+    return [];
+  }
 }
 
 function toHit(layer: KnowledgeLayer, r: RawHit): LayeredHit {
@@ -155,6 +206,7 @@ export async function searchLayeredKnowledge(
 
   const topKPersonal = opts?.topKPersonal ?? 5;
   const topKOrg = opts?.topKOrg ?? 5;
+  const topKZjjr = opts?.topKZjjr ?? 5;
 
   // 一次 embedding（不可用时全路回退全文检索）
   let vec: string | null = null;
@@ -167,11 +219,21 @@ export async function searchLayeredKnowledge(
 
   // 机构层是否参与：有 org 且开通 org_knowledge 能力位。
   let orgParticipates = false;
+  // 中鉴层是否参与：有 org、开通 zjjr_data 能力位，且本次有可用向量
+  //   （zjjr 层无全文兜底，vec 为空直接跳过）。
+  let zjjrParticipates = false;
   if (scope.org) {
     try {
       orgParticipates = await hasCapability(scope.org.orgId, "org_knowledge");
     } catch {
       orgParticipates = false;
+    }
+    if (vec) {
+      try {
+        zjjrParticipates = await hasCapability(scope.org.orgId, "zjjr_data");
+      } catch {
+        zjjrParticipates = false;
+      }
     }
   }
 
@@ -181,7 +243,9 @@ export async function searchLayeredKnowledge(
     orgParticipates && scope.org
       ? searchOrg(scope.org.orgId, question, vec, topKOrg)
       : Promise.resolve<LayeredHit[]>([]),
-    searchZjjr(),
+    zjjrParticipates && vec
+      ? searchZjjr(vec, topKZjjr)
+      : Promise.resolve<LayeredHit[]>([]),
   ]);
 
   // 同源对去重：晋升为复制后，个人层原记录与机构层副本内容相同。

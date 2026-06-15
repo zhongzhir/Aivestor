@@ -1591,3 +1591,247 @@ END $$;
 -- 4. 默认额度 1000 万 → 500 万（仅影响后续新建行；存量行不变）
 ALTER TABLE free_quota_usage ALTER COLUMN tokens_limit SET DEFAULT 5000000;
 
+-- ============================================================
+-- ============================================================
+-- 机构版迁移（P1–P4，2026-06-13 追加）
+-- ============================================================
+-- 背景：本 init.sql 此前停留在合并 001–018 迁移的状态（V3.1.1，2026-06-01），
+--   机构版 020–027 全部未合并，导致全新本地部署因缺表/缺列而机构版功能 500。
+--   本段按生产实际执行顺序追加合并：020 → 021 → 022 → 023 → 027 → 026。
+--
+-- 前置补全（reports.kind）：023 / 026 依赖 reports.kind（迁移 018_reports_kind，
+--   属第二序列 016–019，本 init.sql 历史同样遗漏）。若不补建，023 的
+--   `ALTER ... reports_kind_check` 会因缺列报错。故此处先内联补建 reports.kind，
+--   再追加机构版迁移。
+--
+-- 已知遗留（记录在 devlog/2026-06-13-p4-nav-workspace.md）：第二序列中
+--   016_add_workflow_skills / 017_add_screening_criteria / 019_add_legal_skills /
+--   019_admin_plan 仍未并入本文件（非机构版、非 500 阻断项；016/019_legal 为
+--   skill_catalog 数据补充，017/019_admin 为 user_profiles/users 列与约束）。
+--   全新本地部署如需与生产完全对齐，另需手动执行这四个迁移文件。
+--
+-- 全部语句幂等（IF NOT EXISTS / OR REPLACE / DROP CONSTRAINT IF EXISTS）。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 前置：reports.kind（迁移 018_reports_kind，023/026 依赖）
+-- ------------------------------------------------------------
+ALTER TABLE reports
+  ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'analysis';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'reports_kind_check'
+  ) THEN
+    ALTER TABLE reports
+      ADD CONSTRAINT reports_kind_check
+      CHECK (kind IN ('analysis', 'brief', 'term_sheet'));
+  END IF;
+END$$;
+
+COMMENT ON COLUMN reports.kind IS 'analysis=正式分析报告, brief=简要分析, term_sheet=Term Sheet初稿';
+
+-- /db/migrations/020_orgs_and_members.sql
+-- ============================================================
+-- 迁移 020：组织与成员 — 机构版地基（架构文档 v1.1 第 1.1 节）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS orgs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name          TEXT NOT NULL,
+  capabilities  JSONB NOT NULL DEFAULT '{}'::jsonb,
+  description   TEXT,
+  logo_url      TEXT,
+  is_active     BOOLEAN NOT NULL DEFAULT true,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE TRIGGER trg_orgs_updated
+  BEFORE UPDATE ON orgs
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS org_members (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id        UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role          TEXT NOT NULL DEFAULT 'analyst'
+                  CHECK (role IN ('admin', 'partner', 'analyst')),
+  invited_by    UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (org_id, user_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_org_members_single_org
+  ON org_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_org_members_org ON org_members(org_id);
+
+CREATE OR REPLACE TRIGGER trg_org_members_updated
+  BEFORE UPDATE ON org_members
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS org_invitations (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  org_id        UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  identifier    TEXT NOT NULL,
+  role          TEXT NOT NULL DEFAULT 'analyst'
+                  CHECK (role IN ('admin', 'partner', 'analyst')),
+  invited_by    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status        TEXT NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+  expires_at    TIMESTAMPTZ NOT NULL DEFAULT now() + INTERVAL '7 days',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_org_invitations_pending
+  ON org_invitations(org_id, identifier) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_org_invitations_identifier
+  ON org_invitations(identifier, status);
+
+-- /db/migrations/021_document_image_analysis.sql
+-- ============================================================
+-- 迁移 021（其一）：BP 图片识别结果持久化 documents.image_analysis
+--   注：本列在 schema 顶部 documents 表中已存在，此处 IF NOT EXISTS 为幂等空操作，
+--   保留以与迁移序列对齐。
+-- ============================================================
+ALTER TABLE documents
+  ADD COLUMN IF NOT EXISTS image_analysis JSONB;
+
+-- /db/migrations/021_org_resource_columns.sql
+-- ============================================================
+-- 迁移 021（其二）：存量资源表 org 化（架构文档 v1.1 第 2.2 节）
+--   依赖：迁移 020（orgs 表）。个人版零影响（所有列 NULL 默认）。
+-- ============================================================
+ALTER TABLE projects
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+ALTER TABLE projects
+  ADD COLUMN IF NOT EXISTS owner_id UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE documents
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+ALTER TABLE knowledge_base_entries
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+ALTER TABLE reports
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+ALTER TABLE investment_judgments
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+ALTER TABLE meeting_notes
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+ALTER TABLE post_investment_updates
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+ALTER TABLE user_custom_skills
+  ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES orgs(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_projects_org
+  ON projects(org_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_org_owner
+  ON projects(org_id, owner_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_documents_org
+  ON documents(org_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_kb_org
+  ON knowledge_base_entries(org_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_reports_org
+  ON reports(org_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_judgments_org_project
+  ON investment_judgments(org_id, project_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_meetings_org
+  ON meeting_notes(org_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_post_updates_org
+  ON post_investment_updates(org_id) WHERE org_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_custom_skills_org
+  ON user_custom_skills(org_id) WHERE org_id IS NOT NULL;
+
+-- /db/migrations/022_org_knowledge_visibility.sql
+-- ============================================================
+-- 迁移 022：知识库可见性 — 机构沉淀层（架构文档 v1.1 第 3.1 节）
+--   依赖：迁移 021（knowledge_base_entries.org_id）。
+-- ============================================================
+ALTER TABLE knowledge_base_entries
+  ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'
+    CHECK (visibility IN ('private', 'org'));
+ALTER TABLE knowledge_base_entries
+  ADD COLUMN IF NOT EXISTS promoted_by UUID REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE knowledge_base_entries
+  ADD COLUMN IF NOT EXISTS promoted_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_kb_org_visible
+  ON knowledge_base_entries(org_id, visibility)
+  WHERE org_id IS NOT NULL AND visibility = 'org';
+
+-- /db/migrations/023_collaboration.sql
+-- ============================================================
+-- 迁移 023：轻协作 — 项目评论 + 项目共享 + 投委会总报告 kind 标识
+--           （架构文档 v1.1 第 4.2 / 4.4 节）
+--   依赖：迁移 021（projects.org_id/owner_id）、reports.kind（前置已补建）。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS project_comments (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  org_id      UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content     TEXT NOT NULL,
+  reply_to    UUID REFERENCES project_comments(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_comments_project
+  ON project_comments(project_id, created_at DESC);
+
+CREATE OR REPLACE TRIGGER trg_project_comments_updated
+  BEFORE UPDATE ON project_comments
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+CREATE TABLE IF NOT EXISTS project_shares (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  org_id      UUID NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+  shared_with UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  shared_by   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (project_id, shared_with)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_shares_user
+  ON project_shares(shared_with);
+
+-- 投委会总报告结构化标识（v1.1 修订项 1）
+ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_kind_check;
+ALTER TABLE reports
+  ADD CONSTRAINT reports_kind_check
+  CHECK (kind IN ('analysis', 'brief', 'term_sheet', 'committee'));
+
+UPDATE reports SET kind = 'committee'
+ WHERE kind = 'analysis' AND title LIKE '【总报告】%';
+
+-- /db/migrations/027_knowledge_source_entry.sql
+-- ============================================================
+-- 迁移 027：知识晋升改为"复制保留个人份"（架构文档 v1.1 第 3.4 节修订）
+--   依赖：迁移 022（visibility / promoted_by / promoted_at）。
+-- ============================================================
+ALTER TABLE knowledge_base_entries
+  ADD COLUMN IF NOT EXISTS source_entry_id UUID
+    REFERENCES knowledge_base_entries(id) ON DELETE CASCADE;
+
+CREATE INDEX IF NOT EXISTS idx_kb_source_entry
+  ON knowledge_base_entries(source_entry_id)
+  WHERE source_entry_id IS NOT NULL;
+
+-- /db/migrations/026_lp_report_kind.sql
+-- ============================================================
+-- 迁移 026：reports 支持 LP 报告（架构文档 v1.1 第 7.3 节）
+--   ① kind CHECK 纳入 'lp_report'（含 023 引入的 'committee'，不可遗漏）。
+--   ② project_id 放宽为可空（lp_report 挂 org_id 维度，不挂单一项目）。
+--      在已有 reports 表上追加，幂等：DROP CONSTRAINT IF EXISTS + ALTER ... DROP NOT NULL
+--      可重复执行（NOT NULL 已放开时再次 DROP 为空操作）。
+-- ============================================================
+ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_kind_check;
+ALTER TABLE reports
+  ADD CONSTRAINT reports_kind_check
+  CHECK (kind IN ('analysis', 'brief', 'term_sheet', 'committee', 'lp_report'));
+
+ALTER TABLE reports ALTER COLUMN project_id DROP NOT NULL;
+
+COMMENT ON COLUMN reports.kind IS
+  'analysis=正式分析报告, brief=简要分析, term_sheet=Term Sheet初稿, committee=投委会总报告, lp_report=LP报告(project_id 为空, 挂 org_id)';
+
