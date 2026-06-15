@@ -15,7 +15,12 @@ const NAV = [
   { href: "/settings", label: "个人设置", desc: "个人画像与 AI 配置" },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  dataAppsEnabled = false,
+}: {
+  // data_apps 能力位由服务端 layout 现取后下发（capabilities 不进 token，见 1.4）。
+  dataAppsEnabled?: boolean;
+}) {
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
@@ -30,6 +35,16 @@ export function Sidebar() {
           label: "组织工作台",
           desc: "统计 · 成员 · 对外报告",
         },
+        // 「数据应用」入口仅在开通 data_apps 能力位时渲染（关闭/个人版不显示）。
+        ...(dataAppsEnabled
+          ? [
+              {
+                href: "/data-apps",
+                label: "数据应用",
+                desc: "市场洞察 · 机构点查",
+              },
+            ]
+          : []),
       ]
     : NAV;
 

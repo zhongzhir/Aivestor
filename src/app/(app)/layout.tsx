@@ -1,5 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { hasCapability } from "@/lib/orgAuth";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
@@ -21,9 +22,16 @@ export default async function AppLayout({
     return <>{children}</>;
   }
 
+  // 「数据应用」导航入口的能力位守门（data_apps）。仅对有组织的用户查（与
+  // 「组织工作台」入口一样以 session.user.orgId 为前置），hasCapability 走 30s 缓存。
+  const orgId = (session.user as { orgId?: string } | undefined)?.orgId;
+  const dataAppsEnabled = orgId
+    ? await hasCapability(orgId, "data_apps").catch(() => false)
+    : false;
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar />
+      <Sidebar dataAppsEnabled={dataAppsEnabled} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <main className="flex-1 overflow-y-auto bg-canvas">{children}</main>

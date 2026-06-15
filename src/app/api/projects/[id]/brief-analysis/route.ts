@@ -13,7 +13,7 @@ import {
   assertProjectAccess,
   accessErrorResponse,
 } from "@/lib/resourceAccess";
-import { injectOrgKnowledge } from "@/lib/orgInject";
+import { injectOrgKnowledge, injectMarketContext } from "@/lib/orgInject";
 
 export const maxDuration = 90;
 
@@ -155,11 +155,12 @@ ${
 
   let systemPrompt = await injectProfile(userId, baseSystem);
   // 机构知识注入（个人版 / 无能力位时返回原文）
-  systemPrompt = await injectOrgKnowledge(
-    scope,
-    [project.name, project.industry, project.stage].filter(Boolean).join(" "),
-    systemPrompt
-  );
+  const orgRetrievalQuery = [project.name, project.industry, project.stage]
+    .filter(Boolean)
+    .join(" ");
+  systemPrompt = await injectOrgKnowledge(scope, orgRetrievalQuery, systemPrompt);
+  // 中鉴市场上下文注入（无 org / 无 zjjr_data 能力位 / 无命中时返回原文）
+  systemPrompt = await injectMarketContext(scope, orgRetrievalQuery, systemPrompt);
 
   // 加载画像，构造硬性否决项核查区块
   const profile = await getUserProfile(userId).catch(() => null);

@@ -15,7 +15,7 @@ import {
   scopedProjectChildWhere,
   type AccessScope,
 } from "@/lib/resourceAccess";
-import { injectOrgKnowledge } from "@/lib/orgInject";
+import { injectOrgKnowledge, injectMarketContext } from "@/lib/orgInject";
 
 export const maxDuration = 120;
 
@@ -285,6 +285,8 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join(" ");
   system = await injectOrgKnowledge(scope, retrievalQuery, system);
+  // 中鉴市场上下文注入（无 org / 无 zjjr_data 能力位 / 无命中时返回原文）
+  system = await injectMarketContext(scope, retrievalQuery, system);
 
   // 5. 流式调用 AI
   const generator = streamChat({

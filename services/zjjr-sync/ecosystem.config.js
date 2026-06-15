@@ -10,6 +10,11 @@
 //   （切勿复用主应用的 DATABASE_URL —— 那会打穿账号隔离。）
 //
 // 启动前置：迁移 028 已在生产库执行；ivfflat 索引由 full-sync 首次全量后建（见 write.ts）。
+// 市场洞察（P6）：第二个 cron 进程 zjjr-insights，每周一 03:30 生成周报（迁移 029 +
+//   SYSTEM_DEEPSEEK_API_KEY 为前置；未配置 Key 则跳过、保留上期，页面无感）。
+//
+// 注意：本任务不实际部署本配置的 PM2 进程——待 P5 full-sync 跑通、zjjr_features 有数据后
+//   再由人工 `pm2 start ecosystem.config.js`。
 
 module.exports = {
   apps: [
@@ -26,6 +31,18 @@ module.exports = {
         // BAILIAN_API_KEY 由部署环境注入（向量化用，与主应用同一密钥约定）
         // ZJJR_CLIENT 默认 fixture；接入真实 API 后置为 http（见 src/client.ts）
         ZJJR_CLIENT: "fixture",
+      },
+    },
+    {
+      name: "zjjr-insights",
+      script: "dist/generate-insights.js", // 开发期可改 ts-node src/generate-insights.ts
+      cwd: __dirname,
+      autorestart: false, // 生成完即退出，不常驻
+      cron_restart: "30 3 * * 1", // 每周一 03:30 生成市场洞察周报
+      max_memory_restart: "512M",
+      env: {
+        NODE_ENV: "production",
+        // ZJJR_SYNC_DATABASE_URL（专用账号）+ SYSTEM_DEEPSEEK_API_KEY 由部署环境注入
       },
     },
   ],

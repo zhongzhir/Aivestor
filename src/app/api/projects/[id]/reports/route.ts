@@ -14,7 +14,7 @@ import {
   assertProjectAccess,
   accessErrorResponse,
 } from "@/lib/resourceAccess";
-import { injectOrgKnowledge } from "@/lib/orgInject";
+import { injectOrgKnowledge, injectMarketContext } from "@/lib/orgInject";
 import type { FinancialData } from "@/lib/types";
 
 export const maxDuration = 120;
@@ -136,6 +136,8 @@ export async function POST(
     .join(" ");
   let injectedSystem = await injectProfile(session.user.id, system);
   injectedSystem = await injectOrgKnowledge(scope, retrievalQuery, injectedSystem);
+  // 中鉴市场上下文注入（无 org / 无 zjjr_data 能力位 / 无命中时返回原文）
+  injectedSystem = await injectMarketContext(scope, retrievalQuery, injectedSystem);
 
   const generator = streamChat({
     provider: creds.provider,

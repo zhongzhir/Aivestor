@@ -16,7 +16,7 @@ import {
   assertProjectAccess,
   accessErrorResponse,
 } from "@/lib/resourceAccess";
-import { injectOrgKnowledge } from "@/lib/orgInject";
+import { injectOrgKnowledge, injectMarketContext } from "@/lib/orgInject";
 
 export const maxDuration = 120;
 
@@ -254,11 +254,10 @@ export async function POST(
     : MERGE_SYSTEM;
   let system = await injectProfile(session.user.id, mergeSystem);
   // 机构知识注入（无 org / 无能力位时返回原文）
-  system = await injectOrgKnowledge(
-    scope,
-    ordered.map((r) => r.title).join(" "),
-    system
-  );
+  const mergeRetrievalQuery = ordered.map((r) => r.title).join(" ");
+  system = await injectOrgKnowledge(scope, mergeRetrievalQuery, system);
+  // 中鉴市场上下文注入（无 org / 无 zjjr_data 能力位 / 无命中时返回原文）
+  system = await injectMarketContext(scope, mergeRetrievalQuery, system);
 
   const generator = streamChat({
     provider: creds.provider,
