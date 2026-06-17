@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
+import { query } from "@/lib/db";
 import { getFreeQuotaStatus, isSystemKeyAvailable } from "@/lib/freeQuota";
 
 // GET /api/user/quota-status — 当前用户的免费额度状态（以 user_id 为键）
@@ -26,11 +27,24 @@ export async function GET() {
     return NextResponse.json({ enabled: false, reason: "unavailable" });
   }
 
+  // phoneBound 驱动额度耗尽提示的两个文案分支（F-15）。
+  let phoneBound = false;
+  try {
+    const rows = await query<{ phone: string | null }>(
+      "SELECT phone FROM users WHERE id = $1",
+      [session.user.id]
+    );
+    phoneBound = !!rows[0]?.phone;
+  } catch {
+    phoneBound = false;
+  }
+
   return NextResponse.json({
     enabled: true,
     available: status.available,
     tokensUsed: status.tokensUsed,
     tokensLimit: status.tokensLimit,
     tokensRemaining: status.tokensRemaining,
+    phoneBound,
   });
 }

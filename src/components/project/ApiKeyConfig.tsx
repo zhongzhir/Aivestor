@@ -10,6 +10,7 @@ interface QuotaStatus {
   tokensLimit?: number;
   tokensRemaining?: number;
   reason?: string;
+  phoneBound?: boolean;
 }
 
 interface ProviderDef {
@@ -221,12 +222,37 @@ export function ApiKeyConfig({
       )}
       {!loading && !configured && quota?.enabled && quota.available === false && (
         <div className="mb-3 rounded-r-lg border-l-4 border-[#FF6B35] bg-orange-50 p-3">
-          <p className="text-sm font-medium text-[#FF6B35]">
-            免费额度已用完，配置自己的 API Key 后可无限使用，数据完全归您所有。
-            <a href="/settings" className="ml-1 underline hover:opacity-80">
-              前往设置 →
-            </a>
-          </p>
+          {quota.phoneBound === false ? (
+            // 未绑定手机号：引导绑定（解锁额外额度）或配置自己的 Key（F-15）
+            <>
+              <p className="text-sm font-medium text-[#FF6B35]">
+                免费额度已用完。绑定手机号可解锁额外50万tokens额度，或配置自己的
+                API Key 后无限使用，数据完全归您所有。
+              </p>
+              <p className="mt-1 text-xs">
+                <a
+                  href="/settings#phone-binding"
+                  className="underline hover:opacity-80"
+                >
+                  绑定手机号 →
+                </a>
+                <a
+                  href="/settings"
+                  className="ml-3 underline hover:opacity-80"
+                >
+                  配置 API Key →
+                </a>
+              </p>
+            </>
+          ) : (
+            // 已绑定手机号：维持原文案不变
+            <p className="text-sm font-medium text-[#FF6B35]">
+              免费额度已用完，配置自己的 API Key 后可无限使用，数据完全归您所有。
+              <a href="/settings" className="ml-1 underline hover:opacity-80">
+                前往设置 →
+              </a>
+            </p>
+          )}
         </div>
       )}
 

@@ -13,7 +13,11 @@ import { formatTokens } from "@/lib/tokensFormat";
 // 为兼容旧 import 路径，从 freeQuota 中重导出 formatTokens（仅服务端用）
 export { formatTokens };
 
-const QUOTA_LIMIT_DEFAULT = 5_000_000; // 500 万 tokens
+const QUOTA_LIMIT_DEFAULT = 5_000_000; // 500 万 tokens（绑定手机号后的完整额度）
+
+// F-15 方向A：免费额度按手机绑定状态分层。
+export const TRIAL_QUOTA_LIMIT = 500_000; // 未绑定手机号的新用户试用额度（50 万）
+export const LEGACY_BIND_BONUS = 500_000; // 存量未绑定用户绑定后一次性追加额度
 
 export function getSystemApiKey(): string | null {
   return process.env.SYSTEM_DEEPSEEK_API_KEY?.trim() || null;
@@ -26,6 +30,11 @@ export function isSystemKeyAvailable(): boolean {
 function getQuotaLimit(): number {
   const v = parseInt(process.env.FREE_QUOTA_TOKENS || "", 10);
   return Number.isFinite(v) && v > 0 ? v : QUOTA_LIMIT_DEFAULT;
+}
+
+// 绑定手机号后的完整额度上限（env 可覆盖，与首次创建逻辑一致）。供绑定接口复用。
+export function getFullQuotaLimit(): number {
+  return getQuotaLimit();
 }
 
 export interface FreeQuotaStatus {
@@ -56,7 +65,15 @@ export async function getFreeQuotaStatus(
       tokensUsed = Number(rows[0].tokens_used) || 0;
       tokensLimit = Number(rows[0].tokens_limit) || tokensLimit;
     } else {
-      // 首次：插入初始行（phone 留空，邮箱用户也可享受免费额度）
+      // 首次创建：按手机绑定状态分层额度（F-15 方向A）。
+      // 未绑定手机号 → 试用额度；已绑定 → 完整额度（维持现状）。
+      // 仅影响本次改动上线后新建的行；已存在行的 tokens_limit 不回溯修改。
+      const userRows = await query<{ phone: string | null }>(
+        "SELECT phone FROM users WHERE id = $1",
+        [userId]
+      );
+      const hasPhone = !!userRows[0]?.phone;
+      tokensLimit = hasPhone ? getQuotaLimit() : TRIAL_QUOTA_LIMIT;
       await query(
         `INSERT INTO free_quota_usage (user_id, tokens_used, tokens_limit)
          VALUES ($1, 0, $2)

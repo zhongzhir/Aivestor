@@ -7,6 +7,7 @@ import { ProfileForm } from "@/components/settings/ProfileForm";
 import { PendingInvites } from "@/components/org/PendingInvites";
 import { RecommendedPlans } from "@/components/settings/RecommendedPlans";
 import { DataExport } from "@/components/settings/DataExport";
+import { PhoneBinding } from "@/components/settings/PhoneBinding";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,17 @@ export default async function SettingsPage() {
         </p>
         <div className="mt-6">
           <DataExport />
+        </div>
+      </section>
+
+      {/* 区块：手机号绑定（解锁完整免费额度，F-15 方向A） */}
+      <section id="phone-binding" className="mt-12 border-t border-line pt-8 scroll-mt-20">
+        <h2 className="text-sm font-medium text-ink">手机号绑定</h2>
+        <p className="mt-1 text-xs leading-5 text-ink-faint">
+          绑定手机号即可解锁完整免费额度。手机号仅用于账号安全与额度发放，不会对外展示。
+        </p>
+        <div className="mt-6">
+          <PhoneBinding />
         </div>
       </section>
 

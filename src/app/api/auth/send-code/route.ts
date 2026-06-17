@@ -15,7 +15,13 @@ export async function POST(req: Request) {
     }
 
     const phone = body.phone?.trim();
-    const purpose = body.purpose === "register" ? "register" : "login";
+    // login / register / bind（bind = 已登录邮箱账号补绑手机号，F-15 方向A）
+    const purpose =
+      body.purpose === "register"
+        ? "register"
+        : body.purpose === "bind"
+          ? "bind"
+          : "login";
     if (!phone || !isValidPhone(phone)) {
       return NextResponse.json({ error: "手机号格式不正确" }, { status: 400 });
     }
