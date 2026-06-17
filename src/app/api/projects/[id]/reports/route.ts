@@ -148,12 +148,21 @@ export async function POST(
     messages,
   });
 
-  const res = streamTextResponse(generator, async (fullText) => {
-    await query("UPDATE reports SET content = $1 WHERE id = $2", [
-      fullText,
-      reportId,
-    ]);
-  });
+  const res = streamTextResponse(
+    generator,
+    async (fullText) => {
+      await query("UPDATE reports SET content = $1 WHERE id = $2", [
+        fullText,
+        reportId,
+      ]);
+    },
+    // 流中途失败：删除从未写入正文的占位行，避免空 draft 堆积（审计 F-17）。
+    async () => {
+      await query("DELETE FROM reports WHERE id = $1 AND content = ''", [
+        reportId,
+      ]);
+    }
+  );
   res.headers.set("X-Report-Id", reportId);
   return res;
 }

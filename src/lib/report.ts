@@ -320,9 +320,12 @@ export async function loadUserAICredentials(
 }
 
 // 把 AI 文本增量流包装为 HTTP 流式响应；流结束后执行 onComplete 持久化。
+// onError（可选，审计 F-17）：流中途异常时调用，供调用方清理预创建的占位行等。
+// onError 自身异常被吞掉，不影响给前端的中断提示。
 export function streamTextResponse(
   generator: AsyncGenerator<string>,
-  onComplete: (fullText: string) => Promise<void>
+  onComplete: (fullText: string) => Promise<void>,
+  onError?: (err: unknown) => Promise<void>
 ): Response {
   const encoder = new TextEncoder();
   let full = "";
@@ -338,6 +341,13 @@ export function streamTextResponse(
       } catch (err) {
         const msg = err instanceof Error ? err.message : "未知错误";
         controller.enqueue(encoder.encode(`\n\n> [生成中断] ${msg}`));
+        if (onError) {
+          try {
+            await onError(err);
+          } catch (cleanupErr) {
+            console.error("[streamTextResponse] onError 清理失败:", cleanupErr);
+          }
+        }
       } finally {
         controller.close();
       }
