@@ -37,10 +37,11 @@ export async function POST(req: Request) {
     }
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
-    await query("UPDATE users SET password_hash = $1 WHERE id = $2", [
-      passwordHash,
-      record.user_id,
-    ]);
+    // password_changed_at 置为 now()：使改密前签发的 JWT 会话失效（审计 F-06）。
+    await query(
+      "UPDATE users SET password_hash = $1, password_changed_at = now() WHERE id = $2",
+      [passwordHash, record.user_id]
+    );
     await query(
       "UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1",
       [record.id]

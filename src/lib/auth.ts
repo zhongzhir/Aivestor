@@ -188,6 +188,32 @@ export const authOptions: NextAuthOptions = {
       // TODO(perf): 本查询与同请求内 getOrgContext 重复（useSession 轮询也会
       // 触发）。当前单 ECS 低并发无感；若将来成为热点，优化方向是 token 内记
       // orgCheckedAt 时间戳、距上次检查超过 60s 才重读 org_members。
+      // 会话失效校验（审计 F-06）：若 token 在最近一次改密之前签发，则使其失效。
+      // 抛错会让 getServerSession 返回 null 并清除 session cookie（见 next-auth
+      // core/routes/session.js 的 JWT_SESSION_ERROR 分支），从而所有 API 路由
+      // 与 requireAuth() 把该请求当作未登录。token.iat 单位为秒。
+      if (token.uid) {
+        try {
+          const pwRows = await query<{ password_changed_at: string | null }>(
+            "SELECT password_changed_at FROM users WHERE id = $1",
+            [token.uid as string]
+          );
+          const changedAt = pwRows[0]?.password_changed_at;
+          if (changedAt && typeof token.iat === "number") {
+            const changedSec = Math.floor(new Date(changedAt).getTime() / 1000);
+            if (changedSec > token.iat) {
+              throw new Error("session invalidated by password change");
+            }
+          }
+        } catch (e) {
+          // 仅放行"列不存在"（迁移 030 未执行）这一兼容场景；失效信号必须上抛。
+          if (e instanceof Error && e.message === "session invalidated by password change") {
+            throw e;
+          }
+          // 其他异常（如旧库无 password_changed_at 列）静默跳过，行为不变。
+        }
+      }
+
       if (token.uid) {
         try {
           const rows = await query<{ org_id: string; role: string }>(
