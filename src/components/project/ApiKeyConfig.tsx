@@ -109,13 +109,25 @@ export function ApiKeyConfig({
     onChange?.(!!data.configured);
   }
 
+  // 拉免费额度状态；失败静默忽略。供首次挂载与"额度变更"事件复用。
+  async function loadQuota() {
+    try {
+      const r = await fetch("/api/user/quota-status");
+      setQuota(r.ok ? await r.json() : null);
+    } catch {
+      setQuota(null);
+    }
+  }
+
   useEffect(() => {
     refresh().finally(() => setLoading(false));
-    // 拉一次免费额度状态；失败静默忽略
-    fetch("/api/user/quota-status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setQuota(d))
-      .catch(() => setQuota(null));
+    loadQuota();
+    // 绑定手机号等额度变更后，PhoneBinding 会派发该事件，这里重新拉取额度状态，
+    // 使耗尽横幅及时更新（绑定成功后额度恢复则横幅消失）——修复 F-15 横幅不刷新。
+    const onQuotaChanged = () => loadQuota();
+    window.addEventListener("aivestor:quota-changed", onQuotaChanged);
+    return () =>
+      window.removeEventListener("aivestor:quota-changed", onQuotaChanged);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

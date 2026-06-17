@@ -92,6 +92,8 @@ export function PhoneBinding() {
       setBound(true);
       setPhoneMasked(data.phoneMasked ?? null);
       setMessage("绑定成功，免费额度已提升");
+      // 通知同页 ApiKeyConfig 重新拉取额度状态，使耗尽横幅及时更新（F-15）。
+      window.dispatchEvent(new Event("aivestor:quota-changed"));
     } catch {
       setError("绑定失败，请稍后重试");
     } finally {
