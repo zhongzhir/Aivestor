@@ -4,7 +4,7 @@
  */
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { saveLocalFile, isOSSEnabled } from "@/lib/fileStorage";
+import { saveLocalUpload, isOSSEnabled } from "@/lib/fileStorage";
 
 export const maxDuration = 120;
 
@@ -25,10 +25,11 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
-    const objectKey = formData.get("objectKey") as string;
 
-    if (!file || !objectKey) {
-      return NextResponse.json({ error: "缺少文件或路径" }, { status: 400 });
+    // objectKey 不再接受客户端传入：服务端按扩展名自行生成路径，杜绝客户端
+    // 控制写入位置（审计 F-12 旁注）。客户端改用响应返回的 fileUrl。
+    if (!file) {
+      return NextResponse.json({ error: "缺少文件" }, { status: 400 });
     }
 
     const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
@@ -40,9 +41,9 @@ export async function POST(req: Request) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    await saveLocalFile(objectKey, buffer);
+    const fileUrl = await saveLocalUpload(ext, buffer);
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, fileUrl });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

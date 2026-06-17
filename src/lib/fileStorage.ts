@@ -89,6 +89,20 @@ export async function saveLocalFile(objectKey: string, buffer: Buffer): Promise<
 }
 
 /**
+ * 本地模式上传：服务端自行生成 objectKey 并写盘，返回 local:// fileUrl。
+ * 不接受客户端传入的 objectKey（审计 F-12 旁注：避免客户端控制写入路径）。
+ */
+export async function saveLocalUpload(
+  ext: string,
+  buffer: Buffer
+): Promise<string> {
+  const safeExt = ext.replace(/[^a-z0-9]/gi, "").toLowerCase() || "bin";
+  const objectKey = `uploads/${randomUUID()}.${safeExt}`;
+  await saveLocalFile(objectKey, buffer);
+  return `local://${objectKey}`;
+}
+
+/**
  * 读取文件内容（供解析 API 使用）
  * 自动识别 oss:// 或 local:// 前缀
  */

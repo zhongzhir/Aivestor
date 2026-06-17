@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 import { readTextStream, readError } from "@/lib/clientAI";
 import { EmptyState } from "@/components/ui/EmptyState";
 
@@ -228,7 +229,7 @@ export function LpReportClient({
 
           {content ? (
             <article className="report-body mt-5 min-h-[200px]">
-              <ReactMarkdown>{content}</ReactMarkdown>
+              <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{content}</ReactMarkdown>
               {streaming && <span className="type-cursor" />}
             </article>
           ) : (

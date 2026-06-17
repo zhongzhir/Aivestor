@@ -72,13 +72,12 @@ export default function NewProjectPage() {
       if (!putRes.ok) throw new Error("文件上传失败");
       fileUrl = credential.fileUrl;
     } else {
-      const objectKey = credential.fileUrl.replace(/^local:\/\//, "");
+      // 本地模式：objectKey 由服务端生成，client 用返回的 fileUrl。
       const form = new FormData();
       form.append("file", file);
-      form.append("objectKey", objectKey);
       const uploadRes = await fetch("/api/upload-local", { method: "POST", body: form });
       if (!uploadRes.ok) throw new Error("文件上传失败");
-      fileUrl = credential.fileUrl;
+      fileUrl = (await uploadRes.json()).fileUrl;
     }
 
     setProgress(70);

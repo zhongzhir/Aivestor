@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
 import { readError } from "@/lib/clientAI";
 
 // 协会报告底稿：拉取后端聚合的 Markdown 底稿，渲染 + 导出 Word（?format=docx）。
@@ -60,7 +61,7 @@ export function AssocReportClient() {
         <p className="mt-6 text-sm text-ink-faint">底稿生成中…</p>
       ) : (
         <article className="report-body mt-6 min-h-[200px]">
-          <ReactMarkdown>{markdown}</ReactMarkdown>
+          <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{markdown}</ReactMarkdown>
         </article>
       )}
     </div>
