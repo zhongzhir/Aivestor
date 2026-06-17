@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { requireCapabilityAPI } from "@/lib/orgAuth";
-import { consumeLookupQuota } from "@/lib/dataAppRateLimit";
+import { consumeLookupQuota, clientIpFrom } from "@/lib/dataAppRateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -28,13 +28,16 @@ interface DealRow {
 //   requireCapabilityAPI('zjjr_data') + 60 次/小时频控；返回限定字段 +
 //   近 12 月出手次数 + 最近 3 条投资事件（不返回完整投资清单 / 金额详情）。
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   const guard = await requireCapabilityAPI("zjjr_data");
   if (!guard.ok) return guard.response;
 
-  const { limited } = consumeLookupQuota(guard.ctx.userId);
+  const { limited } = await consumeLookupQuota(
+    guard.ctx.userId,
+    clientIpFrom(req)
+  );
   if (limited) {
     return NextResponse.json(
       { error: "点查过于频繁，请稍后再试（每小时上限 60 次）" },

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import { requireCapabilityAPI } from "@/lib/orgAuth";
-import { consumeLookupQuota } from "@/lib/dataAppRateLimit";
+import { consumeLookupQuota, clientIpFrom } from "@/lib/dataAppRateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,10 @@ export async function GET(req: NextRequest) {
   const guard = await requireCapabilityAPI("zjjr_data");
   if (!guard.ok) return guard.response;
 
-  const { limited } = consumeLookupQuota(guard.ctx.userId);
+  const { limited } = await consumeLookupQuota(
+    guard.ctx.userId,
+    clientIpFrom(req)
+  );
   if (limited) {
     return NextResponse.json(
       { error: "点查过于频繁，请稍后再试（每小时上限 60 次）" },
