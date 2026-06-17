@@ -154,31 +154,25 @@ export const authOptions: NextAuthOptions = {
       );
       return true;
     },
-    // 首次登录时把数据库用户 id 写入 JWT，并把 plan 同步进 token
-    // （供 middleware 在 Edge 运行时做 /admin 快路径校验；服务端最终仍以 DB 现取为准）。
+    // 首次登录时把数据库用户 id 写入 JWT。plan 不在此处取——改为每次 callback
+    // 从 DB 现取刷新（与 orgId/orgRole 一致，审计 F-07），避免升级 admin 需重登。
     async jwt({ token, user, account }) {
       if (user) {
         if (account?.provider === "github") {
           // GitHub OAuth：user.id 是 GitHub 的 id，需按邮箱回查数据库 id
           const email = (user.email ?? token.email)?.toLowerCase().trim();
           if (email) {
-            const rows = await query<{ id: string; plan: string }>(
-              "SELECT id, plan FROM users WHERE email = $1",
+            const rows = await query<{ id: string }>(
+              "SELECT id FROM users WHERE email = $1",
               [email]
             );
             if (rows[0]) {
               token.uid = rows[0].id;
-              token.plan = rows[0].plan;
             }
           }
         } else {
           // credentials / phone：authorize 返回的 user.id 即数据库 id
           token.uid = user.id;
-          const rows = await query<{ plan: string }>(
-            "SELECT plan FROM users WHERE id = $1",
-            [user.id]
-          );
-          if (rows[0]) token.plan = rows[0].plan;
         }
       }
       // 机构版：每次 callback 都重读 org_members，注入组织信息。
@@ -194,10 +188,15 @@ export const authOptions: NextAuthOptions = {
       // 与 requireAuth() 把该请求当作未登录。token.iat 单位为秒。
       if (token.uid) {
         try {
-          const pwRows = await query<{ password_changed_at: string | null }>(
-            "SELECT password_changed_at FROM users WHERE id = $1",
-            [token.uid as string]
-          );
+          const pwRows = await query<{
+            plan: string;
+            password_changed_at: string | null;
+          }>("SELECT plan, password_changed_at FROM users WHERE id = $1", [
+            token.uid as string,
+          ]);
+          // plan 每次 callback 刷新（审计 F-07）：admin 升/降级无需重新登录即可
+          // 反映到 token；middleware /admin 快路径与前端 UI 随会话刷新生效。
+          if (pwRows[0]?.plan) token.plan = pwRows[0].plan;
           const changedAt = pwRows[0]?.password_changed_at;
           if (changedAt && typeof token.iat === "number") {
             const changedSec = Math.floor(new Date(changedAt).getTime() / 1000);
