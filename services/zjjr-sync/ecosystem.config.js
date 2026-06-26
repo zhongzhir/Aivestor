@@ -20,7 +20,7 @@ module.exports = {
   apps: [
     {
       name: "zjjr-sync",
-      script: "dist/incremental-sync.js", // tsc 产物；开发期可改 ts-node src/incremental-sync.ts
+      script: "dist/src/incremental-sync.js", // tsc 产物；开发期可改 ts-node src/incremental-sync.ts
       cwd: __dirname,
       autorestart: false, // 同步完即退出，不常驻
       cron_restart: "30 2 * * *", // 每日 02:30 增量轮询一次
@@ -35,7 +35,7 @@ module.exports = {
     },
     {
       name: "zjjr-insights",
-      script: "dist/generate-insights.js", // 开发期可改 ts-node src/generate-insights.ts
+      script: "dist/src/generate-insights.js", // 开发期可改 ts-node src/generate-insights.ts
       cwd: __dirname,
       autorestart: false, // 生成完即退出，不常驻
       cron_restart: "30 3 * * 1", // 每周一 03:30 生成市场洞察周报
