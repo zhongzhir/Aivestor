@@ -10,14 +10,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import AdmZip from 'adm-zip';
 import * as XLSX from 'xlsx';
 import { Pool } from 'pg';
 
 // ── 配置 ────────────────────────────────────────────────
-const ZIP_FILES = [
-  '/var/www/aivestor-app/data/zjjr/zjjr_zhejiang.zip',
-  '/var/www/aivestor-app/data/zjjr/zjjr_shanghai.zip',
+const EXTRACT_ROOT = '/var/www/Aivestor/services/zjjr-sync/extracted';
+const REGION_DIRS: Array<{ dir: string; region: string }> = [
+  { dir: path.join(EXTRACT_ROOT, '浙江'), region: '浙江' },
+  { dir: path.join(EXTRACT_ROOT, '上海'), region: '上海' },
 ];
 const DB_URL = process.env.ZJJR_SYNC_DATABASE_URL || process.env.DATABASE_URL;
 const BAILIAN_KEY = process.env.BAILIAN_API_KEY;
@@ -376,31 +376,23 @@ async function main() {
 
   const pool = new Pool({ connectionString: DB_URL, max: 5 });
 
-  for (const zipPath of ZIP_FILES) {
-    if (!fs.existsSync(zipPath)) {
-      console.warn(`\n跳过（文件不存在）：${zipPath}`);
+  for (const { dir, region } of REGION_DIRS) {
+    if (!fs.existsSync(dir)) {
+      console.warn(`\n跳过（目录不存在）：${dir}`);
       continue;
     }
     console.log(`\n${'='.repeat(60)}`);
-    console.log(`处理：${path.basename(zipPath)}`);
+    console.log(`处理：${region}（${dir}）`);
     console.log('='.repeat(60));
 
-    const zip = new AdmZip(zipPath);
-    for (const entry of zip.getEntries()) {
-      if (!entry.entryName.endsWith('.xlsx')) continue;
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.xlsx'));
+    for (const filename of files) {
+      const { type, cityDistrict } = classifyFile(filename);
+      if (!type) { console.log(`跳过：${filename}`); continue; }
 
-      // GBK 解码文件名
-      let filename: string;
-      try { filename = Buffer.from(entry.rawEntryName).toString('gbk'); }
-      catch { filename = entry.entryName; }
-      const shortName = path.basename(filename);
+      console.log(`\n▶ ${filename} | ${type} | ${region} ${cityDistrict}`);
 
-      const { type, region, cityDistrict } = classifyFile(shortName);
-      if (!type) { console.log(`跳过：${shortName}`); continue; }
-
-      console.log(`\n▶ ${shortName} | ${type} | ${region} ${cityDistrict}`);
-
-      const buf = entry.getData();
+      const buf = fs.readFileSync(path.join(dir, filename));
       const wb = XLSX.read(buf, { type: 'buffer', cellDates: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       // 第1行是大标题（如"管理人筛选"），第2行是列名，第3行起是数据
