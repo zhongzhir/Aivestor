@@ -8,6 +8,7 @@ import {
   buildAccessScope,
   assertProjectAccess,
 } from "@/lib/resourceAccess";
+import { hasCapability } from "@/lib/orgAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +121,16 @@ export default async function ProjectDetailPage({
     [params.id]
   );
 
+  // zjjr_data 能力位（机构版专属入口可见性）
+  let hasZjjrData = false;
+  if (scope.org) {
+    try {
+      hasZjjrData = await hasCapability(scope.org.orgId, "zjjr_data");
+    } catch {
+      hasZjjrData = false;
+    }
+  }
+
   return (
     <ProjectDetail
       projectId={project.id}
@@ -145,6 +156,7 @@ export default async function ProjectDetailPage({
       initialFinancialData={project.financial_data}
       isOrgProject={isOrgProject}
       hasOrg={!!scope.org}
+      hasZjjrData={hasZjjrData}
       currentUserId={session.user.id}
     />
   );

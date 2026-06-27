@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { SkillsClient } from "@/components/skills/SkillsClient";
+import { buildAccessScope } from "@/lib/resourceAccess";
+import { hasCapability } from "@/lib/orgAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,7 @@ interface SkillRow {
   description: string | null;
   category: string | null;
   applicable_stages: string[] | null;
+  requires_capability: string | null;
   prompt_template?: string;
   metadata?: { generated_from_judgments?: boolean } | null;
 }
@@ -51,12 +54,37 @@ export default async function SkillsPage() {
   const isLoggedIn = !!session?.user;
 
   // 官方 SKILL 始终服务端读取，确保 HTML 含 SKILL 内容
-  const catalog = await query<SkillRow>(
-    `SELECT id, name, description, category, applicable_stages
-       FROM skill_catalog
-      WHERE is_active = true
-      ORDER BY sort_order ASC, created_at ASC`
-  );
+  // requires_capability 列由迁移 033 引入，降级兼容（列不存在时为 null）
+  let catalog: SkillRow[] = [];
+  try {
+    catalog = await query<SkillRow>(
+      `SELECT id, name, description, category, applicable_stages, requires_capability
+         FROM skill_catalog
+        WHERE is_active = true
+        ORDER BY sort_order ASC, created_at ASC`
+    );
+  } catch {
+    catalog = await query<SkillRow>(
+      `SELECT id, name, description, category, applicable_stages,
+              NULL::text AS requires_capability
+         FROM skill_catalog
+        WHERE is_active = true
+        ORDER BY sort_order ASC, created_at ASC`
+    );
+  }
+
+  // 当前用户是否拥有 zjjr_data 能力位（机构版专属 SKILL 显示逻辑）
+  let hasZjjrData = false;
+  if (isLoggedIn && session?.user?.id) {
+    try {
+      const scope = await buildAccessScope(session.user.id);
+      if (scope.org) {
+        hasZjjrData = await hasCapability(scope.org.orgId, "zjjr_data");
+      }
+    } catch {
+      hasZjjrData = false;
+    }
+  }
 
   let custom: SkillRow[] = [];
   if (isLoggedIn) {
@@ -85,6 +113,7 @@ export default async function SkillsPage() {
         initialCatalog={catalog}
         initialCustom={custom}
         isLoggedIn={isLoggedIn}
+        hasZjjrData={hasZjjrData}
       />
     </div>
   );

@@ -1,8 +1,12 @@
 // 投资工作台 — PWA Service Worker（基础版）
-// 策略：应用外壳静态资源走「缓存优先」；导航与 API 请求走「网络优先」，
-// 离线时回退到缓存的首页。后续可按需扩展为更精细的运行时缓存。
+// 缓存策略：
+//   /_next/static/**  → cache-first（文件名含 hash，永不过期）
+//   页面导航           → network-first，离线回退首页
+//   其他所有请求       → 直接透传网络，不缓存
+// 注意：RSC payload（/_next/data/ 或带 _rsc 参数）必须透传，否则 router.refresh()
+// 会拿到旧 payload 导致 PATCH 后前端数据不更新。
 
-const CACHE_VERSION = "iw-cache-v1";
+const CACHE_VERSION = "iw-cache-v2";
 const APP_SHELL = ["/", "/manifest.json", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -44,13 +48,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 其他静态资源：缓存优先
+  // 只缓存真正的静态资源（/_next/static/ 下的带 hash 文件）。
+  // 动态页面的 RSC payload（/_next/data/... 或带 _rsc 参数的请求）必须走网络，
+  // 否则 router.refresh() 会拿到 SW 缓存的旧 payload，导致 PATCH 后数据不更新。
+  const isNextStatic = url.pathname.startsWith("/_next/static/");
+  if (!isNextStatic) return;
+
   event.respondWith(
     caches.match(request).then(
       (cached) =>
         cached ||
         fetch(request).then((res) => {
-          if (res.ok && url.origin === self.location.origin) {
+          if (res.ok) {
             const copy = res.clone();
             caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
           }

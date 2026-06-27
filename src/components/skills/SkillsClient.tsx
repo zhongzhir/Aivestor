@@ -12,6 +12,7 @@ interface SkillItem {
   description: string | null;
   category: string | null;
   applicable_stages: string[];
+  requires_capability: string | null;
   skillType: "catalog" | "custom";
   prompt_template?: string;
   metadata?: { generated_from_judgments?: boolean } | null;
@@ -24,6 +25,7 @@ interface RawSkill {
   description: string | null;
   category: string | null;
   applicable_stages: string[] | null;
+  requires_capability: string | null;
   prompt_template?: string;
   metadata?: { generated_from_judgments?: boolean } | null;
 }
@@ -51,6 +53,7 @@ function withType(rows: RawSkill[], skillType: "catalog" | "custom"): SkillItem[
   return rows.map((s) => ({
     ...s,
     applicable_stages: s.applicable_stages ?? [],
+    requires_capability: s.requires_capability ?? null,
     skillType,
   }));
 }
@@ -59,10 +62,12 @@ export function SkillsClient({
   initialCatalog,
   initialCustom,
   isLoggedIn,
+  hasZjjrData = false,
 }: {
   initialCatalog: RawSkill[];
   initialCustom: RawSkill[];
   isLoggedIn: boolean;
+  hasZjjrData?: boolean;
 }) {
   const [catalog, setCatalog] = useState<SkillItem[]>(() =>
     withType(initialCatalog, "catalog")
@@ -229,6 +234,9 @@ export function SkillsClient({
             skill={s}
             isLoggedIn={isLoggedIn}
             highlight={s.id === highlightId}
+            capabilityGranted={
+              s.requires_capability === "zjjr_data" ? hasZjjrData : true
+            }
             onRun={() => setRunnerSkill(s)}
             onEdit={
               s.skillType === "custom" ? () => setEditSkill(s) : undefined
@@ -373,6 +381,7 @@ function SkillCard({
   skill,
   isLoggedIn,
   highlight,
+  capabilityGranted = true,
   onRun,
   onEdit,
   onExport,
@@ -381,6 +390,7 @@ function SkillCard({
   skill: SkillItem;
   isLoggedIn: boolean;
   highlight?: boolean;
+  capabilityGranted?: boolean;
   onRun: () => void;
   onEdit?: () => void;
   onExport?: () => void;
@@ -446,20 +456,28 @@ function SkillCard({
         </div>
       )}
       <div className="mt-3 flex justify-end">
-        {isLoggedIn ? (
-          <button
-            onClick={onRun}
-            className="rounded-md border border-accent px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent-soft"
-          >
-            使用 →
-          </button>
-        ) : (
+        {!isLoggedIn ? (
           <a
             href={LOGIN_HREF}
             className="rounded-md bg-[#FF6B35] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
           >
             登录后使用
           </a>
+        ) : !capabilityGranted ? (
+          <button
+            disabled
+            title="需要机构版且开通中鉴数据增强"
+            className="cursor-not-allowed rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink-faint"
+          >
+            机构版专属
+          </button>
+        ) : (
+          <button
+            onClick={onRun}
+            className="rounded-md border border-accent px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent-soft"
+          >
+            使用 →
+          </button>
         )}
       </div>
     </div>
