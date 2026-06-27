@@ -68,7 +68,6 @@ interface Props {
   initialFinancialData: FinancialData | null;
   isOrgProject?: boolean;
   hasOrg?: boolean;
-  hasZjjrData?: boolean;
   currentUserId?: string;
 }
 
@@ -86,7 +85,6 @@ export function ProjectDetail({
   initialFinancialData,
   isOrgProject = false,
   hasOrg = false,
-  hasZjjrData = false,
   currentUserId,
 }: Props) {
   const router = useRouter();
@@ -97,10 +95,6 @@ export function ProjectDetail({
   const [showSkillModal, setShowSkillModal] = useState(false);
   // 是否存在已解析完成的文档（决定「SKILL 分析」是否可用）
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
-
-  // 竞争格局分析
-  const [clLoading, setClLoading] = useState(false);
-  const [clError, setClError] = useState("");
 
   // 新文件上传完成提示
   const [newUpload, setNewUpload] = useState(false);
@@ -297,40 +291,6 @@ export function ProjectDetail({
     setError("");
     stashJudgmentPoints(projectId, filled);
     router.push(`/projects/${projectId}/report?generate=1`);
-  }
-
-  async function handleCompetitiveLandscape() {
-    setClLoading(true);
-    setClError("");
-    try {
-      const res = await fetch("/api/skills/competitive-landscape", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "生成失败");
-      }
-      const reportId = res.headers.get("X-Report-Id");
-      // 读完整个流（确保后端写入 DB）
-      const reader = res.body?.getReader();
-      if (reader) {
-        while (true) {
-          const { done } = await reader.read();
-          if (done) break;
-        }
-      }
-      if (reportId) {
-        router.push(`/projects/${projectId}/report?reportId=${reportId}`);
-      } else {
-        router.refresh();
-      }
-    } catch (e) {
-      setClError(e instanceof Error ? e.message : "生成失败");
-    } finally {
-      setClLoading(false);
-    }
   }
 
   return (
@@ -650,16 +610,6 @@ export function ProjectDetail({
             >
               SKILL 分析
             </button>
-            {hasZjjrData && (
-              <button
-                onClick={handleCompetitiveLandscape}
-                disabled={clLoading}
-                title="基于中鉴备案数据生成竞争格局分析报告"
-                className="rounded-md border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface disabled:opacity-50"
-              >
-                {clLoading ? "分析中…" : "🔭 竞争格局"}
-              </button>
-            )}
             <button
               onClick={handleExtractFinancials}
               disabled={finLoading}
@@ -668,9 +618,6 @@ export function ProjectDetail({
               {finLoading ? "提取中…" : "提取财务数据"}
             </button>
           </div>
-          {clError && (
-            <p className="text-xs text-red-600">{clError}</p>
-          )}
           <p className="text-xs text-ink-faint">
             还没填判断？试试 <Link href={`/projects/${projectId}/brief-analysis`} className="text-accent hover:underline">简要分析</Link>，先做一份原则性评估存档。
           </p>

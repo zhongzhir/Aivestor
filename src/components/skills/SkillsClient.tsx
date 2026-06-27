@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SkillRunner } from "@/components/skills/SkillRunner";
 import { CreateSkillModal } from "@/components/skills/CreateSkillModal";
 import { ImportSkillModal } from "@/components/skills/ImportSkillModal";
@@ -16,6 +16,12 @@ interface SkillItem {
   skillType: "catalog" | "custom";
   prompt_template?: string;
   metadata?: { generated_from_judgments?: boolean } | null;
+}
+
+interface ClProject {
+  id: string;
+  name: string;
+  industry: string | null;
 }
 
 // 服务端透传的原始行（未带 skillType）
@@ -85,6 +91,16 @@ export function SkillsClient({
   const [generateError, setGenerateError] = useState("");
   const [highlightId, setHighlightId] = useState<string | null>(null);
 
+  // 竞争格局分析专用 Modal（zjjr_data skills 绕过 SkillRunner，直调专用路由）
+  const [clSkill, setClSkill] = useState<SkillItem | null>(null);
+  const [clProjects, setClProjects] = useState<ClProject[]>([]);
+  const [clProjectId, setClProjectId] = useState("");
+  const [clIndustry, setClIndustry] = useState("");
+  const [clRunning, setClRunning] = useState(false);
+  const [clError, setClError] = useState("");
+  const [clResult, setClResult] = useState("");
+  const clResultRef = useRef<HTMLDivElement>(null);
+
   const visibleTabs = isLoggedIn ? TABS : TABS.filter((t) => t.key !== "mine");
 
   // 刷新自建/官方 SKILL（仅登录用户在创建/导入后调用）
@@ -107,6 +123,72 @@ export function SkillsClient({
       .then((d) => setJudgmentCount(d.count ?? 0))
       .catch(() => setJudgmentCount(0));
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    if (!clSkill) return;
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((d) => setClProjects(d.projects ?? []))
+      .catch(() => {});
+  }, [clSkill]);
+
+  function closeClModal() {
+    setClSkill(null);
+    setClProjects([]);
+    setClProjectId("");
+    setClIndustry("");
+    setClRunning(false);
+    setClError("");
+    setClResult("");
+  }
+
+  async function runCompetitiveLandscape() {
+    if (!clIndustry.trim()) {
+      setClError("请填写行业关键词");
+      return;
+    }
+    setClRunning(true);
+    setClError("");
+    setClResult("");
+    try {
+      const res = await fetch("/api/skills/competitive-landscape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: clProjectId || undefined,
+          industry: clIndustry.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error ?? "分析失败");
+      }
+      const reportId = res.headers.get("X-Report-Id");
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          text += decoder.decode(value, { stream: true });
+          setClResult(text);
+          clResultRef.current?.scrollTo({
+            top: clResultRef.current.scrollHeight,
+            behavior: "smooth",
+          });
+        }
+      }
+      if (reportId && clProjectId) {
+        window.location.href = `/projects/${clProjectId}/report?reportId=${reportId}`;
+      }
+      // 无 project_id 时：结果已显示在 clResult，用户可自行关闭
+    } catch (e) {
+      setClError(e instanceof Error ? e.message : "分析失败");
+    } finally {
+      setClRunning(false);
+    }
+  }
 
   function flashHighlight(id: string) {
     setHighlightId(id);
@@ -237,7 +319,13 @@ export function SkillsClient({
             capabilityGranted={
               s.requires_capability === "zjjr_data" ? hasZjjrData : true
             }
-            onRun={() => setRunnerSkill(s)}
+            onRun={() => {
+              if (s.requires_capability === "zjjr_data") {
+                setClSkill(s);
+              } else {
+                setRunnerSkill(s);
+              }
+            }}
             onEdit={
               s.skillType === "custom" ? () => setEditSkill(s) : undefined
             }
@@ -330,6 +418,97 @@ export function SkillsClient({
             load();
           }}
         />
+      )}
+
+      {/* 竞争格局分析 Modal（zjjr_data 专属，绕过 SkillRunner） */}
+      {isLoggedIn && clSkill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-ink">
+                {clSkill.name}
+              </h2>
+              <button
+                onClick={closeClModal}
+                className="text-ink-faint hover:text-ink"
+                aria-label="关闭"
+              >
+                ✕
+              </button>
+            </div>
+            {clSkill.description && (
+              <p className="mt-1 text-xs text-ink-soft">{clSkill.description}</p>
+            )}
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-soft">
+                  关联项目（可选）
+                </label>
+                <select
+                  value={clProjectId}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setClProjectId(v);
+                    const proj = clProjects.find((p) => p.id === v);
+                    if (proj?.industry) setClIndustry(proj.industry);
+                  }}
+                  className="w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-accent"
+                >
+                  <option value="">不关联项目</option>
+                  {clProjects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-soft">
+                  行业关键词 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  value={clIndustry}
+                  onChange={(e) => setClIndustry(e.target.value)}
+                  placeholder="如：人工智能、新能源、消费品"
+                  className="w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-accent"
+                />
+              </div>
+
+              {clError && (
+                <p className="text-xs text-red-600">{clError}</p>
+              )}
+
+              {clResult && (
+                <div
+                  ref={clResultRef}
+                  className="max-h-60 overflow-y-auto rounded-md border border-line bg-surface p-3 text-xs leading-5 text-ink-soft whitespace-pre-wrap"
+                >
+                  {clResult}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={closeClModal}
+                className="rounded-md border border-line px-4 py-2 text-sm text-ink-soft hover:bg-surface"
+              >
+                {clResult && !clRunning ? "关闭" : "取消"}
+              </button>
+              {!clResult && (
+                <button
+                  onClick={runCompetitiveLandscape}
+                  disabled={clRunning || !clIndustry.trim()}
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  {clRunning ? "分析中…" : "开始分析"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
