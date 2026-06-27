@@ -245,17 +245,20 @@ ${investorBlock}
 ## 三、白地分析（市场空缺或差异化机会）
 基于已被覆盖企业的特征，识别 2–4 个尚未被充分关注的方向（子赛道、阶段、地域等），说明白地成因与机会逻辑。${dataNote}`;
 
-  // 有 project_id 时预创建报告；否则不创建（reports 表 project_id NOT NULL）
-  let reportId: string | null = null;
-  if (projectId && project) {
-    const created = await query<{ id: string }>(
-      `INSERT INTO reports (project_id, user_id, title, content, kind, status, org_id)
-       VALUES ($1, $2, $3, '', 'analysis', 'draft', $4)
-       RETURNING id`,
-      [projectId, userId, `【竞争格局】${project.name}`, projectOrgId]
-    );
-    reportId = created[0].id;
-  }
+  // 始终预创建报告（project_id 已在迁移 026 放宽为可空）；
+  // 有 project_id：title 用项目名；无时：title 用行业关键词。
+  const reportTitle = project
+    ? `【竞争格局】${project.name}`
+    : `【竞争格局】${industry}赛道分析`;
+  const reportOrgId = projectOrgId ?? scope.org?.orgId ?? null;
+
+  const created = await query<{ id: string }>(
+    `INSERT INTO reports (project_id, user_id, title, content, kind, status, org_id)
+     VALUES ($1, $2, $3, '', 'analysis', 'draft', $4)
+     RETURNING id`,
+    [projectId, userId, reportTitle, reportOrgId]
+  );
+  const reportId = created[0].id;
 
   const generator = streamChat({
     provider: creds.provider,
@@ -269,23 +272,17 @@ ${investorBlock}
   const res = streamTextResponse(
     generator,
     async (fullText) => {
-      if (reportId) {
-        await query("UPDATE reports SET content = $1 WHERE id = $2", [
-          fullText,
-          reportId,
-        ]);
-      }
+      await query("UPDATE reports SET content = $1 WHERE id = $2", [
+        fullText,
+        reportId,
+      ]);
     },
     async () => {
-      if (reportId) {
-        await query("DELETE FROM reports WHERE id = $1 AND content = ''", [
-          reportId,
-        ]);
-      }
+      await query("DELETE FROM reports WHERE id = $1 AND content = ''", [
+        reportId,
+      ]);
     }
   );
-  if (reportId) {
-    res.headers.set("X-Report-Id", reportId);
-  }
+  res.headers.set("X-Report-Id", reportId);
   return res;
 }

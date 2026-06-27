@@ -99,6 +99,7 @@ export function SkillsClient({
   const [clRunning, setClRunning] = useState(false);
   const [clError, setClError] = useState("");
   const [clResult, setClResult] = useState("");
+  const [clReportId, setClReportId] = useState<string | null>(null);
   const clResultRef = useRef<HTMLDivElement>(null);
 
   const visibleTabs = isLoggedIn ? TABS : TABS.filter((t) => t.key !== "mine");
@@ -140,6 +141,7 @@ export function SkillsClient({
     setClRunning(false);
     setClError("");
     setClResult("");
+    setClReportId(null);
   }
 
   async function runCompetitiveLandscape() {
@@ -179,10 +181,7 @@ export function SkillsClient({
           });
         }
       }
-      if (reportId && clProjectId) {
-        window.location.href = `/projects/${clProjectId}/report?reportId=${reportId}`;
-      }
-      // 无 project_id 时：结果已显示在 clResult，用户可自行关闭
+      if (reportId) setClReportId(reportId);
     } catch (e) {
       setClError(e instanceof Error ? e.message : "分析失败");
     } finally {
@@ -422,75 +421,101 @@ export function SkillsClient({
 
       {/* 竞争格局分析 Modal（zjjr_data 专属，绕过 SkillRunner） */}
       {isLoggedIn && clSkill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-ink">
-                {clSkill.name}
-              </h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex w-full max-w-2xl flex-col rounded-xl bg-white shadow-2xl" style={{ maxHeight: "85vh" }}>
+            {/* 头部 */}
+            <div className="flex items-center justify-between border-b border-line px-6 py-4">
+              <div>
+                <h2 className="text-sm font-semibold text-ink">{clSkill.name}</h2>
+                {clSkill.description && (
+                  <p className="mt-0.5 text-xs text-ink-faint">{clSkill.description}</p>
+                )}
+              </div>
               <button
                 onClick={closeClModal}
-                className="text-ink-faint hover:text-ink"
+                className="ml-4 shrink-0 rounded p-1 text-ink-faint hover:bg-surface hover:text-ink"
                 aria-label="关闭"
               >
                 ✕
               </button>
             </div>
-            {clSkill.description && (
-              <p className="mt-1 text-xs text-ink-soft">{clSkill.description}</p>
-            )}
 
-            <div className="mt-4 space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-ink-soft">
-                  关联项目（可选）
-                </label>
-                <select
-                  value={clProjectId}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setClProjectId(v);
-                    const proj = clProjects.find((p) => p.id === v);
-                    if (proj?.industry) setClIndustry(proj.industry);
-                  }}
-                  className="w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-accent"
-                >
-                  <option value="">不关联项目</option>
-                  {clProjects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* 内容区（可滚动） */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {!clResult && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-ink-soft">
+                      关联项目（可选）
+                    </label>
+                    <select
+                      value={clProjectId}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setClProjectId(v);
+                        const proj = clProjects.find((p) => p.id === v);
+                        if (proj?.industry) setClIndustry(proj.industry);
+                      }}
+                      className="w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-accent"
+                    >
+                      <option value="">不关联项目</option>
+                      {clProjects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div>
-                <label className="mb-1 block text-xs font-medium text-ink-soft">
-                  行业关键词 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  value={clIndustry}
-                  onChange={(e) => setClIndustry(e.target.value)}
-                  placeholder="如：人工智能、新能源、消费品"
-                  className="w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-accent"
-                />
-              </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-ink-soft">
+                      行业关键词 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      value={clIndustry}
+                      onChange={(e) => setClIndustry(e.target.value)}
+                      placeholder="如：人工智能、新能源、消费品"
+                      className="w-full rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-accent"
+                    />
+                  </div>
 
-              {clError && (
-                <p className="text-xs text-red-600">{clError}</p>
+                  {clError && (
+                    <p className="text-xs text-red-600">{clError}</p>
+                  )}
+                </div>
               )}
 
               {clResult && (
-                <div
-                  ref={clResultRef}
-                  className="max-h-60 overflow-y-auto rounded-md border border-line bg-surface p-3 text-xs leading-5 text-ink-soft whitespace-pre-wrap"
-                >
-                  {clResult}
+                <div ref={clResultRef} className="prose prose-sm max-w-none">
+                  <pre className="whitespace-pre-wrap text-xs leading-6 text-ink-soft font-sans">
+                    {clResult}
+                  </pre>
+                  {clRunning && (
+                    <span className="inline-block h-3 w-0.5 animate-pulse bg-accent ml-0.5" />
+                  )}
+                  {clReportId && !clRunning && (
+                    <div className="mt-4 border-t border-line pt-4">
+                      <a
+                        href={
+                          clProjectId
+                            ? `/projects/${clProjectId}/report?reportId=${clReportId}`
+                            : `/reports/${clReportId}`
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                      >
+                        查看完整报告 →
+                      </a>
+                      <p className="mt-2 text-xs text-ink-faint">
+                        报告已保存，可在完整报告页查看、导出或修改。
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            <div className="mt-4 flex justify-end gap-2">
+            {/* 底部操作栏 */}
+            <div className="flex items-center justify-end gap-2 border-t border-line px-6 py-3">
               <button
                 onClick={closeClModal}
                 className="rounded-md border border-line px-4 py-2 text-sm text-ink-soft hover:bg-surface"
