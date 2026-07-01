@@ -11,6 +11,7 @@
     "smoke-test": "ts-node scripts/smoke-test.ts"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "pg": "^8.13.1",
     "xlsx": "^0.18.5"
   },
