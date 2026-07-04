@@ -159,7 +159,7 @@ SELECT
 
 **新增 API**：`projects/[id]/transfer-to-org`、`projects/[id]/comments`(+`[commentId]`)、`projects/[id]/shares`、`projects/[id]/judgments/aggregate`、`knowledge/[id]/promote`、`knowledge/[id]/demote`
 
-**改造 API（24 路由 + merge）**：projects 全家、skills/run、skills/custom(+[id])、reports/[id](refine/export/export-ppt/digest)、knowledge(route/search/upload)、reports/merge
+**改造 API（24 路由 + merge）**：projects 全家、skills/run、skills/custom(+[id])、`reports/[id]` 的 refine/export/export-ppt/digest、knowledge(route/search/upload)、reports/merge
 
 **新增组件**：`CommentPanel.tsx`、`JudgmentsByMember.tsx`、`ShareControl.tsx`
 
