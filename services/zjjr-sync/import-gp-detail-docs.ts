@@ -5,7 +5,7 @@
  * archived in zjjr_gp_reports and chunked into zjjr_features for AI retrieval.
  *
  * Examples:
- *   npx ts-node -T services/zjjr-sync/import-gp-detail-docs.ts --input "C:\path\中鉴数据" --dry-run
+ *   npx ts-node -T services/zjjr-sync/import-gp-detail-docs.ts --input "C:\path\zjjr-data" --dry-run
  *   npx ts-node -T services/zjjr-sync/import-gp-detail-docs.ts --input "/var/www/aivestor-app/data/imports/zjjr-gp-details" --write --resume
  */
 
@@ -20,8 +20,8 @@ import {
 } from "../../src/lib/embedding";
 
 const DEFAULT_INPUT =
-  "C:\\Users\\46554\\WPSDrive\\421507599\\WPS云盘\\AIVESTOR\\中鉴数据";
-const DEFAULT_BATCH = "GP详情-上海杭州-202607";
+  "C:\\Users\\46554\\WPSDrive\\421507599\\WPS\u4e91\u76d8\\AIVESTOR\\\u4e2d\u9274\u6570\u636e";
+const DEFAULT_BATCH = "GP\u8be6\u60c5-\u4e0a\u6d77\u676d\u5dde-202607";
 const DEFAULT_CHUNK_SIZE = 3000;
 const DEFAULT_CHUNK_OVERLAP = 200;
 const DEFAULT_MAX_CHUNKS = 20;
@@ -56,6 +56,14 @@ interface ZipPlan {
   missing: string[];
 }
 
+type InputMode = "auto" | "zip" | "extracted";
+
+interface InputPlan {
+  kind: "zip" | "extracted";
+  zipPlan: ZipPlan;
+  extractedFiles: string[];
+}
+
 interface ChunkOptions {
   chunkSize: number;
   chunkOverlap: number;
@@ -70,6 +78,7 @@ interface CliOptions extends ChunkOptions {
   skipEmbedding: boolean;
   limit: number | null;
   batchName: string;
+  mode: InputMode;
 }
 
 interface ImportStats {
@@ -78,7 +87,10 @@ interface ImportStats {
   parsedCount: number;
   badInstitutionNames: number;
   badReportDates: number;
-  textLengths: number[];
+  textLengthMin: number;
+  textLengthMax: number;
+  textLengthSum: number;
+  textLengthCount: number;
   reportInserted: number;
   reportUpdated: number;
   featuresInserted: number;
@@ -87,6 +99,25 @@ interface ImportStats {
   embeddingFailed: number;
   matchedInstitutions: number;
   createdInstitutions: number;
+}
+
+interface DryRunSample {
+  institutionName: string;
+  reportDate: string | null;
+  region: string | null;
+  preview: string;
+}
+
+interface SourcePlanOptions {
+  input: string;
+  mode: InputMode;
+  batchName: string;
+}
+
+interface ExtractedReadOptions {
+  inputRoot: string;
+  region: string | null;
+  sourceBatch: string;
 }
 
 function arg(name: string): string | null {
@@ -105,6 +136,12 @@ function intArg(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+function modeArg(): InputMode {
+  const raw = arg("--mode");
+  if (raw === "zip" || raw === "extracted" || raw === "auto") return raw;
+  return "auto";
+}
+
 function parseArgs(): CliOptions {
   const limitRaw = arg("--limit");
   const limit = limitRaw ? Number.parseInt(limitRaw, 10) : null;
@@ -116,6 +153,7 @@ function parseArgs(): CliOptions {
     skipEmbedding: hasFlag("--skip-embedding"),
     limit: limit && limit > 0 ? limit : null,
     batchName: arg("--batch-name") ?? DEFAULT_BATCH,
+    mode: modeArg(),
     chunkSize: intArg("--chunk-size", DEFAULT_CHUNK_SIZE),
     chunkOverlap: intArg("--chunk-overlap", DEFAULT_CHUNK_OVERLAP),
     maxChunksPerReport: intArg("--max-chunks-per-report", DEFAULT_MAX_CHUNKS),
@@ -128,6 +166,10 @@ function sha256(s: string): string {
 
 function sha256Buffer(buf: Buffer): string {
   return crypto.createHash("sha256").update(buf).digest("hex");
+}
+
+export function computeFileHash(filePath: string): string {
+  return sha256Buffer(fs.readFileSync(filePath));
 }
 
 function walkFiles(root: string): string[] {
@@ -144,31 +186,86 @@ function walkFiles(root: string): string[] {
   return out;
 }
 
+function hasWordMlPrefix(filePath: string): boolean {
+  try {
+    const fd = fs.openSync(filePath, "r");
+    try {
+      const buffer = Buffer.alloc(4096);
+      const bytesRead = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      const head = buffer.subarray(0, bytesRead).toString("utf8").trimStart();
+      return head.startsWith("<?xml") && /<w:wordDocument|<w:document/.test(head);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return false;
+  }
+}
+
+function isExtractedReportPath(filePath: string): boolean {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".doc" || ext === ".xml") return true;
+  if (!ext) return hasWordMlPrefix(filePath);
+  return false;
+}
+
 function inferRegion(filePath: string): string | null {
-  const name = path.basename(filePath);
-  if (name.includes("上海")) return "上海";
-  if (name.includes("杭州")) return "杭州";
-  if (name.includes("浙江")) return "浙江";
+  const name = filePath;
+  if (name.includes("\u4e0a\u6d77") || name.includes("涓婃捣")) return "\u4e0a\u6d77";
+  if (name.includes("\u676d\u5dde") || name.includes("鏉窞")) return "\u676d\u5dde";
+  if (name.includes("\u6d59\u6c5f") || name.includes("娴欐睙")) return "\u6d59\u6c5f";
   return null;
 }
 
 export function planInputZips(filePaths: string[]): ZipPlan {
   const found = filePaths
-    .filter((p) => path.basename(p).startsWith("GP详情") && p.toLowerCase().endsWith(".zip"))
+    .filter((p) => {
+      const base = path.basename(p);
+      return (
+        (base.startsWith("GP\u8be6\u60c5") || base.startsWith("GP璇︽儏")) &&
+        p.toLowerCase().endsWith(".zip")
+      );
+    })
     .map((p) => ({
       path: p,
-      region: inferRegion(p) ?? "未知",
+      region: inferRegion(p) ?? "\u672a\u77e5",
       sourceBatch: path.basename(p, path.extname(p)),
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
 
-  const hasShanghai = found.some((x) => x.region.includes("上海"));
-  const hasHangzhou = found.some((x) => x.region.includes("杭州"));
+  const hasShanghai = found.some((x) => x.region.includes("\u4e0a\u6d77"));
+  const hasHangzhou = found.some((x) => x.region.includes("\u676d\u5dde"));
   const missing: string[] = [];
-  if (!hasShanghai) missing.push("GP详情（上海）相关 ZIP");
-  if (!hasHangzhou) missing.push("GP详情（杭州）相关 ZIP");
+  if (!hasShanghai) missing.push("GP\u8be6\u60c5\uff08\u4e0a\u6d77\uff09\u76f8\u5173 ZIP");
+  if (!hasHangzhou) missing.push("GP\u8be6\u60c5\uff08\u676d\u5dde\uff09\u76f8\u5173 ZIP");
 
   return { found, missing };
+}
+
+export function planInputSources(filePaths: string[], opts: SourcePlanOptions): InputPlan {
+  const zipPlan = planInputZips(filePaths);
+  const extractedFiles = filePaths
+    .filter((p) => fs.existsSync(p) && fs.statSync(p).isFile() && isExtractedReportPath(p))
+    .sort((a, b) => a.localeCompare(b));
+
+  if (opts.mode === "zip") {
+    return { kind: "zip", zipPlan, extractedFiles: [] };
+  }
+  if (opts.mode === "extracted") {
+    return {
+      kind: "extracted",
+      zipPlan: { found: [], missing: [] },
+      extractedFiles,
+    };
+  }
+  if (zipPlan.found.length > 0) {
+    return { kind: "zip", zipPlan, extractedFiles: [] };
+  }
+  return {
+    kind: "extracted",
+    zipPlan: { found: [], missing: [] },
+    extractedFiles,
+  };
 }
 
 function decodeXml(s: string): string {
@@ -212,8 +309,8 @@ export function parseInstitutionName(fileName: string): {
   institutionName: string;
   reportDate: string | null;
 } {
-  const base = path.basename(fileName).replace(/\.docx?$/i, "");
-  const m = base.match(/^(.*?)(20\d{12})尽调报告$/);
+  const base = path.basename(fileName).replace(/\.(docx?|xml)$/i, "");
+  const m = base.match(/^(.*?)(20\d{12}).*$/);
   if (!m) return { institutionName: base.trim(), reportDate: null };
   const raw = m[2];
   return {
@@ -223,7 +320,7 @@ export function parseInstitutionName(fileName: string): {
 }
 
 function isBadInstitutionName(name: string): boolean {
-  return !name || name.includes("�") || /[\uFFFD]/.test(name) || name.length < 2;
+  return !name || name.includes("\u951f") || /[\uFFFD]/.test(name) || name.length < 2;
 }
 
 function isBadReportDate(date: string | null): boolean {
@@ -234,27 +331,26 @@ export function normalizeInstitutionName(name: string): string {
   return name
     .normalize("NFKC")
     .replace(/\s+/g, "")
-    .replace(/[（）()]/g, "")
-    .replace(/私募基金管理/g, "")
-    .replace(/基金管理/g, "")
-    .replace(/股权投资管理/g, "")
-    .replace(/投资管理/g, "")
-    .replace(/有限责任公司$/g, "")
-    .replace(/有限公司$/g, "")
-    .replace(/有限合伙$/g, "")
-    .replace(/合伙企业$/g, "")
-    .replace(/中心$/g, "")
+    .replace(/[\uff08\uff09()]/g, "")
+    .replace(/\u79c1\u52df\u57fa\u91d1\u7ba1\u7406/g, "")
+    .replace(/\u57fa\u91d1\u7ba1\u7406/g, "")
+    .replace(/\u80a1\u6743\u6295\u8d44\u7ba1\u7406/g, "")
+    .replace(/\u6295\u8d44\u7ba1\u7406/g, "")
+    .replace(/\u6709\u9650\u8d23\u4efb\u516c\u53f8$/g, "")
+    .replace(/\u6709\u9650\u516c\u53f8$/g, "")
+    .replace(/\u6709\u9650\u5408\u4f19$/g, "")
+    .replace(/\u5408\u4f19\u4f01\u4e1a$/g, "")
+    .replace(/\u4e2d\u5fc3$/g, "")
     .trim();
 }
 
-async function readZipReports(zipItem: ZipPlanItem): Promise<ReportDoc[]> {
+async function* iterateZipReports(zipItem: ZipPlanItem): AsyncIterable<ReportDoc> {
   const gbkDecoder = new TextDecoder("gbk");
   const zip = await JSZip.loadAsync(fs.readFileSync(zipItem.path), {
     decodeFileName: (bytes) =>
       gbkDecoder.decode(bytes as Uint8Array<ArrayBufferLike>),
   });
 
-  const reports: ReportDoc[] = [];
   for (const entry of Object.values(zip.files)) {
     if (entry.dir || !entry.name.toLowerCase().endsWith(".doc")) continue;
     const buffer = await entry.async("nodebuffer");
@@ -264,7 +360,7 @@ async function readZipReports(zipItem: ZipPlanItem): Promise<ReportDoc[]> {
     }
     const text = parseWordMlText(xml);
     const { institutionName, reportDate } = parseInstitutionName(entry.name);
-    reports.push({
+    yield {
       fileName: path.basename(entry.name),
       institutionName,
       reportDate,
@@ -272,9 +368,27 @@ async function readZipReports(zipItem: ZipPlanItem): Promise<ReportDoc[]> {
       sourceBatch: zipItem.sourceBatch,
       text,
       hash: sha256Buffer(buffer),
-    });
+    };
   }
-  return reports;
+}
+
+export function readExtractedReportDoc(filePath: string, opts: ExtractedReadOptions): ReportDoc {
+  const buffer = fs.readFileSync(filePath);
+  const xml = buffer.toString("utf8");
+  if (!xml.trimStart().startsWith("<?xml")) {
+    throw new Error(`Unsupported WordML file: ${filePath}`);
+  }
+  const text = parseWordMlText(xml);
+  const { institutionName, reportDate } = parseInstitutionName(filePath);
+  return {
+    fileName: path.relative(opts.inputRoot, filePath) || path.basename(filePath),
+    institutionName,
+    reportDate,
+    region: opts.region,
+    sourceBatch: opts.sourceBatch,
+    text,
+    hash: sha256Buffer(buffer),
+  };
 }
 
 function splitText(text: string, opts: ChunkOptions): string[] {
@@ -301,17 +415,17 @@ export function buildFeatureChunks(
   return chunks.map((chunk, index) => {
     const chunkIndex = index + 1;
     const content = [
-      "【GP尽调报告】",
-      `机构：${report.institutionName}`,
-      `地区：${report.region ?? "未识别"}`,
-      `报告日期：${report.reportDate ?? "未识别"}`,
-      `来源批次：${report.sourceBatch}`,
-      `片段：${chunkIndex}/${total}`,
+      "\u3010GP\u5c3d\u8c03\u62a5\u544a\u3011",
+      `\u673a\u6784\uff1a${report.institutionName}`,
+      `\u5730\u533a\uff1a${report.region ?? "\u672a\u8bc6\u522b"}`,
+      `\u62a5\u544a\u65e5\u671f\uff1a${report.reportDate ?? "\u672a\u8bc6\u522b"}`,
+      `\u6765\u6e90\u6279\u6b21\uff1a${report.sourceBatch}`,
+      `\u7247\u6bb5\uff1a${chunkIndex}/${total}`,
       "",
       chunk,
     ].join("\n");
     return {
-      title: `${report.institutionName} 尽调报告片段 ${chunkIndex}/${total}`,
+      title: `${report.institutionName} \u5c3d\u8c03\u62a5\u544a\u7247\u6bb5 ${chunkIndex}/${total}`,
       content,
       metadata: {
         source_kind: SOURCE_KIND,
@@ -375,7 +489,7 @@ async function findInstitution(
        (source_id, name, canonical_name, aliases, institution_type, focus_sectors,
         focus_stages, region, raw, metadata, source_updated_at)
      VALUES
-       ($1, $2, $2, '[]'::jsonb, '私募基金管理人', '[]'::jsonb,
+       ($1, $2, $2, '[]'::jsonb, '\u79c1\u52df\u57fa\u91d1\u7ba1\u7406\u4eba', '[]'::jsonb,
         '[]'::jsonb, NULL, '{}'::jsonb, $3::jsonb, NOW())
      ON CONFLICT (source_id) DO UPDATE SET updated_at = NOW()
      RETURNING id`,
@@ -495,7 +609,7 @@ async function embedOne(
 
 async function writeReports(
   pool: Pool,
-  reports: ReportDoc[],
+  reports: AsyncIterable<ReportDoc>,
   opts: CliOptions,
   stats: ImportStats
 ): Promise<void> {
@@ -503,11 +617,11 @@ async function writeReports(
     `INSERT INTO zjjr_sync_log (sync_type, status, records_fetched, records_upserted)
      VALUES ('gp_detail_doc_import', 'running', $1, 0)
      RETURNING id`,
-    [reports.length]
+    [0]
   );
   const logId = log.rows[0].id;
   try {
-    for (const report of reports) {
+    for await (const report of reports) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -552,6 +666,7 @@ async function writeReports(
       `UPDATE zjjr_sync_log
           SET status = 'success',
               finished_at = NOW(),
+              records_fetched = $4,
               records_upserted = $2,
               error_detail = $3
         WHERE id = $1`,
@@ -559,6 +674,7 @@ async function writeReports(
         logId,
         stats.reportInserted + stats.reportUpdated,
         `features_inserted=${stats.featuresInserted}; features_skipped=${stats.featuresSkipped}`,
+        stats.reportCount,
       ]
     );
   } catch (e) {
@@ -579,7 +695,10 @@ function emptyStats(zipCount: number): ImportStats {
     parsedCount: 0,
     badInstitutionNames: 0,
     badReportDates: 0,
-    textLengths: [],
+    textLengthMin: 0,
+    textLengthMax: 0,
+    textLengthSum: 0,
+    textLengthCount: 0,
     reportInserted: 0,
     reportUpdated: 0,
     featuresInserted: 0,
@@ -591,77 +710,128 @@ function emptyStats(zipCount: number): ImportStats {
   };
 }
 
-function printDryRun(plan: ZipPlan, reports: ReportDoc[], stats: ImportStats): void {
-  const lengths = stats.textLengths;
-  const avg = lengths.length
-    ? Math.round(lengths.reduce((a, b) => a + b, 0) / lengths.length)
-    : 0;
-  console.log(`found_zips=${plan.found.length}`);
-  for (const item of plan.found) console.log(`found_zip=${item.path}`);
-  for (const missing of plan.missing) console.log(`missing_zip=${missing}`);
+function recordReportStats(report: ReportDoc, stats: ImportStats, samples: DryRunSample[]): void {
+  stats.reportCount += 1;
+  if (report.text) {
+    stats.parsedCount += 1;
+    const len = report.text.length;
+    stats.textLengthMin = stats.textLengthCount === 0 ? len : Math.min(stats.textLengthMin, len);
+    stats.textLengthMax = Math.max(stats.textLengthMax, len);
+    stats.textLengthSum += len;
+    stats.textLengthCount += 1;
+  }
+  if (isBadInstitutionName(report.institutionName)) stats.badInstitutionNames += 1;
+  if (isBadReportDate(report.reportDate)) stats.badReportDates += 1;
+  if (samples.length < 5) {
+    samples.push({
+      institutionName: report.institutionName,
+      reportDate: report.reportDate,
+      region: report.region,
+      preview: report.text.slice(0, 80).replace(/\n/g, " "),
+    });
+  }
+}
+
+async function* iterateReports(plan: InputPlan, opts: Pick<CliOptions, "batchName" | "limit" | "input">): AsyncIterable<ReportDoc> {
+  let emitted = 0;
+  if (plan.kind === "zip") {
+    for (const zipItem of plan.zipPlan.found) {
+      const zipReports = iterateZipReports({
+        ...zipItem,
+        sourceBatch: opts.batchName || zipItem.sourceBatch,
+      });
+      for await (const report of zipReports) {
+        if (opts.limit && emitted >= opts.limit) return;
+        emitted += 1;
+        yield report;
+      }
+    }
+    return;
+  }
+
+  for (const filePath of plan.extractedFiles) {
+    if (opts.limit && emitted >= opts.limit) return;
+    const report = readExtractedReportDoc(filePath, {
+      inputRoot: opts.input,
+      region: inferRegion(filePath),
+      sourceBatch: opts.batchName,
+    });
+    emitted += 1;
+    yield report;
+  }
+}
+
+export async function collectDryRun(
+  opts: Pick<CliOptions, "input" | "mode" | "batchName" | "limit">
+): Promise<{ plan: InputPlan; stats: ImportStats; samples: DryRunSample[] }> {
+  const filePaths = walkFiles(opts.input);
+  const plan = planInputSources(filePaths, opts);
+  const stats = emptyStats(plan.zipPlan.found.length);
+  const samples: DryRunSample[] = [];
+  for await (const report of iterateReports(plan, opts)) {
+    recordReportStats(report, stats, samples);
+  }
+  return { plan, stats, samples };
+}
+
+async function* countedReports(
+  reports: AsyncIterable<ReportDoc>,
+  stats: ImportStats,
+  samples: DryRunSample[]
+): AsyncIterable<ReportDoc> {
+  for await (const report of reports) {
+    recordReportStats(report, stats, samples);
+    yield report;
+  }
+}
+
+function printDryRun(plan: InputPlan, samples: DryRunSample[], stats: ImportStats): void {
+  const avg = stats.textLengthCount ? Math.round(stats.textLengthSum / stats.textLengthCount) : 0;
+  console.log(`input_mode=${plan.kind}`);
+  console.log(`found_zips=${plan.zipPlan.found.length}`);
+  for (const item of plan.zipPlan.found) console.log(`found_zip=${item.path}`);
+  for (const missing of plan.zipPlan.missing) console.log(`missing_zip=${missing}`);
+  console.log(`found_extracted_files=${plan.extractedFiles.length}`);
   console.log(`reports=${stats.reportCount}`);
   console.log(`parsed=${stats.parsedCount}`);
   console.log(`bad_institution_names=${stats.badInstitutionNames}`);
   console.log(`bad_report_dates=${stats.badReportDates}`);
   console.log(
-    `text_length_min=${lengths.length ? Math.min(...lengths) : 0} max=${
-      lengths.length ? Math.max(...lengths) : 0
-    } avg=${avg}`
+    `text_length_min=${stats.textLengthMin} max=${stats.textLengthMax} avg=${avg}`
   );
-  for (const sample of reports.slice(0, 5)) {
+  for (const sample of samples) {
     console.log(
       `sample=${sample.institutionName} | ${sample.reportDate ?? "no date"} | ${
         sample.region ?? "no region"
-      } | ${sample.text.slice(0, 80).replace(/\n/g, " ")}`
+      } | ${sample.preview}`
     );
   }
 }
 
-async function collectReports(opts: CliOptions): Promise<{ plan: ZipPlan; reports: ReportDoc[]; stats: ImportStats }> {
-  const filePaths = walkFiles(opts.input);
-  const plan = planInputZips(filePaths);
-  const stats = emptyStats(plan.found.length);
-  const reports: ReportDoc[] = [];
-  for (const zipItem of plan.found) {
-    const zipReports = await readZipReports({
-      ...zipItem,
-      sourceBatch: opts.batchName || zipItem.sourceBatch,
-    });
-    for (const report of zipReports) {
-      if (opts.limit && reports.length >= opts.limit) break;
-      reports.push(report);
-      stats.reportCount += 1;
-      if (!report.text) continue;
-      stats.parsedCount += 1;
-      if (isBadInstitutionName(report.institutionName)) stats.badInstitutionNames += 1;
-      if (isBadReportDate(report.reportDate)) stats.badReportDates += 1;
-      stats.textLengths.push(report.text.length);
-    }
-    if (opts.limit && reports.length >= opts.limit) break;
-  }
-  return { plan, reports, stats };
-}
-
 async function main(): Promise<void> {
   const opts = parseArgs();
-  const { plan, reports, stats } = await collectReports(opts);
-  printDryRun(plan, reports, stats);
+  const dryRun = await collectDryRun(opts);
+  printDryRun(dryRun.plan, dryRun.samples, dryRun.stats);
 
   if (!opts.write) {
     if (!opts.dryRun) console.log("No --write flag provided; dry-run only.");
     return;
   }
-  if (stats.badInstitutionNames > 0) {
+  if (dryRun.stats.badInstitutionNames > 0) {
     throw new Error("Stop: institution names contain decode anomalies.");
   }
   if (!process.env.ZJJR_SYNC_DATABASE_URL && !process.env.DATABASE_URL) {
     throw new Error("Set ZJJR_SYNC_DATABASE_URL or DATABASE_URL before --write.");
   }
+  const filePaths = walkFiles(opts.input);
+  const plan = planInputSources(filePaths, opts);
+  const stats = emptyStats(plan.zipPlan.found.length);
+  const samples: DryRunSample[] = [];
   const pool = new Pool({
     connectionString: process.env.ZJJR_SYNC_DATABASE_URL || process.env.DATABASE_URL,
     max: 4,
   });
-  await writeReports(pool, reports, opts, stats);
+  await writeReports(pool, countedReports(iterateReports(plan, opts), stats, samples), opts, stats);
   await pool.end();
   console.log(`report_inserted=${stats.reportInserted}`);
   console.log(`report_updated=${stats.reportUpdated}`);
