@@ -3,7 +3,10 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { parseFile } from "@/lib/fileParser";
 import { processDocumentChunks } from "@/lib/documentChunks";
-import { extractExcelFinancials } from "@/lib/excelFinancials";
+import {
+  extractExcelFinancials,
+  serializeExcelFinancialDataForProject,
+} from "@/lib/excelFinancials";
 import { readFileBuffer } from "@/lib/fileStorage";
 import {
   extractDocumentImages,
@@ -169,13 +172,15 @@ export async function POST(
   if (fileType === "xlsx" || fileType === "xls") {
     try {
       const fin = extractExcelFinancials(buffer);
-      if (fin) {
-        await query("UPDATE projects SET financial_data = $1 WHERE id = $2", [
-          JSON.stringify(fin),
-          params.id,
-        ]);
-        console.log("[documents] Excel 财务数据已写入 financial_data");
-      }
+      await query("UPDATE projects SET financial_data = $1 WHERE id = $2", [
+        serializeExcelFinancialDataForProject(fin),
+        params.id,
+      ]);
+      console.log(
+        fin
+          ? "[documents] Excel 财务数据已写入 financial_data"
+          : "[documents] Excel 未提取到结构化财务数据，已清空旧 financial_data"
+      );
     } catch (e) {
       console.error("[documents] Excel 财务提取失败:", e);
     }

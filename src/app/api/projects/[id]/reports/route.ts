@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
 import {
   buildGenerationMessages,
+  REPORT_CONTEXT_DOC_KINDS,
   loadUserAICredentials,
   streamTextResponse,
   freeQuotaMetaFor,
@@ -90,9 +91,9 @@ export async function POST(
     `SELECT extracted_text FROM documents
       WHERE project_id = $1
         AND extracted_text IS NOT NULL
-        AND doc_kind IN ('bp', 'research', 'other')
+        AND doc_kind = ANY($2::text[])
       ORDER BY created_at ASC`,
-    [params.id]
+    [params.id, REPORT_CONTEXT_DOC_KINDS]
   );
   const bpText = docs
     .map((d) => d.extracted_text)

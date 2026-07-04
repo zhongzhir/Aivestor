@@ -9,6 +9,7 @@ import {
 } from "@/lib/report";
 import { injectProfile } from "@/lib/user-profile";
 import { STAGE_LABELS } from "@/lib/stages";
+import { buildSkillRunPrompt } from "@/lib/skillPrompt";
 import {
   buildAccessScope,
   assertProjectAccess,
@@ -264,17 +265,13 @@ export async function POST(req: Request) {
     }
   }
 
-  // 3. 替换所有 {变量} 占位符
-  let prompt = promptTemplate;
-  for (const [key, value] of Object.entries(vars)) {
-    prompt = prompt.split(`{${key}}`).join(value);
-  }
-  if (prependContext) {
-    prompt = `${prependContext}\n\n---\n\n${prompt}`;
-  }
-  if (extra_input?.trim()) {
-    prompt += `\n\n## 投资人补充说明\n${extra_input.trim()}`;
-  }
+  // 3. 组装最终 prompt。补充说明必须前置并设为高优先级约束，否则容易被通用模板吞没。
+  const prompt = buildSkillRunPrompt({
+    promptTemplate,
+    vars,
+    prependContext,
+    extraInput: extra_input,
+  });
 
   // 4. 注入链：个人画像 → 机构知识沉淀（个人版 / 无能力位时返回原文）
   let system = await injectProfile(

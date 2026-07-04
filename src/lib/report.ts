@@ -6,6 +6,13 @@ import type { FinancialData, FinPoint } from "@/lib/types";
 
 // 报告生成 / 修改的 prompt 构建与流式响应工具。
 
+export const REPORT_CONTEXT_DOC_KINDS = [
+  "bp",
+  "research",
+  "financial_model",
+  "other",
+] as const;
+
 const GENERATION_SYSTEM = `你是一位资深的一级股权投资分析师。请基于用户提供的项目 BP 内容与投资人的判断要点，撰写一份结构化的《项目分析报告》。
 
 要求：
@@ -199,6 +206,11 @@ ${points || "（用户未填写）"}
 
 ## 项目 BP 原文（解析自上传文档）
 ${params.bpText || "（未提供 BP 文本）"}${finBlock}
+
+## 时间口径要求
+- 财务年份、报告期和月份必须以项目材料或结构化财务数据中出现的时间为准。
+- 不得沿用系统提示中的示例年份，也不得在材料未出现时默认使用 2024 年。
+- 如果材料中的文件名、表头或正文显示 2026 年，请按 2026 年口径分析；无法确认年份时必须写“材料未明确披露”，不要自行补年份。
 
 请据此撰写完整的项目分析报告。`;
 

@@ -173,3 +173,9 @@ export function extractExcelFinancials(buffer: Buffer): FinancialData | null {
 
   return found > 0 ? result : null;
 }
+
+export function serializeExcelFinancialDataForProject(
+  financialData: FinancialData | null
+): string | null {
+  return financialData ? JSON.stringify(financialData) : null;
+}
