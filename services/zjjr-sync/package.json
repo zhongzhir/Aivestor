@@ -5,7 +5,7 @@
   "description": "中鉴基金研究院数据同步服务 — 独立 Node 进程，与主应用解耦（架构文档 v1.1 第五部分）",
   "type": "commonjs",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-fixtures.mjs",
     "full-sync": "ts-node src/full-sync.ts",
     "incremental-sync": "ts-node src/incremental-sync.ts",
     "smoke-test": "ts-node scripts/smoke-test.ts"
