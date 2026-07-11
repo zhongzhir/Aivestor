@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 
-// HelpCircle 图标（与 lucide-react 视觉一致的内联 SVG，避免单图标引依赖）
 function HelpCircleIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -22,27 +21,28 @@ function HelpCircleIcon({ className }: { className?: string }) {
   );
 }
 
-// 顶栏：保持克制，仅放置主操作入口。
 export function TopBar() {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-canvas px-6">
-      <div className="text-sm text-ink-faint">
-        以私有知识库为核心的投资分析工作台
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#e5ded2] bg-[#fbfaf7] px-6">
+      <div className="min-w-0">
+        <p className="truncate text-sm text-ink-soft">
+          投资工作台：项目、判断、材料和知识保持在同一条线上
+        </p>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         <Link
           href="/help"
           title="使用说明"
           aria-label="使用说明"
-          className="text-slate-400 transition-colors hover:text-slate-600"
+          className="text-ink-faint transition-colors hover:text-ink-soft"
         >
           <HelpCircleIcon className="h-5 w-5" />
         </Link>
         <Link
           href="/projects/new"
-          className="rounded-lg bg-[#1B6FE8] px-3.5 py-1.5 text-sm font-medium tracking-[0.01em] text-white transition-colors duration-150 hover:bg-[#1762d0]"
+          className="rounded-lg bg-[#2f6f4f] px-3.5 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#265b42]"
         >
-          新建项目分析
+          新建项目
         </Link>
       </div>
     </header>

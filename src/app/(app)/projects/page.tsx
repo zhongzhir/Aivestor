@@ -4,7 +4,7 @@ import { query } from "@/lib/db";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { sleepDays } from "@/lib/projectSleep";
 import { ProjectFilters } from "./ProjectFilters";
-import { ALL_STAGES } from "@/lib/stages";
+import { ALL_STAGES, STAGE_LABELS } from "@/lib/stages";
 
 export const dynamic = "force-dynamic";
 
@@ -14,18 +14,30 @@ interface ProjectRow {
   company_name: string | null;
   industry: string | null;
   status: string;
+  stage: string | null;
+  process_stage: string | null;
+  outcome: string | null;
   created_at: string;
   updated_at: string;
   latest_report_id: string | null;
   latest_report_status: string | null;
 }
 
-
 const STATUS_LABEL: Record<string, string> = {
   evaluating: "评估中",
   invested: "已投",
   passed: "已 Pass",
   exited: "已退出",
+  active: "进行中",
+  archived: "已归档",
+};
+
+const OUTCOME_LABEL: Record<string, string> = {
+  pending: "待定",
+  invested: "已投",
+  passed: "已 Pass",
+  exited_profit: "盈利退出",
+  exited_loss: "亏损退出",
 };
 
 const ALLOWED_OUTCOMES = new Set([
@@ -35,6 +47,29 @@ const ALLOWED_OUTCOMES = new Set([
   "exited_profit",
   "exited_loss",
 ]);
+
+function formatDate(ts: string): string {
+  return new Date(ts).toLocaleDateString("zh-CN");
+}
+
+function gentleFollowUp(days: number | null): string {
+  if (days === null) return "保持当前节奏";
+  if (days < 21) return "2 周前关注过";
+  if (days < 35) return "3 周前关注过";
+  if (days < 56) return "1 个多月前关注过";
+  return `${Math.round(days / 30)} 个月前关注过`;
+}
+
+function projectMeta(project: ProjectRow): string {
+  return [project.company_name, project.industry, project.stage]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function reportLabel(project: ProjectRow): string {
+  if (!project.latest_report_id) return "尚无报告";
+  return project.latest_report_status === "finalized" ? "报告已定稿" : "报告草稿";
+}
 
 export default async function ProjectsPage({
   searchParams,
@@ -63,8 +98,9 @@ export default async function ProjectsPage({
 
   if (search) {
     params.push(`%${search}%`);
-    // judgment_points 是 JSONB 数组，用 ::text 简单子串匹配
-    where.push(`(p.name ILIKE $${params.length} OR p.judgment_points::text ILIKE $${params.length})`);
+    where.push(
+      `(p.name ILIKE $${params.length} OR p.company_name ILIKE $${params.length} OR p.industry ILIKE $${params.length} OR p.judgment_points::text ILIKE $${params.length})`
+    );
   }
   if (stage) {
     params.push(stage);
@@ -84,6 +120,7 @@ export default async function ProjectsPage({
 
   const projects = await query<ProjectRow>(
     `SELECT p.id, p.name, p.company_name, p.industry, p.status,
+            p.stage, p.process_stage, p.outcome,
             p.created_at, p.updated_at,
             r.id AS latest_report_id, r.status AS latest_report_status
        FROM projects p
@@ -97,7 +134,6 @@ export default async function ProjectsPage({
     params
   );
 
-  // 用户自有项目中已出现过的「融资阶段」枚举，提供给下拉
   const stageRows = await query<{ stage: string }>(
     `SELECT DISTINCT stage FROM projects
       WHERE user_id = $1 AND stage IS NOT NULL AND stage <> ''
@@ -106,20 +142,43 @@ export default async function ProjectsPage({
   );
   const stageOptions = stageRows.map((r) => r.stage);
 
+  const activeCount = projects.filter((p) =>
+    ["evaluating", "invested"].includes(p.status)
+  ).length;
+  const reviewCount = projects.filter(
+    (p) => sleepDays(p.status, p.updated_at) !== null
+  ).length;
+
   const hasFilters = Boolean(
     search || stage || processStage || outcome || sort !== "created_desc"
   );
 
   return (
-    <div className="mx-auto max-w-doc px-6 py-12">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-ink">项目分析</h1>
-        <Link
-          href="/projects/new"
-          className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-        >
-          新建项目
-        </Link>
+    <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
+      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm text-ink-soft">项目管线</p>
+            <h1 className="mt-2 text-2xl font-semibold text-ink">
+              把正在看的项目排成一张清晰的工作队列
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-ink-soft">
+              这里保留项目阶段、报告状态和温和的回看提示。重点是帮你重新进入判断现场，而不是制造催办压力。
+            </p>
+          </div>
+          <Link
+            href="/projects/new"
+            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-[#2f6f4f] px-4 text-sm font-medium text-white transition-colors hover:bg-[#265b42]"
+          >
+            新建项目
+          </Link>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+          <PipelineMetric label="当前列表" value={projects.length} note="按筛选条件显示" />
+          <PipelineMetric label="活跃项目" value={activeCount} note="评估或投后跟踪" />
+          <PipelineMetric label="可回看线索" value={reviewCount} note="近期值得确认进展" />
+        </div>
       </div>
 
       <ProjectFilters stageOptions={stageOptions} />
@@ -128,16 +187,16 @@ export default async function ProjectsPage({
         <div className="mt-6">
           {hasFilters ? (
             <EmptyState
-              icon="🔍"
+              icon="⌕"
               title="没有匹配的项目"
-              description="试着调整搜索词或筛选条件"
+              description="可以调整搜索词、阶段或结论筛选。"
             />
           ) : (
             <>
               <EmptyState
-                icon="🗂️"
+                icon="▦"
                 title="还没有项目"
-                description="创建第一个项目，上传 BP 开始分析"
+                description="创建第一个项目，上传 BP 或补充材料后，项目会进入这张工作队列。"
                 action={{ label: "新建项目分析", href: "/projects/new" }}
               />
               <DemoCards />
@@ -145,65 +204,91 @@ export default async function ProjectsPage({
           )}
         </div>
       ) : (
-        <ul className="mt-8 space-y-2">
-          {projects.map((p) => (
-            <li key={p.id}>
-              <Link
-                href={`/projects/${p.id}`}
-                className="block rounded-lg border border-line p-4 transition-colors hover:border-accent hover:bg-accent-soft/30"
-              >
-                <div className="flex items-start justify-between gap-4">
+        <div className="mt-6 overflow-hidden rounded-lg border border-line bg-white">
+          <div className="hidden grid-cols-[minmax(0,1.4fr)_0.9fr_0.8fr_0.8fr_auto] gap-4 border-b border-line bg-surface px-4 py-3 text-xs font-medium text-ink-soft lg:grid">
+            <span>项目</span>
+            <span>阶段</span>
+            <span>报告</span>
+            <span>回看线索</span>
+            <span className="text-right">动作</span>
+          </div>
+          <div className="divide-y divide-line">
+            {projects.map((project) => {
+              const days = sleepDays(project.status, project.updated_at);
+              return (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="grid grid-cols-1 gap-3 px-4 py-4 transition-colors hover:bg-[#fbfaf7] lg:grid-cols-[minmax(0,1.4fr)_0.9fr_0.8fr_0.8fr_auto] lg:items-center"
+                >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-ink">
-                      {p.name}
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium text-ink">
+                        {project.name}
+                      </span>
+                      <span className="shrink-0 rounded-full bg-surface px-2 py-0.5 text-xs text-ink-soft">
+                        {STATUS_LABEL[project.status] ?? project.status}
+                      </span>
                     </div>
-                    <div className="mt-1 truncate text-xs text-ink-faint">
-                      {[p.company_name, p.industry]
-                        .filter(Boolean)
-                        .join(" · ") || "未填写公司 / 行业"}
-                    </div>
+                    <p className="mt-1 truncate text-xs text-ink-soft">
+                      {projectMeta(project) || "等待补充公司、赛道或融资阶段"}
+                    </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {(() => {
-                      const d = sleepDays(p.status, p.updated_at);
-                      if (d == null) return null;
-                      return (
-                        <span className="rounded-full border border-[#FF6B35] bg-[#FF6B3510] px-2 py-0.5 text-xs text-[#FF6B35]">
-                          ⏰ 已沉睡 {d} 天
-                        </span>
-                      );
-                    })()}
-                    <span className="rounded-full bg-surface px-2 py-0.5 text-xs text-ink-soft">
-                      {STATUS_LABEL[p.status] ?? p.status}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-3 flex items-center gap-3 text-xs text-ink-faint">
-                  <span>
-                    {new Date(p.created_at).toLocaleDateString("zh-CN")}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    上次更新：
-                    {new Date(p.updated_at).toLocaleDateString("zh-CN")}
-                  </span>
-                  <span>·</span>
-                  <span>
-                    {p.latest_report_id
-                      ? p.latest_report_status === "finalized"
-                        ? "报告已定稿"
-                        : "报告草稿"
-                      : "尚无报告"}
-                  </span>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
 
-      {/* 示例项目入口：仅在用户还没有真实项目时展示，
-          一旦创建第一个项目就隐藏，避免持续打扰 */}
+                  <div className="text-xs text-ink-soft">
+                    <span className="rounded-md border border-line bg-white px-2 py-1">
+                      {project.process_stage
+                        ? STAGE_LABELS[project.process_stage] ?? project.process_stage
+                        : "待整理"}
+                    </span>
+                    <p className="mt-2 text-ink-faint">
+                      {project.outcome && project.outcome !== "pending"
+                        ? OUTCOME_LABEL[project.outcome] ?? project.outcome
+                        : "结论待定"}
+                    </p>
+                  </div>
+
+                  <div className="text-xs text-ink-soft">
+                    <span>{reportLabel(project)}</span>
+                    <p className="mt-2 text-ink-faint">
+                      创建于 {formatDate(project.created_at)}
+                    </p>
+                  </div>
+
+                  <div className="text-xs text-ink-soft">
+                    <span>{gentleFollowUp(days)}</span>
+                    <p className="mt-2 text-ink-faint">
+                      最近更新 {formatDate(project.updated_at)}
+                    </p>
+                  </div>
+
+                  <div className="text-right text-xs font-medium text-[#2f6f4f]">
+                    打开工作区
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PipelineMetric({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: number;
+  note: string;
+}) {
+  return (
+    <div className="rounded-lg border border-[#ece4d8] bg-white/70 p-4">
+      <div className="font-numeric text-2xl font-semibold text-ink">{value}</div>
+      <div className="mt-1 text-sm font-medium text-ink">{label}</div>
+      <div className="mt-1 text-xs text-ink-soft">{note}</div>
     </div>
   );
 }
@@ -212,39 +297,33 @@ function DemoCards() {
   const demos = [
     {
       href: "/demo/consumer",
-      icon: "🍵",
       title: "野兽派茶（消费品牌）",
       desc: "新消费 · Pre-A · 2000 万",
     },
     {
       href: "/demo/saas",
-      icon: "🔌",
       title: "DataSync Pro（企业 SaaS）",
       desc: "数据集成中间件 · A 轮 · 5000 万",
     },
   ];
+
   return (
     <div className="mt-6">
       <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
         示例项目 · 只读
       </p>
-      <p className="mt-1 text-xs text-slate-400">
-        无需登录即可浏览，看看 Aivestor 生成的报告长什么样
+      <p className="mt-1 text-xs text-ink-soft">
+        无需登录即可浏览，了解 Aivestor 生成的项目报告形态。
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        {demos.map((d) => (
+        {demos.map((demo) => (
           <Link
-            key={d.href}
-            href={d.href}
+            key={demo.href}
+            href={demo.href}
             className="card-base card-hover block p-4"
           >
-            <div className="flex items-start gap-3">
-              <span className="text-2xl leading-none">{d.icon}</span>
-              <div>
-                <p className="text-sm font-medium text-slate-800">{d.title}</p>
-                <p className="mt-0.5 text-xs text-slate-500">{d.desc}</p>
-              </div>
-            </div>
+            <p className="text-sm font-medium text-ink">{demo.title}</p>
+            <p className="mt-1 text-xs text-ink-soft">{demo.desc}</p>
           </Link>
         ))}
       </div>

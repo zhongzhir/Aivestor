@@ -7,9 +7,9 @@ import { STAGE_LABELS, ALL_STAGES } from "@/lib/stages";
 const OUTCOME_OPTIONS: { value: string; label: string }[] = [
   { value: "pending", label: "待定" },
   { value: "invested", label: "已投" },
-  { value: "passed", label: "已Pass" },
-  { value: "exited_profit", label: "退出盈利" },
-  { value: "exited_loss", label: "退出亏损" },
+  { value: "passed", label: "已 Pass" },
+  { value: "exited_profit", label: "盈利退出" },
+  { value: "exited_loss", label: "亏损退出" },
 ];
 
 const SORT_OPTIONS: { value: string; label: string }[] = [
@@ -36,15 +36,14 @@ export function ProjectFilters({ stageOptions }: Props) {
 
   function pushParams(next: Record<string, string>) {
     const params = new URLSearchParams(searchParams.toString());
-    for (const [k, v] of Object.entries(next)) {
-      if (v) params.set(k, v);
-      else params.delete(k);
+    for (const [key, value] of Object.entries(next)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
     }
     const qs = params.toString();
     router.replace(qs ? `/projects?${qs}` : "/projects");
   }
 
-  // 搜索框防抖（300ms）
   useEffect(() => {
     if (initialMount.current) {
       initialMount.current = false;
@@ -61,59 +60,59 @@ export function ProjectFilters({ stageOptions }: Props) {
   }, [search]);
 
   return (
-    <div className="mt-6 space-y-3">
+    <div className="mt-5 rounded-lg border border-line bg-white p-4">
       <input
         type="text"
         value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="搜索项目名称或判断要点…"
-        className="w-full rounded border border-line px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-[#0D1B3E]"
+        onChange={(event) => setSearch(event.target.value)}
+        placeholder="搜索项目、公司、赛道或判断要点"
+        className="w-full rounded-lg border border-line bg-[#fffdfa] px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-[#2f6f4f] focus:outline-none"
       />
-      <div className="flex flex-wrap gap-2 text-xs">
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
         <select
           value={stage}
-          onChange={(e) => pushParams({ stage: e.target.value })}
-          className="rounded border border-line px-2 py-1 text-ink"
+          onChange={(event) => pushParams({ stage: event.target.value })}
+          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
         >
-          <option value="">投资阶段（全部）</option>
-          {stageOptions.map((s) => (
-            <option key={s} value={s}>
-              {s}
+          <option value="">融资阶段：全部</option>
+          {stageOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
             </option>
           ))}
         </select>
         <select
           value={processStage}
-          onChange={(e) => pushParams({ process_stage: e.target.value })}
-          className="rounded border border-line px-2 py-1 text-ink"
+          onChange={(event) => pushParams({ process_stage: event.target.value })}
+          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
         >
-          <option value="">流程阶段（全部）</option>
-          {ALL_STAGES.map((s) => (
-            <option key={s} value={s}>
-              {STAGE_LABELS[s] ?? s}
+          <option value="">流程阶段：全部</option>
+          {ALL_STAGES.map((option) => (
+            <option key={option} value={option}>
+              {STAGE_LABELS[option] ?? option}
             </option>
           ))}
         </select>
         <select
           value={outcome}
-          onChange={(e) => pushParams({ outcome: e.target.value })}
-          className="rounded border border-line px-2 py-1 text-ink"
+          onChange={(event) => pushParams({ outcome: event.target.value })}
+          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
         >
-          <option value="">投资结论（全部）</option>
-          {OUTCOME_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
+          <option value="">投资结论：全部</option>
+          {OUTCOME_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>
         <select
           value={sort}
-          onChange={(e) => pushParams({ sort: e.target.value })}
-          className="rounded border border-line px-2 py-1 text-ink"
+          onChange={(event) => pushParams({ sort: event.target.value })}
+          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
         >
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
+          {SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>
@@ -124,9 +123,9 @@ export function ProjectFilters({ stageOptions }: Props) {
               setSearch("");
               router.replace("/projects");
             }}
-            className="rounded border border-line px-2 py-1 text-ink-soft hover:bg-surface"
+            className="rounded-md border border-line px-2 py-1.5 text-ink-soft hover:bg-surface"
           >
-            清除
+            清除筛选
           </button>
         )}
       </div>

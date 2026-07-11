@@ -4,41 +4,87 @@ import { query } from "@/lib/db";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { sleepDays } from "@/lib/projectSleep";
 
-// 首页（/dashboard）：以文档为中心的概览，大量留白，引导进入核心动线。
 const QUICK_ACTIONS = [
   {
     href: "/projects/new",
-    title: "新建项目分析",
-    desc: "上传 BP，输入 3–10 条判断要点，AI 生成分析报告初稿。",
+    label: "新项目",
+    title: "整理一份新材料",
+    desc: "上传 BP、财务模型或补充材料，形成项目工作区。",
+  },
+  {
+    href: "/chat",
+    label: "研究",
+    title: "讨论一个问题",
+    desc: "把赛道、公司或判断点先放进一次可沉淀的讨论。",
   },
   {
     href: "/knowledge",
-    title: "管理知识库",
-    desc: "沉淀历史文档与判断，构建私有的、越用越懂你的知识体系。",
-  },
-  {
-    href: "/archive",
-    title: "查看项目档案",
-    desc: "浏览项目的全生命周期记录：文件、报告、判断与跟踪。",
+    label: "知识",
+    title: "回看已有判断",
+    desc: "从历史项目、报告和手工笔记里找可复用的经验。",
   },
 ];
+
+const STATUS_LABEL: Record<string, string> = {
+  evaluating: "评估中",
+  invested: "已投",
+  passed: "已 Pass",
+  exited: "已退出",
+  active: "进行中",
+  archived: "已归档",
+};
 
 interface RecentProject {
   id: string;
   name: string;
+  company_name: string | null;
+  industry: string | null;
   status: string;
+  process_stage: string | null;
   updated_at: string;
+  latest_report_id: string | null;
+  latest_report_status: string | null;
 }
+
+interface CountRow {
+  count: string;
+}
+
+type AttentionProject = RecentProject & { days: number };
 
 function relativeTime(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime();
   const hour = 3_600_000;
   const day = 24 * hour;
+  if (Number.isNaN(diff)) return "最近";
   if (diff < hour) return "刚刚";
-  if (diff < day) return `${Math.floor(diff / hour)}小时前`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)}天前`;
+  if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
+  if (diff < 7 * day) return `${Math.floor(diff / day)} 天前`;
+
   const d = new Date(ts);
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function gentlePeriod(days: number): string {
+  if (days < 21) return "2 周前";
+  if (days < 35) return "3 周前";
+  if (days < 56) return "1 个多月前";
+  return `${Math.round(days / 30)} 个月前`;
+}
+
+function projectMeta(project: RecentProject): string {
+  return [project.company_name, project.industry, project.process_stage]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+async function safeCount(sql: string, params: unknown[]): Promise<number> {
+  try {
+    const rows = await query<CountRow>(sql, params);
+    return Number(rows[0]?.count ?? 0);
+  } catch {
+    return 0;
+  }
 }
 
 export default async function DashboardPage() {
@@ -47,39 +93,60 @@ export default async function DashboardPage() {
 
   const recentProjects = user
     ? await query<RecentProject>(
-        `SELECT id, name, status, updated_at FROM projects
-          WHERE user_id = $1
-          ORDER BY updated_at DESC
-          LIMIT 5`,
+        `SELECT p.id, p.name, p.company_name, p.industry, p.status,
+                p.process_stage, p.updated_at,
+                r.id AS latest_report_id, r.status AS latest_report_status
+           FROM projects p
+           LEFT JOIN LATERAL (
+             SELECT id, status FROM reports
+              WHERE project_id = p.id
+              ORDER BY updated_at DESC LIMIT 1
+           ) r ON true
+          WHERE p.user_id = $1
+          ORDER BY p.updated_at DESC
+          LIMIT 6`,
         [user.id]
-      )
+      ).catch(() => [])
     : [];
 
-  // 计算沉睡项目（active 状态 + 超过 14 天未更新）
-  // 用更宽的查询拿所有 active 项目，对比阈值。
-  type SleepRow = { id: string; name: string; updated_at: string; status: string };
-  let sleepingRaw: SleepRow[] = [];
+  let attentionProjects: AttentionProject[] = [];
   if (user) {
-    try {
-      sleepingRaw = await query<SleepRow>(
-        `SELECT id, name, status, updated_at
-           FROM projects
-          WHERE user_id = $1 AND status IN ('evaluating', 'invested')
-          ORDER BY updated_at ASC`,
-        [user.id]
-      );
-    } catch {
-      sleepingRaw = [];
-    }
-  }
-  const sleeping = sleepingRaw
-    .map((p) => ({ ...p, days: sleepDays(p.status, p.updated_at) }))
-    .filter(
-      (p): p is SleepRow & { days: number } => p.days !== null
-    );
+    const rows = await query<RecentProject>(
+      `SELECT p.id, p.name, p.company_name, p.industry, p.status,
+              p.process_stage, p.updated_at,
+              NULL::uuid AS latest_report_id, NULL::text AS latest_report_status
+         FROM projects p
+        WHERE p.user_id = $1 AND p.status IN ('evaluating', 'invested')
+        ORDER BY p.updated_at ASC`,
+      [user.id]
+    ).catch(() => []);
 
-  // 引导弹窗：三个条件同时满足才弹（未完成引导 + 没有项目 + 没有 API Key）
-  // 任意一个不满足都说明用户已经"上手"，不再打扰
+    attentionProjects = rows
+      .map((p) => ({ ...p, days: sleepDays(p.status, p.updated_at) }))
+      .filter((p): p is AttentionProject => p.days !== null)
+      .slice(0, 4);
+  }
+
+  const [activeCount, knowledgeCount, draftReportCount] = user
+    ? await Promise.all([
+        safeCount(
+          "SELECT COUNT(*)::text AS count FROM projects WHERE user_id = $1 AND status IN ('evaluating', 'invested')",
+          [user.id]
+        ),
+        safeCount(
+          "SELECT COUNT(*)::text AS count FROM knowledge_base_entries WHERE user_id = $1",
+          [user.id]
+        ),
+        safeCount(
+          `SELECT COUNT(*)::text AS count
+             FROM reports r
+             JOIN projects p ON p.id = r.project_id
+            WHERE p.user_id = $1 AND r.status = 'draft'`,
+          [user.id]
+        ),
+      ])
+    : [0, 0, 0];
+
   let showOnboarding = false;
   if (user) {
     try {
@@ -93,141 +160,166 @@ export default async function DashboardPage() {
       const row = rows[0];
       const completed = !!row?.onboarding_completed;
       const hasApiKey = !!row?.api_key_encrypted;
-
-      const countRows = await query<{ count: string }>(
-        "SELECT COUNT(*)::text AS count FROM projects WHERE user_id = $1",
-        [user.id]
-      );
-      const hasProjects = Number(countRows[0]?.count ?? 0) > 0;
-
-      showOnboarding = !completed && !hasProjects && !hasApiKey;
+      showOnboarding = !completed && recentProjects.length === 0 && !hasApiKey;
     } catch {
-      // 查询失败时不弹（容错优先：避免老用户重复看到弹窗）
       showOnboarding = false;
     }
   }
 
   return (
-    <div className="mx-auto max-w-doc px-6 py-16">
+    <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
       <OnboardingGate show={showOnboarding} />
-      <p className="text-sm text-ink-faint">
-        {user ? `欢迎回来，${user.name}` : "欢迎"}
-      </p>
-      <h1 className="mt-2 text-2xl font-semibold text-ink">
-        今天要分析哪个项目？
-      </h1>
-      <p className="mt-3 prose-doc text-ink-soft">
-        Aivestor 帮助你把分散的投资判断沉淀为可调用的知识资产，
-        并借助 AI 加速分析报告的生成与打磨。
-      </p>
 
-      {/* 沉睡项目提醒：仅在有沉睡项目时渲染 */}
-      {sleeping.length > 0 && (
-        <div className="mt-6 rounded-xl border-l-4 border-[#FF6B35] bg-[#FF6B3508] px-4 py-3">
-          <p className="text-sm font-medium text-[#FF6B35]">
-            ⏰ 有 {sleeping.length} 个项目超过 14 天未更新
+      <section className="grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
+        <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-6 shadow-[0_1px_2px_rgba(55,53,47,0.04)]">
+          <p className="text-sm text-ink-soft">
+            {user ? `${user.name}，早上好` : "欢迎来到 Aivestor"}
           </p>
-          <ul className="mt-2 space-y-1.5">
-            {sleeping.slice(0, 5).map((p) => (
-              <li
-                key={p.id}
-                className="flex items-center justify-between gap-3 text-xs"
-              >
-                <span className="truncate text-ink-soft">
-                  · {p.name} · 已沉睡 {p.days} 天
-                </span>
-                <Link
-                  href={`/projects/${p.id}`}
-                  className="shrink-0 text-xs font-medium text-[#FF6B35] hover:underline"
-                >
-                  去查看 →
-                </Link>
-              </li>
-            ))}
-          </ul>
-          {sleeping.length > 5 && (
-            <p className="mt-1.5 text-xs text-slate-400">
-              共 {sleeping.length} 个，查看
-              <Link href="/projects" className="ml-1 text-[#FF6B35] hover:underline">
-                完整项目列表
-              </Link>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-ink">
+                今天先看这些项目线索
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-ink-soft">
+                工作台会把项目、材料、判断和知识放在同一张桌面上。提醒保持克制，只提示值得回看的线索，不制造额外焦虑。
+              </p>
+            </div>
+            <Link
+              href="/projects/new"
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-[#2f6f4f] px-4 text-sm font-medium text-white transition-colors hover:bg-[#265b42]"
+            >
+              新建项目分析
+            </Link>
+          </div>
+
+          <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <MetricCard label="活跃项目" value={activeCount} note="正在推进或投后跟踪" />
+            <MetricCard label="知识条目" value={knowledgeCount} note="可被检索和复用" />
+            <MetricCard label="报告草稿" value={draftReportCount} note="可继续打磨输出" />
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[#e6ded1] bg-[#f7f2e8] p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-ink">今日关注</h2>
+            <span className="rounded-full bg-white/70 px-2 py-1 text-xs text-ink-soft">
+              克制提醒
+            </span>
+          </div>
+          {attentionProjects.length === 0 ? (
+            <p className="mt-5 text-sm leading-7 text-ink-soft">
+              暂时没有需要特别回看的项目。你可以从最近项目继续，或者整理一份新材料。
             </p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {attentionProjects.map((project) => (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="block rounded-lg border border-[#e2d8c8] bg-white/70 p-3 transition-colors hover:border-[#cdbfAA] hover:bg-white"
+                >
+                  <p className="text-sm font-medium text-ink">{project.name}</p>
+                  <p className="mt-1 text-xs leading-5 text-ink-soft">
+                    你在{gentlePeriod(project.days)}关注的项目，有新进展吗？
+                  </p>
+                </Link>
+              ))}
+            </div>
           )}
         </div>
-      )}
+      </section>
 
-      {!user && (
-        <Link
-          href="/login"
-          className="mt-4 inline-block rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-        >
-          登录后开始
-        </Link>
-      )}
+      <section className="mt-6 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+        <div className="rounded-lg border border-line bg-white p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-ink">快速开始</h2>
+            <span className="text-xs text-ink-faint">常用动作</span>
+          </div>
+          <div className="mt-4 space-y-3">
+            {QUICK_ACTIONS.map((action) => (
+              <Link
+                key={action.href}
+                href={action.href}
+                className="group grid grid-cols-[auto_1fr] gap-3 rounded-lg border border-line p-3 transition-colors hover:border-[#b7c8bc] hover:bg-[#f7fbf8]"
+              >
+                <span className="flex h-8 min-w-8 items-center justify-center rounded-md bg-[#edf4ef] px-2 text-xs font-medium text-[#2f6f4f]">
+                  {action.label}
+                </span>
+                <span>
+                  <span className="block text-sm font-medium text-ink">
+                    {action.title}
+                  </span>
+                  <span className="mt-1 block text-xs leading-5 text-ink-soft">
+                    {action.desc}
+                  </span>
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
 
-      <section className="mt-12">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          快速开始
-        </h2>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          {QUICK_ACTIONS.map((a) => (
-            <Link
-              key={a.href}
-              href={a.href}
-              className="rounded-lg border border-line p-4 transition-colors hover:border-accent hover:bg-accent-soft/40"
-            >
-              <div className="text-sm font-medium text-ink">{a.title}</div>
-              <div className="mt-1.5 text-xs leading-5 text-ink-faint">
-                {a.desc}
-              </div>
+        <div className="rounded-lg border border-line bg-white p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-ink">最近项目</h2>
+            <Link href="/projects" className="text-xs font-medium text-[#2f6f4f]">
+              查看项目管线
             </Link>
-          ))}
+          </div>
+
+          {recentProjects.length === 0 ? (
+            <div className="mt-6 rounded-lg border border-dashed border-line bg-surface/60 p-6 text-center">
+              <p className="text-sm font-medium text-ink">还没有项目</p>
+              <p className="mt-2 text-sm text-ink-soft">
+                创建第一个项目后，工作台会开始整理材料、判断和后续动作。
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 divide-y divide-line">
+              {recentProjects.map((project) => (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="grid gap-2 py-3 transition-colors hover:bg-[#fbfaf7] sm:grid-cols-[1fr_auto] sm:items-center"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-ink">
+                      {project.name}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-ink-soft">
+                      {projectMeta(project) || "等待补充公司、赛道或阶段信息"}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-2 text-xs text-ink-soft">
+                    <span className="rounded-full bg-surface px-2 py-1">
+                      {STATUS_LABEL[project.status] ?? project.status}
+                    </span>
+                    <span>{relativeTime(project.updated_at)}</span>
+                    <span className="font-medium text-[#2f6f4f]">继续</span>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </section>
+    </div>
+  );
+}
 
-      <section className="mt-12">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          最近项目
-        </h2>
-        {recentProjects.length === 0 ? (
-          <p className="mt-4 text-center text-sm text-ink-soft">
-            还没有项目。点击右上角「新建项目分析」开始。
-          </p>
-        ) : (
-          <ul className="mt-4 divide-y divide-line">
-            {recentProjects.map((p) => {
-              const isActive =
-                p.status === "evaluating" || p.status === "invested";
-              return (
-                <li key={p.id}>
-                  <Link
-                    href={`/projects/${p.id}`}
-                    className="flex items-center gap-4 rounded-md px-2 py-3 transition-colors hover:bg-surface"
-                  >
-                    <span className="flex-1 truncate text-sm font-medium text-ink">
-                      {p.name}
-                    </span>
-                    <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink-soft">
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          isActive ? "bg-green-500" : "bg-ink-faint"
-                        }`}
-                      />
-                      {isActive ? "进行中" : "已归档"}
-                    </span>
-                    <span className="shrink-0 text-xs text-ink-faint">
-                      {relativeTime(p.updated_at)}
-                    </span>
-                    <span className="shrink-0 text-xs font-medium text-accent">
-                      继续 →
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+function MetricCard({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: number;
+  note: string;
+}) {
+  return (
+    <div className="rounded-lg border border-[#ece4d8] bg-white/70 p-4">
+      <div className="font-numeric text-2xl font-semibold text-ink">{value}</div>
+      <div className="mt-1 text-sm font-medium text-ink">{label}</div>
+      <div className="mt-1 text-xs text-ink-soft">{note}</div>
     </div>
   );
 }

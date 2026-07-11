@@ -4,44 +4,38 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 
-// 主导航。对应 PRD 五大核心模块，MVP 阶段聚焦知识库 / 项目 / 归档。
 const NAV = [
-  { href: "/dashboard", label: "首页", desc: "概览" },
-  { href: "/chat", label: "对话", desc: "与 AI 自由探讨" },
-  { href: "/projects", label: "项目分析", desc: "上传 BP，生成分析报告" },
-  { href: "/archive", label: "项目档案", desc: "项目全生命周期记录" },
-  { href: "/knowledge", label: "知识库", desc: "私有知识沉淀与检索" },
-  { href: "/skills", label: "SKILL 广场", desc: "投资分析技能库" },
-  { href: "/settings", label: "个人设置", desc: "个人画像与 AI 配置" },
+  { href: "/dashboard", label: "工作台", desc: "今日关注" },
+  { href: "/chat", label: "研究对话", desc: "讨论与沉淀" },
+  { href: "/projects", label: "项目管线", desc: "分析与推进" },
+  { href: "/archive", label: "项目档案", desc: "历史与投后" },
+  { href: "/knowledge", label: "知识库", desc: "经验复用" },
+  { href: "/skills", label: "SKILL 广场", desc: "分析框架" },
+  { href: "/settings", label: "个人设置", desc: "画像与模型" },
 ];
 
 export function Sidebar({
   dataAppsEnabled = false,
 }: {
-  // data_apps 能力位由服务端 layout 现取后下发（capabilities 不进 token，见 1.4）。
   dataAppsEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
-  // 有组织的用户追加「组织工作台」一级入口（机构档案/Dashboard/LP/协会/成员设置
-  // 均整合于此）。orgId 来自 session，仅 UI 提示；具体 tab 内容按能力位/角色在
-  // 服务端守门。工作台始终展示以保证「成员与设置」对全体成员可达。
   const nav = session?.user?.orgId
     ? [
         ...NAV,
         {
           href: "/org/workspace",
           label: "组织工作台",
-          desc: "统计 · 成员 · 对外报告",
+          desc: "团队与报告",
         },
-        // 「数据应用」入口仅在开通 data_apps 能力位时渲染（关闭/个人版不显示）。
         ...(dataAppsEnabled
           ? [
               {
                 href: "/data-apps",
                 label: "数据应用",
-                desc: "市场洞察 · 机构点查",
+                desc: "市场与机构",
               },
             ]
           : []),
@@ -49,7 +43,7 @@ export function Sidebar({
     : NAV;
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-line bg-surface">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-[#e5ded2] bg-[#f4f1ea]">
       <div className="px-5 py-5">
         <Link href="/" className="flex items-center gap-2.5">
           <svg
@@ -57,22 +51,51 @@ export function Sidebar({
             className="h-8 w-8 shrink-0"
             aria-hidden="true"
           >
-            <rect width="512" height="512" rx="114" fill="#0D1B3E" />
+            <rect width="512" height="512" rx="114" fill="#15372A" />
             <g transform="translate(256, 280)">
-              <line x1="-130" y1="-154" x2="-24" y2="58" stroke="#4A9EFF" strokeWidth="28" strokeLinecap="round" />
-              <line x1="130" y1="-154" x2="24" y2="58" stroke="#4A9EFF" strokeWidth="28" strokeLinecap="round" />
-              <line x1="-84" y1="-154" x2="-15" y2="12" stroke="#FF6B35" strokeWidth="13" strokeLinecap="round" />
-              <line x1="84" y1="-154" x2="15" y2="12" stroke="#FF6B35" strokeWidth="13" strokeLinecap="round" />
-              <circle cx="-130" cy="-154" r="22" fill="#4A9EFF" />
-              <circle cx="130" cy="-154" r="22" fill="#4A9EFF" />
-              <circle cx="-84" cy="-154" r="14" fill="#FF6B35" opacity="0.8" />
-              <circle cx="84" cy="-154" r="14" fill="#FF6B35" opacity="0.8" />
+              <line
+                x1="-130"
+                y1="-154"
+                x2="-24"
+                y2="58"
+                stroke="#7CB7A0"
+                strokeWidth="28"
+                strokeLinecap="round"
+              />
+              <line
+                x1="130"
+                y1="-154"
+                x2="24"
+                y2="58"
+                stroke="#7CB7A0"
+                strokeWidth="28"
+                strokeLinecap="round"
+              />
+              <line
+                x1="-84"
+                y1="-154"
+                x2="-15"
+                y2="12"
+                stroke="#D59A5A"
+                strokeWidth="13"
+                strokeLinecap="round"
+              />
+              <line
+                x1="84"
+                y1="-154"
+                x2="15"
+                y2="12"
+                stroke="#D59A5A"
+                strokeWidth="13"
+                strokeLinecap="round"
+              />
+              <circle cx="-130" cy="-154" r="22" fill="#7CB7A0" />
+              <circle cx="130" cy="-154" r="22" fill="#7CB7A0" />
+              <circle cx="-84" cy="-154" r="14" fill="#D59A5A" opacity="0.85" />
+              <circle cx="84" cy="-154" r="14" fill="#D59A5A" opacity="0.85" />
             </g>
           </svg>
-          <span
-            className="text-base text-[#0D1B3E]"
-            style={{ letterSpacing: "3px" }}
-          >
+          <span className="text-base text-[#15372A]" style={{ letterSpacing: 3 }}>
             <span style={{ fontWeight: 300 }}>Ai</span>
             <span style={{ fontWeight: 700 }}>vestor</span>
           </span>
@@ -81,41 +104,37 @@ export function Sidebar({
 
       <nav className="flex-1 px-2">
         {nav.map((item) => {
-          // /dashboard 在根路径下也高亮（因为 / 会重定向到 /dashboard）
           const active =
             item.href === "/dashboard"
               ? pathname === "/" || pathname.startsWith("/dashboard")
               : pathname.startsWith(item.href);
+
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`mb-0.5 flex flex-col gap-0.5 rounded-lg px-3 py-2 transition-colors duration-150 ${
+              className={`mb-1 flex flex-col gap-0.5 rounded-lg px-3 py-2.5 transition-colors duration-150 ${
                 active
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-ink-soft hover:bg-slate-100 hover:text-ink"
+                  ? "bg-white text-[#15372A] shadow-[0_1px_2px_rgba(55,53,47,0.06)]"
+                  : "text-ink-soft hover:bg-white/60 hover:text-ink"
               }`}
             >
-              <div
-                className={`text-sm ${active ? "font-medium" : "font-medium"}`}
-              >
-                {item.label}
-              </div>
-              <div
+              <span className="text-sm font-medium">{item.label}</span>
+              <span
                 className={`text-xs ${
-                  active ? "text-blue-700/70" : "text-ink-faint"
+                  active ? "text-[#2f6f4f]" : "text-ink-faint"
                 }`}
               >
                 {item.desc}
-              </div>
+              </span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t border-line px-4 py-3">
+      <div className="border-t border-[#e5ded2] px-4 py-3">
         {status === "loading" ? (
-          <div className="px-1 py-2 text-xs text-ink-faint">加载中…</div>
+          <div className="px-1 py-2 text-xs text-ink-faint">加载中</div>
         ) : session?.user ? (
           <div>
             <div className="px-1 text-sm font-medium text-ink">
@@ -126,7 +145,7 @@ export function Sidebar({
             </div>
             <button
               onClick={() => signOut({ callbackUrl: "/login" })}
-              className="mt-2 w-full rounded-md px-1 py-1.5 text-left text-xs text-ink-soft hover:bg-line/60 hover:text-ink"
+              className="mt-2 w-full rounded-md px-1 py-1.5 text-left text-xs text-ink-soft hover:bg-white/70 hover:text-ink"
             >
               退出登录
             </button>
@@ -134,7 +153,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/login"
-            className="block rounded-md bg-accent px-3 py-2 text-center text-sm font-medium text-white hover:opacity-90"
+            className="block rounded-lg bg-[#2f6f4f] px-3 py-2 text-center text-sm font-medium text-white hover:bg-[#265b42]"
           >
             登录
           </Link>
