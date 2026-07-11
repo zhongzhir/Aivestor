@@ -883,7 +883,7 @@ function WorkspaceRail({
       <div className="rounded-lg border border-line bg-white p-4">
         <h2 className="text-sm font-semibold text-ink">IC 准备</h2>
         <p className="mt-2 text-xs leading-5 text-ink-soft">
-          把当前材料、判断和报告整理成可讨论的决策包。这里先复用现有能力，避免新增流程负担。
+          把当前材料、判断和报告整理成可讨论的决策包，方便会前快速对齐证据、分歧和下一步。
         </p>
         <div className="mt-4 grid gap-2">
           <Link
@@ -920,7 +920,7 @@ function WorkspaceRail({
               ? "你已经留下判断记录，后续报告会围绕这些判断继续沉淀。"
               : "如果你在近期关注过这个项目，可以先补一条当前判断。"}
           </p>
-          <p>后续可在这里接入会议、关系和投后更新。</p>
+          <p>会议纪要、关系线索和投后更新会继续沉淀在这个工作区里。</p>
         </div>
       </div>
     </aside>

@@ -163,7 +163,7 @@ export default async function ProjectsPage({
               把正在看的项目排成一张清晰的工作队列
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-ink-soft">
-              这里保留项目阶段、报告状态和温和的回看提示。重点是帮你重新进入判断现场，而不是制造催办压力。
+              按阶段、报告状态和近期进展整理项目，方便你快速回到上次的判断现场。
             </p>
           </div>
           <Link
@@ -177,7 +177,7 @@ export default async function ProjectsPage({
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <PipelineMetric label="当前列表" value={projects.length} note="按筛选条件显示" />
           <PipelineMetric label="活跃项目" value={activeCount} note="评估或投后跟踪" />
-          <PipelineMetric label="可回看线索" value={reviewCount} note="近期值得确认进展" />
+          <PipelineMetric label="近期线索" value={reviewCount} note="值得重新看一眼" />
         </div>
       </div>
 
