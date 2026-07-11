@@ -18,6 +18,7 @@ import {
 import { SkillRunModal } from "@/components/skills/SkillRunModal";
 import { stashJudgmentPoints, readError } from "@/lib/clientAI";
 import { outcomeDef } from "@/lib/outcome";
+import { STAGE_LABELS } from "@/lib/stages";
 import type { FinancialData } from "@/lib/types";
 
 type Tab = "analysis" | "decision" | "post";
@@ -54,15 +55,6 @@ const FILE_TYPE_LABEL: Record<string, string> = {
   pptx: "PPT",
   xlsx: "XLS",
   xls: "XLS",
-};
-
-const PROCESS_STAGE_LABEL: Record<string, string> = {
-  screening: "初筛",
-  due_diligence: "尽调",
-  investment_committee: "投委会",
-  post_investment: "投后管理",
-  passed: "已 Pass",
-  exited: "已退出",
 };
 
 interface Props {
@@ -289,17 +281,28 @@ export function ProjectDetail({
 
   const parsedDocCount = docMeta.filter((d) => d.parseStatus === "done").length;
   const bpDocCount = docMeta.filter((d) => d.docKind === "bp").length;
-  const stageLabel = PROCESS_STAGE_LABEL[processStage] ?? "待整理";
+  const stageLabel = STAGE_LABELS[processStage] ?? "待整理";
   const reportState = latestReportId ? "已有分析报告" : "等待生成报告";
-  const nextAction = latestReportId
-    ? "可以继续打磨报告，或进入决策辅助"
-    : hasParsedDoc
-      ? "材料已就绪，可以补充判断并生成报告"
-      : "先补充 BP、财务模型或项目材料";
+  const judgmentCount = judgments.length;
+  const hasJudgment = judgmentCount > 0;
+  const workspaceState = buildWorkspaceState({
+    processStage,
+    hasParsedDoc,
+    hasJudgment,
+    latestReportId,
+  });
   const evidenceNote =
     docMeta.length === 0
       ? "尚未看到项目材料"
       : `${parsedDocCount}/${docMeta.length} 份材料已解析`;
+  const evidenceItems = buildEvidenceItems({
+    docCount: docMeta.length,
+    parsedDocCount,
+    bpDocCount,
+    hasJudgment,
+    latestReportId,
+    processStage,
+  });
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
@@ -586,13 +589,17 @@ export function ProjectDetail({
         </div>
 
         <WorkspaceRail
-          nextAction={nextAction}
+          workspaceState={workspaceState}
+          onSelectTab={setTab}
+          onGenerate={handleGenerate}
           evidenceNote={evidenceNote}
+          evidenceItems={evidenceItems}
           parsedDocCount={parsedDocCount}
           docCount={docMeta.length}
           bpDocCount={bpDocCount}
           reportState={reportState}
-          hasParsedDoc={hasParsedDoc}
+          hasJudgment={hasJudgment}
+          judgmentCount={judgmentCount}
           latestReportId={latestReportId}
           projectId={projectId}
         />
@@ -628,35 +635,212 @@ function WorkspaceMetric({
   );
 }
 
+interface WorkspaceState {
+  title: string;
+  description: string;
+  badge: string;
+  actions: Array<
+    | { label: string; kind: "tab"; tab: Tab; primary?: boolean }
+    | { label: string; kind: "generate"; primary?: boolean }
+  >;
+}
+
+interface EvidenceItem {
+  label: string;
+  note: string;
+  done: boolean;
+}
+
+function buildWorkspaceState({
+  processStage,
+  hasParsedDoc,
+  hasJudgment,
+  latestReportId,
+}: {
+  processStage: string;
+  hasParsedDoc: boolean;
+  hasJudgment: boolean;
+  latestReportId: string | null;
+}): WorkspaceState {
+  if (!hasParsedDoc) {
+    return {
+      title: "先补齐核心材料",
+      description:
+        "还缺少可用于分析的材料。先放入 BP、财务模型或项目更新，后续判断和报告会更稳。",
+      badge: "材料优先",
+      actions: [{ label: "上传材料", kind: "tab", tab: "analysis" }],
+    };
+  }
+
+  if (!hasJudgment) {
+    return {
+      title: "补一条当前判断",
+      description:
+        "材料已经就绪。可以先记录你现在最关心的判断点，再生成报告或进入决策辅助。",
+      badge: "进入判断",
+      actions: [{ label: "记录判断", kind: "tab", tab: "analysis", primary: true }],
+    };
+  }
+
+  if (processStage === "investment_committee") {
+    return {
+      title: "准备投委会讨论",
+      description:
+        "这个项目已经进入投委会语境。建议围绕证据、分歧和未解决问题整理一份可讨论的决策包。",
+      badge: "IC 准备",
+      actions: [
+        { label: "决策辅助", kind: "tab", tab: "decision", primary: true },
+        { label: "整理材料", kind: "tab", tab: "analysis" },
+      ],
+    };
+  }
+
+  if (latestReportId) {
+    return {
+      title: "回看报告与下一步",
+      description:
+        "已有分析报告。你可以继续打磨报告，也可以从反方视角或历史镜像里检查当前判断。",
+      badge: "可复盘",
+      actions: [
+        { label: "决策辅助", kind: "tab", tab: "decision", primary: true },
+        { label: "补充材料", kind: "tab", tab: "analysis" },
+      ],
+    };
+  }
+
+  return {
+    title: "生成第一版分析",
+    description:
+      "材料和判断都已具备，可以先生成一版报告，形成后续尽调和团队讨论的共同底稿。",
+    badge: "形成底稿",
+    actions: [{ label: "生成报告", kind: "generate", primary: true }],
+  };
+}
+
+function buildEvidenceItems({
+  docCount,
+  parsedDocCount,
+  bpDocCount,
+  hasJudgment,
+  latestReportId,
+  processStage,
+}: {
+  docCount: number;
+  parsedDocCount: number;
+  bpDocCount: number;
+  hasJudgment: boolean;
+  latestReportId: string | null;
+  processStage: string;
+}): EvidenceItem[] {
+  const items: EvidenceItem[] = [
+    {
+      label: "核心材料",
+      done: parsedDocCount > 0,
+      note:
+        parsedDocCount > 0
+          ? `${parsedDocCount}/${docCount} 份材料可用于分析`
+          : "先上传 BP、商业计划书或项目更新",
+    },
+    {
+      label: "BP 线索",
+      done: bpDocCount > 0,
+      note:
+        bpDocCount > 0
+          ? `已识别 ${bpDocCount} 份 BP 类材料`
+          : "如果已有 BP，建议单独上传为项目材料",
+    },
+    {
+      label: "投资判断",
+      done: hasJudgment,
+      note: hasJudgment ? "已有阶段判断记录" : "可以先记录当前看多、看空和关键假设",
+    },
+    {
+      label: "分析底稿",
+      done: !!latestReportId,
+      note: latestReportId ? "已有可复用报告" : "生成后可作为尽调和 IC 讨论底稿",
+    },
+  ];
+
+  if (processStage === "investment_committee") {
+    items.push({
+      label: "IC 语境",
+      done: !!latestReportId && hasJudgment,
+      note:
+        latestReportId && hasJudgment
+          ? "已有进入会议讨论的基本材料"
+          : "进入 IC 前建议补齐报告和阶段判断",
+    });
+  }
+
+  return items;
+}
+
 function WorkspaceRail({
-  nextAction,
+  workspaceState,
+  onSelectTab,
+  onGenerate,
   evidenceNote,
+  evidenceItems,
   parsedDocCount,
   docCount,
   bpDocCount,
   reportState,
-  hasParsedDoc,
+  hasJudgment,
+  judgmentCount,
   latestReportId,
   projectId,
 }: {
-  nextAction: string;
+  workspaceState: WorkspaceState;
+  onSelectTab: (tab: Tab) => void;
+  onGenerate: () => void;
   evidenceNote: string;
+  evidenceItems: EvidenceItem[];
   parsedDocCount: number;
   docCount: number;
   bpDocCount: number;
   reportState: string;
-  hasParsedDoc: boolean;
+  hasJudgment: boolean;
+  judgmentCount: number;
   latestReportId: string | null;
   projectId: string;
 }) {
   return (
     <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
       <div className="rounded-lg border border-[#e6ded1] bg-[#f7f2e8] p-4">
-        <h2 className="text-sm font-semibold text-ink">下一步</h2>
-        <p className="mt-3 text-sm leading-7 text-ink-soft">{nextAction}</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+              下一步
+            </p>
+            <h2 className="mt-1 text-sm font-semibold text-ink">
+              {workspaceState.title}
+            </h2>
+          </div>
+          <span className="rounded-full border border-[#dfd4c4] bg-white/75 px-2 py-1 text-[11px] text-ink-soft">
+            {workspaceState.badge}
+          </span>
+        </div>
+        <p className="mt-3 text-sm leading-7 text-ink-soft">
+          {workspaceState.description}
+        </p>
         <div className="mt-4 flex flex-wrap gap-2">
+          {workspaceState.actions.map((action) => (
+            <button
+              key={action.label}
+              onClick={() =>
+                action.kind === "generate" ? onGenerate() : onSelectTab(action.tab)
+              }
+              className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+                action.primary
+                  ? "border-accent bg-accent text-white hover:bg-[#265b42]"
+                  : "border-line bg-white text-ink-soft hover:bg-surface"
+              }`}
+            >
+              {action.label}
+            </button>
+          ))}
           <Link
-            href={latestReportId ? `/projects/${projectId}/report` : "#"}
+            href={`/projects/${projectId}/report`}
             className={`rounded-lg border px-3 py-2 text-xs font-medium ${
               latestReportId
                 ? "border-line bg-white text-ink-soft hover:bg-surface"
@@ -664,12 +848,6 @@ function WorkspaceRail({
             }`}
           >
             查看报告
-          </Link>
-          <Link
-            href={`/projects/${projectId}/brief-analysis`}
-            className="rounded-lg border border-line bg-white px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
-          >
-            简要分析
           </Link>
         </div>
       </div>
@@ -679,20 +857,69 @@ function WorkspaceRail({
         <div className="mt-3 space-y-3 text-sm text-ink-soft">
           <RailRow label="材料解析" value={evidenceNote} />
           <RailRow label="BP 材料" value={`${bpDocCount} 份`} />
+          <RailRow label="判断记录" value={`${judgmentCount} 条`} />
           <RailRow label="报告状态" value={reportState} />
         </div>
-        {!hasParsedDoc && (
-          <p className="mt-4 rounded-md bg-[#fff8e8] px-3 py-2 text-xs leading-5 text-[#8a5b1f]">
-            先补充一份核心材料，后续判断、报告和 SKILL 分析会更稳。
-          </p>
-        )}
+        <div className="mt-4 space-y-2">
+          {evidenceItems.map((item) => (
+            <div
+              key={item.label}
+              className="flex items-start gap-2 rounded-md bg-surface px-3 py-2 text-xs leading-5"
+            >
+              <span
+                className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                  item.done ? "bg-accent" : "bg-[#d79b35]"
+                }`}
+              />
+              <div>
+                <p className="font-medium text-ink">{item.label}</p>
+                <p className="mt-0.5 text-ink-soft">{item.note}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-line bg-white p-4">
+        <h2 className="text-sm font-semibold text-ink">IC 准备</h2>
+        <p className="mt-2 text-xs leading-5 text-ink-soft">
+          把当前材料、判断和报告整理成可讨论的决策包。这里先复用现有能力，避免新增流程负担。
+        </p>
+        <div className="mt-4 grid gap-2">
+          <Link
+            href={`/projects/${projectId}/report`}
+            className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+              latestReportId
+                ? "border-line text-ink-soft hover:bg-surface"
+                : "pointer-events-none border-line text-ink-faint"
+            }`}
+          >
+            整理已有报告
+          </Link>
+          <Link
+            href={`/projects/${projectId}/brief-analysis`}
+            className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
+          >
+            生成一页简报
+          </Link>
+          <Link
+            href={`/projects/${projectId}/term-sheet`}
+            className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
+          >
+            准备条款草案
+          </Link>
+        </div>
       </div>
 
       <div className="rounded-lg border border-line bg-white p-4">
         <h2 className="text-sm font-semibold text-ink">近期活动</h2>
         <div className="mt-3 space-y-2 text-xs text-ink-soft">
           <p>已整理 {docCount} 份材料，其中 {parsedDocCount} 份可用于分析。</p>
-          <p>团队判断、评论和分享仍保留在项目工作区内。</p>
+          <p>
+            {hasJudgment
+              ? "你已经留下判断记录，后续报告会围绕这些判断继续沉淀。"
+              : "如果你在近期关注过这个项目，可以先补一条当前判断。"}
+          </p>
           <p>后续可在这里接入会议、关系和投后更新。</p>
         </div>
       </div>
