@@ -243,13 +243,13 @@ export function ApiKeyConfig({
               </p>
               <p className="mt-1 text-xs">
                 <a
-                  href="/settings#phone-binding"
+                  href="/settings/account#phone-binding"
                   className="underline hover:opacity-80"
                 >
                   绑定手机号 →
                 </a>
                 <a
-                  href="/settings"
+                  href="/settings/ai"
                   className="ml-3 underline hover:opacity-80"
                 >
                   配置 API Key →
@@ -260,7 +260,7 @@ export function ApiKeyConfig({
             // 已绑定手机号：维持原文案不变
             <p className="text-sm font-medium text-[#FF6B35]">
               免费额度已用完，配置自己的 API Key 后可无限使用，数据完全归您所有。
-              <a href="/settings" className="ml-1 underline hover:opacity-80">
+              <a href="/settings/ai" className="ml-1 underline hover:opacity-80">
                 前往设置 →
               </a>
             </p>

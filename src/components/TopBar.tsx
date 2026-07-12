@@ -147,10 +147,10 @@ function getCrumbs(pathname: string): Crumb[] {
       { label: "数据应用" },
     ];
   }
-  if (pathname === "/settings") {
+  if (pathname.startsWith("/settings")) {
     return [
       { label: "工作台", href: "/dashboard" },
-      { label: "个人设置" },
+      { label: "设置" },
     ];
   }
   if (pathname === "/cognition") {

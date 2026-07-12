@@ -62,8 +62,8 @@ const SECTIONS: Section[] = [
     tip: "常用的分析框架收藏后可在项目分析中一键调用",
   },
   {
-    title: "个人设置",
-    positioning: "配置个人画像与 AI 服务",
+    title: "设置",
+    positioning: "分别配置投资偏好、账户安全与 AI 服务",
     bullets: [
       "投资人画像：填写关注阶段、赛道、判断标准等，AI 将据此个性化输出",
       "AI 模型配置：填入你的 API Key，支持 DeepSeek、OpenAI、Claude 等 9 个服务商",

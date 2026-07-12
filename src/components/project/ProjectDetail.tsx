@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FinancialCharts } from "./FinancialCharts";
-import { StageProgress, type Judgment } from "./StageProgress";
+import type { Judgment } from "./StageProgress";
 import { DecisionTools } from "./DecisionTools";
 import { PostInvestment } from "./PostInvestment";
 import { CommentPanel } from "./CommentPanel";
@@ -17,8 +17,8 @@ import {
 } from "@/components/shared/FileUploader";
 import { SkillRunModal } from "@/components/skills/SkillRunModal";
 import { stashJudgmentPoints, readError } from "@/lib/clientAI";
-import { outcomeDef } from "@/lib/outcome";
-import { STAGE_LABELS } from "@/lib/stages";
+import { OUTCOMES, outcomeDef } from "@/lib/outcome";
+import { FLOW_STAGES, TERMINAL_STAGES, STAGE_LABELS } from "@/lib/stages";
 import type { FinancialData } from "@/lib/types";
 
 type Tab = "analysis" | "decision" | "post";
@@ -389,7 +389,7 @@ export function ProjectDetail({
               )}
             </div>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-ink-soft">
-              项目工作区把当前状态、投资流程和项目记录放在同一处。先确认项目所处阶段，再进入材料、判断、投委会或投后管理。
+              项目工作区把当前状态、材料、判断、报告和跟踪记录放在同一处。先确认项目状态，再进入相应工作。
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -411,7 +411,7 @@ export function ProjectDetail({
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <WorkspaceMetric label="当前阶段" value={stageLabel} note="对应下方投资流程" />
+          <WorkspaceMetric label="当前阶段" value={stageLabel} note="可在当前状态中维护" />
           <WorkspaceMetric label="当前动作" value={workflowState.nextAction || workspaceState.title} note={workflowState.nextActionDueAt ? `目标日期 ${formatFullDate(workflowState.nextActionDueAt)}` : "目标日期可在下方维护"} />
           <WorkspaceMetric label="证据状态" value={`${effectiveCompleteness}%`} note={evidenceNote} />
         </div>
@@ -423,30 +423,12 @@ export function ProjectDetail({
         fallbackNextAction={workspaceState.title}
         fallbackCompleteness={effectiveCompleteness}
         currentStageLabel={stageLabel}
+        initialStage={processStage}
+        initialOutcome={outcome}
+        initialOutcomeNote={outcomeNote}
         outcomeLabel={outcomeLabel}
         onSaved={setWorkflowState}
       />
-
-      <div className="mt-6 rounded-lg border border-line bg-white p-5">
-        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <h2 className="text-sm font-semibold text-ink">投资流程</h2>
-            <p className="mt-1 text-xs leading-5 text-ink-faint">
-              初筛、尽调、投委会和投后管理用于呈现项目完整生命周期。阶段变化会留下判断记录，当前动作在上方维护。
-            </p>
-          </div>
-          <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
-            {stageLabel}
-          </span>
-        </div>
-        <StageProgress
-          projectId={projectId}
-          initialStage={processStage}
-          initialJudgments={judgments}
-          initialOutcome={outcome}
-          initialOutcomeNote={outcomeNote}
-        />
-      </div>
 
       <ActivityTimeline items={activityItems} />
 
@@ -730,6 +712,9 @@ function WorkflowPanel({
   fallbackNextAction,
   fallbackCompleteness,
   currentStageLabel,
+  initialStage,
+  initialOutcome,
+  initialOutcomeNote,
   outcomeLabel,
   onSaved,
 }: {
@@ -738,9 +723,16 @@ function WorkflowPanel({
   fallbackNextAction: string;
   fallbackCompleteness: number;
   currentStageLabel: string;
+  initialStage: string;
+  initialOutcome: string | null;
+  initialOutcomeNote: string | null;
   outcomeLabel: string;
   onSaved: (workflow: WorkflowMeta) => void;
 }) {
+  const router = useRouter();
+  const [stage, setStage] = useState(initialStage);
+  const [outcome, setOutcome] = useState(initialOutcome || "pending");
+  const [outcomeNote, setOutcomeNote] = useState(initialOutcomeNote || "");
   const [nextAction, setNextAction] = useState(initialWorkflow.nextAction ?? "");
   const [dueAt, setDueAt] = useState(dateInputValue(initialWorkflow.nextActionDueAt));
   const [completeness, setCompleteness] = useState(
@@ -754,6 +746,28 @@ function WorkflowPanel({
     setSaving(true);
     setMessage("");
     try {
+      if (stage !== initialStage) {
+        const stageRes = await fetch(`/api/projects/${projectId}/stage`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage }),
+        });
+        if (!stageRes.ok) {
+          throw new Error(await readError(stageRes, "阶段保存失败"));
+        }
+      }
+
+      if (outcome !== (initialOutcome || "pending") || outcomeNote !== (initialOutcomeNote || "")) {
+        const outcomeRes = await fetch(`/api/projects/${projectId}/outcome`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ outcome, outcome_note: outcomeNote }),
+        });
+        if (!outcomeRes.ok) {
+          throw new Error(await readError(outcomeRes, "投资结果保存失败"));
+        }
+      }
+
       const res = await fetch(`/api/projects/${projectId}/workflow`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -781,6 +795,9 @@ function WorkflowPanel({
       setCompleteness(String(next.evidenceCompleteness ?? fallbackCompleteness));
       setNote(next.workspaceNote ?? "");
       setMessage("已保存");
+      if (stage !== initialStage || outcome !== (initialOutcome || "pending")) {
+        router.refresh();
+      }
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -807,9 +824,49 @@ function WorkflowPanel({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <StatusPill label="阶段" value={currentStageLabel} />
-        <StatusPill label="投资结果" value={outcomeLabel} />
+        <StatusPill label="阶段" value={STAGE_LABELS[stage] ?? currentStageLabel} />
+        <StatusPill label="投资结果" value={outcomeDef(outcome).label || outcomeLabel} />
         <StatusPill label="证据完整度" value={`${completeness}%`} />
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[220px_220px_minmax(0,1fr)]">
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">项目阶段</span>
+          <select
+            value={stage}
+            onChange={(e) => setStage(e.target.value)}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            {[...FLOW_STAGES, ...TERMINAL_STAGES].map((s) => (
+              <option key={s} value={s}>
+                {STAGE_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">投资结果</span>
+          <select
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value)}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            {OUTCOMES.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">结果备注</span>
+          <input
+            value={outcomeNote}
+            onChange={(e) => setOutcomeNote(e.target.value)}
+            placeholder="例如：等待投委会讨论、已决定继续观察"
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
+          />
+        </label>
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_160px_180px]">

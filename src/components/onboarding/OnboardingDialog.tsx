@@ -149,7 +149,7 @@ function StepTwo({ onSkip }: { onSkip: () => void }) {
 
       <div className="mt-6 space-y-3">
         <Link
-          href="/settings"
+          href="/settings/preference"
           onClick={onSkip}
           className="card-hover flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
         >
@@ -163,7 +163,7 @@ function StepTwo({ onSkip }: { onSkip: () => void }) {
         </Link>
 
         <Link
-          href="/settings"
+          href="/settings/ai"
           onClick={onSkip}
           className="card-hover flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3"
         >

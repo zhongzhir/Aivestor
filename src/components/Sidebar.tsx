@@ -11,7 +11,7 @@ const NAV = [
   { href: "/archive", label: "项目档案", desc: "历史与投后" },
   { href: "/knowledge", label: "知识库", desc: "经验复用" },
   { href: "/skills", label: "SKILL 广场", desc: "分析框架" },
-  { href: "/settings", label: "个人设置", desc: "画像与模型" },
+  { href: "/settings", label: "设置", desc: "偏好与账户" },
 ];
 
 export function Sidebar({
