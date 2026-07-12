@@ -327,9 +327,7 @@ export function ProjectDetail({
 
   const parsedDocCount = docMeta.filter((d) => d.parseStatus === "done").length;
   const bpDocCount = docMeta.filter((d) => d.docKind === "bp").length;
-  const stageLabel = STAGE_LABELS[processStage] ?? "待整理";
   const reportState = latestReportId ? "已有分析报告" : "等待生成报告";
-  const outcomeLabel = outcome ? outcomeDef(outcome).label : "待定";
   const judgmentCount = judgments.length;
   const hasJudgment = judgmentCount > 0;
   const workspaceState = buildWorkspaceState({
@@ -375,9 +373,6 @@ export function ProjectDetail({
               <h1 className="truncate text-2xl font-semibold text-ink">
                 {projectName}
               </h1>
-              <span className="rounded-full border border-line bg-white px-2.5 py-1 text-xs text-ink-soft">
-                {stageLabel}
-              </span>
               {outcome && outcome !== "pending" && (
                 <span
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -409,12 +404,6 @@ export function ProjectDetail({
             </button>
           </div>
         </div>
-
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <WorkspaceMetric label="当前阶段" value={stageLabel} note="可在当前状态中维护" />
-          <WorkspaceMetric label="当前动作" value={workflowState.nextAction || workspaceState.title} note={workflowState.nextActionDueAt ? `目标日期 ${formatFullDate(workflowState.nextActionDueAt)}` : "目标日期可在下方维护"} />
-          <WorkspaceMetric label="证据状态" value={`${effectiveCompleteness}%`} note={evidenceNote} />
-        </div>
       </div>
 
       <WorkflowPanel
@@ -422,11 +411,9 @@ export function ProjectDetail({
         initialWorkflow={workflowState}
         fallbackNextAction={workspaceState.title}
         fallbackCompleteness={effectiveCompleteness}
-        currentStageLabel={stageLabel}
         initialStage={processStage}
         initialOutcome={outcome}
         initialOutcomeNote={outcomeNote}
-        outcomeLabel={outcomeLabel}
         onSaved={setWorkflowState}
       />
 
@@ -688,45 +675,23 @@ export function ProjectDetail({
   );
 }
 
-function WorkspaceMetric({
-  label,
-  value,
-  note,
-}: {
-  label: string;
-  value: string;
-  note: string;
-}) {
-  return (
-    <div className="rounded-lg border border-[#ece4d8] bg-white/70 p-4">
-      <div className="text-lg font-semibold text-ink">{value}</div>
-      <div className="mt-1 text-sm font-medium text-ink">{label}</div>
-      <div className="mt-1 text-xs text-ink-soft">{note}</div>
-    </div>
-  );
-}
-
 function WorkflowPanel({
   projectId,
   initialWorkflow,
   fallbackNextAction,
   fallbackCompleteness,
-  currentStageLabel,
   initialStage,
   initialOutcome,
   initialOutcomeNote,
-  outcomeLabel,
   onSaved,
 }: {
   projectId: string;
   initialWorkflow: WorkflowMeta;
   fallbackNextAction: string;
   fallbackCompleteness: number;
-  currentStageLabel: string;
   initialStage: string;
   initialOutcome: string | null;
   initialOutcomeNote: string | null;
-  outcomeLabel: string;
   onSaved: (workflow: WorkflowMeta) => void;
 }) {
   const router = useRouter();
@@ -823,12 +788,6 @@ function WorkflowPanel({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <StatusPill label="阶段" value={STAGE_LABELS[stage] ?? currentStageLabel} />
-        <StatusPill label="投资结果" value={outcomeDef(outcome).label || outcomeLabel} />
-        <StatusPill label="证据完整度" value={`${completeness}%`} />
-      </div>
-
       <div className="mt-4 grid gap-3 lg:grid-cols-[220px_220px_minmax(0,1fr)]">
         <label className="block">
           <span className="text-xs font-medium text-ink-soft">项目阶段</span>
@@ -918,15 +877,6 @@ function WorkflowPanel({
       </label>
       {message && <p className="mt-2 text-xs text-ink-soft">{message}</p>}
     </section>
-  );
-}
-
-function StatusPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-line bg-surface px-3 py-2">
-      <div className="text-[11px] text-ink-faint">{label}</div>
-      <div className="mt-1 truncate text-sm font-medium text-ink">{value}</div>
-    </div>
   );
 }
 
