@@ -7,6 +7,7 @@ import type { FinancialData } from "@/lib/types";
 import {
   buildAccessScope,
   assertProjectAccess,
+  scopedProjectChildWhere,
 } from "@/lib/resourceAccess";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ interface ProjectRow {
   financial_data: FinancialData | null;
   org_id: string | null;
   owner_id: string | null;
+  created_at: string;
 }
 
 interface DocRow {
@@ -28,6 +30,30 @@ interface DocRow {
   file_type: string;
   doc_kind: string;
   parse_status: string;
+  created_at: string;
+}
+
+interface ReportRow {
+  id: string;
+  title: string;
+  status: string;
+  kind: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MeetingRow {
+  id: string;
+  title: string;
+  meeting_date: string | null;
+  meeting_type: string;
+  created_at: string;
+}
+
+interface UpdateRow {
+  id: string;
+  update_type: string;
+  period: string | null;
   created_at: string;
 }
 
@@ -47,7 +73,7 @@ export default async function ProjectDetailPage({
   }
 
   const projects = await query<ProjectRow>(
-    `SELECT id, name, judgment_points, financial_data, org_id, owner_id
+    `SELECT id, name, judgment_points, financial_data, org_id, owner_id, created_at
        FROM projects WHERE id = $1`,
     [params.id]
   );
@@ -58,12 +84,17 @@ export default async function ProjectDetailPage({
   // process_stage 与 investment_judgments 新字段来自迁移 004。
   // 迁移可能尚未应用（或仅部分应用），此处容错处理以免整页 500。
   let processStage = "screening";
+  let processStageUpdatedAt: string | null = null;
   try {
-    const stageRows = await query<{ process_stage: string | null }>(
-      "SELECT process_stage FROM projects WHERE id = $1",
+    const stageRows = await query<{
+      process_stage: string | null;
+      process_stage_updated_at: string | null;
+    }>(
+      "SELECT process_stage, process_stage_updated_at FROM projects WHERE id = $1",
       [params.id]
     );
     processStage = stageRows[0]?.process_stage ?? "screening";
+    processStageUpdatedAt = stageRows[0]?.process_stage_updated_at ?? null;
   } catch (e) {
     console.error("[project] process_stage 读取失败，使用默认值:", e);
   }
@@ -71,6 +102,7 @@ export default async function ProjectDetailPage({
   // outcome 字段来自迁移 008，同样容错处理。
   let outcome: string | null = null;
   let outcomeNote: string | null = null;
+  let outcomeAt: string | null = null;
   try {
     const outcomeRows = await query<{
       outcome: string | null;
@@ -82,6 +114,7 @@ export default async function ProjectDetailPage({
     );
     outcome = outcomeRows[0]?.outcome ?? null;
     outcomeNote = outcomeRows[0]?.outcome_note ?? null;
+    outcomeAt = outcomeRows[0]?.outcome_at ?? null;
   } catch (e) {
     console.error("[project] outcome 读取失败，使用默认值:", e);
   }
@@ -115,10 +148,53 @@ export default async function ProjectDetailPage({
     .filter(Boolean)
     .join("\n\n---\n\n");
 
-  const latest = await query<{ id: string }>(
-    "SELECT id FROM reports WHERE project_id = $1 ORDER BY updated_at DESC LIMIT 1",
-    [params.id]
-  );
+  let reports: ReportRow[] = [];
+  try {
+    const reportScope = scopedProjectChildWhere(scope, 2, {
+      alias: "r",
+      excludeMergedForAnalyst: true,
+    });
+    reports = await query<ReportRow>(
+      `SELECT r.id, r.title, r.status, r.kind, r.created_at, r.updated_at
+         FROM reports r
+        WHERE r.project_id = $1 AND ${reportScope.sql}
+        ORDER BY r.updated_at DESC
+        LIMIT 8`,
+      [params.id, ...reportScope.params]
+    );
+  } catch (e) {
+    console.error("[project] 报告动态读取失败，使用空列表:", e);
+  }
+
+  let meetings: MeetingRow[] = [];
+  try {
+    const meetingScope = scopedProjectChildWhere(scope, 2, { alias: "m" });
+    meetings = await query<MeetingRow>(
+      `SELECT m.id, m.title, m.meeting_date, m.meeting_type, m.created_at
+         FROM meeting_notes m
+        WHERE m.project_id = $1 AND ${meetingScope.sql}
+        ORDER BY m.meeting_date DESC NULLS LAST, m.created_at DESC
+        LIMIT 8`,
+      [params.id, ...meetingScope.params]
+    );
+  } catch (e) {
+    console.error("[project] 会议动态读取失败，使用空列表:", e);
+  }
+
+  let updates: UpdateRow[] = [];
+  try {
+    const updateScope = scopedProjectChildWhere(scope, 2, { alias: "u" });
+    updates = await query<UpdateRow>(
+      `SELECT u.id, u.update_type, u.period, u.created_at
+         FROM post_investment_updates u
+        WHERE u.project_id = $1 AND ${updateScope.sql}
+        ORDER BY u.created_at DESC
+        LIMIT 8`,
+      [params.id, ...updateScope.params]
+    );
+  } catch (e) {
+    console.error("[project] 投后动态读取失败，使用空列表:", e);
+  }
 
   return (
     <ProjectDetail
@@ -141,7 +217,13 @@ export default async function ProjectDetailPage({
       initialPoints={
         Array.isArray(project.judgment_points) ? project.judgment_points : []
       }
-      latestReportId={latest[0]?.id ?? null}
+      latestReportId={reports[0]?.id ?? null}
+      reports={reports}
+      meetings={meetings}
+      updates={updates}
+      projectCreatedAt={project.created_at}
+      processStageUpdatedAt={processStageUpdatedAt}
+      outcomeAt={outcomeAt}
       initialFinancialData={project.financial_data}
       isOrgProject={isOrgProject}
       hasOrg={!!scope.org}

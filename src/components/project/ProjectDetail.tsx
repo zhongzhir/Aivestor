@@ -33,6 +33,30 @@ export interface DocMeta {
   uploadedAt: string;
 }
 
+interface ReportMeta {
+  id: string;
+  title: string;
+  status: string;
+  kind: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface MeetingMeta {
+  id: string;
+  title: string;
+  meeting_date: string | null;
+  meeting_type: string;
+  created_at: string;
+}
+
+interface UpdateMeta {
+  id: string;
+  update_type: string;
+  period: string | null;
+  created_at: string;
+}
+
 const EST_TOKENS_PER_IMAGE = 600;
 
 function estimateMinutes(imageCount: number): number {
@@ -68,6 +92,12 @@ interface Props {
   docMeta: DocMeta[];
   initialPoints: string[];
   latestReportId: string | null;
+  reports: ReportMeta[];
+  meetings: MeetingMeta[];
+  updates: UpdateMeta[];
+  projectCreatedAt: string;
+  processStageUpdatedAt: string | null;
+  outcomeAt: string | null;
   initialFinancialData: FinancialData | null;
   isOrgProject?: boolean;
   hasOrg?: boolean;
@@ -85,6 +115,12 @@ export function ProjectDetail({
   docMeta,
   initialPoints,
   latestReportId,
+  reports,
+  meetings,
+  updates,
+  projectCreatedAt,
+  processStageUpdatedAt,
+  outcomeAt,
   initialFinancialData,
   isOrgProject = false,
   hasOrg = false,
@@ -303,6 +339,19 @@ export function ProjectDetail({
     latestReportId,
     processStage,
   });
+  const activityItems = buildActivityItems({
+    projectId,
+    projectCreatedAt,
+    processStage,
+    processStageUpdatedAt,
+    outcome,
+    outcomeAt,
+    docMeta,
+    judgments,
+    reports,
+    meetings,
+    updates,
+  });
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
@@ -364,6 +413,8 @@ export function ProjectDetail({
           initialOutcomeNote={outcomeNote}
         />
       </div>
+
+      <ActivityTimeline items={activityItems} />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
@@ -600,6 +651,8 @@ export function ProjectDetail({
           reportState={reportState}
           hasJudgment={hasJudgment}
           judgmentCount={judgmentCount}
+          activityCount={activityItems.length}
+          latestActivity={activityItems[0] ?? null}
           latestReportId={latestReportId}
           projectId={projectId}
         />
@@ -633,6 +686,231 @@ function WorkspaceMetric({
       <div className="mt-1 text-xs text-ink-soft">{note}</div>
     </div>
   );
+}
+
+interface ActivityItem {
+  id: string;
+  type: "project" | "stage" | "material" | "judgment" | "report" | "meeting" | "update";
+  label: string;
+  title: string;
+  detail: string;
+  date: string;
+  href?: string;
+}
+
+const REPORT_KIND_LABEL: Record<string, string> = {
+  analysis: "分析报告",
+  brief: "简要分析",
+  term_sheet: "Term Sheet",
+  committee: "投委会总报告",
+  lp_report: "LP 报告",
+  competitive_landscape: "竞争格局",
+};
+
+const MEETING_TYPE_LABEL: Record<string, string> = {
+  founder: "创始人访谈",
+  expert: "专家访谈",
+  lp: "LP 沟通",
+  post_invest: "投后会议",
+  internal: "内部讨论",
+  regular: "会议",
+  other: "会议",
+};
+
+const UPDATE_TYPE_LABEL: Record<string, string> = {
+  regular: "常规更新",
+  metric: "指标更新",
+  risk: "风险事件",
+  financing: "融资进展",
+  milestone: "里程碑",
+};
+
+function buildActivityItems({
+  projectId,
+  projectCreatedAt,
+  processStage,
+  processStageUpdatedAt,
+  outcome,
+  outcomeAt,
+  docMeta,
+  judgments,
+  reports,
+  meetings,
+  updates,
+}: {
+  projectId: string;
+  projectCreatedAt: string;
+  processStage: string;
+  processStageUpdatedAt: string | null;
+  outcome: string | null;
+  outcomeAt: string | null;
+  docMeta: DocMeta[];
+  judgments: Judgment[];
+  reports: ReportMeta[];
+  meetings: MeetingMeta[];
+  updates: UpdateMeta[];
+}): ActivityItem[] {
+  const items: ActivityItem[] = [
+    {
+      id: "project-created",
+      type: "project",
+      label: "项目",
+      title: "项目进入工作区",
+      detail: "后续材料、判断和报告都会沉淀在这里。",
+      date: projectCreatedAt,
+    },
+  ];
+
+  if (processStageUpdatedAt) {
+    items.push({
+      id: "stage-updated",
+      type: "stage",
+      label: "阶段",
+      title: `阶段更新为 ${STAGE_LABELS[processStage] ?? "待整理"}`,
+      detail: "项目流程位置已更新，可继续补充当前阶段判断。",
+      date: processStageUpdatedAt,
+    });
+  }
+
+  if (outcome && outcome !== "pending" && outcomeAt) {
+    items.push({
+      id: "outcome-updated",
+      type: "stage",
+      label: "结论",
+      title: `结论更新为 ${outcomeDef(outcome).label}`,
+      detail: "项目结论已记录，后续可继续沉淀原因和复盘。",
+      date: outcomeAt,
+    });
+  }
+
+  for (const doc of docMeta) {
+    items.push({
+      id: `doc-${doc.id}`,
+      type: "material",
+      label: "材料",
+      title: doc.filename,
+      detail:
+        doc.parseStatus === "done"
+          ? `${FILE_TYPE_LABEL[doc.fileType] ?? "DOC"} · ${doc.chars.toLocaleString()} 字可用于分析`
+          : `${FILE_TYPE_LABEL[doc.fileType] ?? "DOC"} · 解析状态：${doc.parseStatus}`,
+      date: doc.uploadedAt,
+    });
+  }
+
+  for (const judgment of judgments) {
+    items.push({
+      id: `judgment-${judgment.id}`,
+      type: "judgment",
+      label: "判断",
+      title: `${STAGE_LABELS[judgment.stage] ?? judgment.stage}阶段判断`,
+      detail: compactText(judgment.key_hypothesis || judgment.bull_case || judgment.bear_case),
+      date: judgment.created_at,
+    });
+  }
+
+  for (const report of reports) {
+    const kind = REPORT_KIND_LABEL[report.kind] ?? "报告";
+    items.push({
+      id: `report-${report.id}`,
+      type: "report",
+      label: kind,
+      title: report.title || kind,
+      detail: report.status === "finalized" ? "已定稿" : "草稿可继续打磨",
+      date: report.updated_at || report.created_at,
+      href: `/projects/${projectId}/report?reportId=${report.id}`,
+    });
+  }
+
+  for (const meeting of meetings) {
+    items.push({
+      id: `meeting-${meeting.id}`,
+      type: "meeting",
+      label: MEETING_TYPE_LABEL[meeting.meeting_type] ?? "会议",
+      title: meeting.title,
+      detail: meeting.meeting_date
+        ? `会议日期 ${formatShortDate(meeting.meeting_date)}`
+        : "会议记录已保存",
+      date: meeting.meeting_date || meeting.created_at,
+    });
+  }
+
+  for (const update of updates) {
+    const label = UPDATE_TYPE_LABEL[update.update_type] ?? "投后更新";
+    items.push({
+      id: `update-${update.id}`,
+      type: "update",
+      label,
+      title: update.period ? `${label} · ${update.period}` : label,
+      detail: "投后跟踪信息已记录。",
+      date: update.created_at,
+    });
+  }
+
+  return items
+    .filter((item) => !Number.isNaN(new Date(item.date).getTime()))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 12);
+}
+
+function ActivityTimeline({ items }: { items: ActivityItem[] }) {
+  if (items.length === 0) return null;
+
+  return (
+    <section className="mt-6 rounded-lg border border-line bg-white p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">项目动态</h2>
+          <p className="mt-1 text-xs text-ink-faint">
+            最近的材料、判断、报告和跟踪记录会按时间汇集在这里。
+          </p>
+        </div>
+        <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
+          {items.length} 条
+        </span>
+      </div>
+
+      <ol className="mt-5 space-y-3">
+        {items.map((item) => (
+          <li key={item.id} className="grid grid-cols-[96px_1fr] gap-3 sm:grid-cols-[120px_1fr]">
+            <time className="pt-1 text-xs text-ink-faint">
+              {formatShortDate(item.date)}
+            </time>
+            <div className="relative border-l border-line pb-3 pl-4">
+              <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border border-white bg-accent" />
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-soft">
+                  {item.label}
+                </span>
+                {item.href ? (
+                  <Link
+                    href={item.href}
+                    className="text-sm font-medium text-ink hover:text-accent"
+                  >
+                    {item.title}
+                  </Link>
+                ) : (
+                  <span className="text-sm font-medium text-ink">{item.title}</span>
+                )}
+              </div>
+              <p className="mt-1 text-xs leading-5 text-ink-soft">{item.detail}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function compactText(value: string | null | undefined): string {
+  const text = (value || "已记录一条阶段判断。").replace(/\s+/g, " ").trim();
+  return text.length > 48 ? `${text.slice(0, 48)}...` : text;
+}
+
+function formatShortDate(value: string): string {
+  return new Date(value).toLocaleDateString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  });
 }
 
 interface WorkspaceState {
@@ -787,6 +1065,8 @@ function WorkspaceRail({
   reportState,
   hasJudgment,
   judgmentCount,
+  activityCount,
+  latestActivity,
   latestReportId,
   projectId,
 }: {
@@ -801,6 +1081,8 @@ function WorkspaceRail({
   reportState: string;
   hasJudgment: boolean;
   judgmentCount: number;
+  activityCount: number;
+  latestActivity: ActivityItem | null;
   latestReportId: string | null;
   projectId: string;
 }) {
@@ -914,6 +1196,10 @@ function WorkspaceRail({
       <div className="rounded-lg border border-line bg-white p-4">
         <h2 className="text-sm font-semibold text-ink">近期活动</h2>
         <div className="mt-3 space-y-2 text-xs text-ink-soft">
+          <p>
+            已整理 {activityCount} 条项目动态，最近一条是
+            {latestActivity ? `「${latestActivity.title}」` : "项目创建记录"}。
+          </p>
           <p>已整理 {docCount} 份材料，其中 {parsedDocCount} 份可用于分析。</p>
           <p>
             {hasJudgment
