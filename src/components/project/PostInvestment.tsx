@@ -42,7 +42,7 @@ export function PostInvestment({ projectId }: { projectId: string }) {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [updates, setUpdates] = useState<Update[]>([]);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [showUpdateModal, setShowUpdateModal] = useState<string | null>(null);
 
   async function loadMeetings() {
     const res = await fetch(`/api/projects/${projectId}/meetings`);
@@ -59,8 +59,85 @@ export function PostInvestment({ projectId }: { projectId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const latestUpdate = updates[0] ?? null;
+  const riskCount = updates.filter((u) => u.update_type === "risk").length;
+  const exitCount = updates.filter((u) => u.update_type === "exit").length;
+  const financingCount = updates.filter((u) => u.update_type === "financing").length;
+  const nextMeeting = meetings
+    .map((m) => m.next_meeting_date)
+    .filter((d): d is string => !!d)
+    .sort()[0];
+
   return (
     <div className="mt-6 space-y-8">
+      <section className="rounded-lg border border-line bg-white p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">投后管理总览</h2>
+            <p className="mt-1 text-xs leading-5 text-ink-faint">
+              投后阶段重点关注经营进展、重大事项、风险信号和退出路径。这里先把记录入口和管理视图集中起来。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowUpdateModal("regular")}
+              className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
+            >
+              记录经营跟踪
+            </button>
+            <button
+              onClick={() => setShowUpdateModal("exit")}
+              className="rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-[#265b42]"
+            >
+              更新退出策略
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          <PostMetric label="最近更新" value={latestUpdate ? new Date(latestUpdate.created_at).toLocaleDateString("zh-CN") : "暂无"} note={latestUpdate ? updateTypeDef(latestUpdate.update_type).label : "可先记录一次经营跟踪"} />
+          <PostMetric label="风险信号" value={`${riskCount} 条`} note="经营、现金流或治理风险" />
+          <PostMetric label="退出相关" value={`${exitCount} 条`} note="IPO、并购、回购或二级转让" />
+          <PostMetric label="下次会议" value={nextMeeting ? new Date(nextMeeting).toLocaleDateString("zh-CN") : "未设定"} note="可在会议记录里维护" />
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <PostWorkstream
+            title="经营跟踪"
+            description="收入、利润、现金流、用户和关键 KPI 的持续记录。"
+            action="新增经营记录"
+            onClick={() => setShowUpdateModal("regular")}
+          />
+          <PostWorkstream
+            title="重大事项"
+            description="融资进展、核心人员变化、诉讼、治理和业务转向。"
+            action="新增重大事项"
+            onClick={() => setShowUpdateModal("milestone")}
+          />
+          <PostWorkstream
+            title="风险预警"
+            description="记录偏离预期的信号，并保留后续观察口径。"
+            action="新增风险信号"
+            onClick={() => setShowUpdateModal("risk")}
+          />
+          <PostWorkstream
+            title="退出策略"
+            description="跟踪退出窗口、潜在买方、回购安排和继续持有理由。"
+            action="维护退出判断"
+            onClick={() => setShowUpdateModal("exit")}
+          />
+        </div>
+
+        <div className="mt-5 rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-4">
+          <h3 className="text-xs font-semibold text-ink">收益与退出视图</h3>
+          <div className="mt-3 grid gap-3 text-xs text-ink-soft sm:grid-cols-3">
+            <p>融资动态：已记录 {financingCount} 条，后续可用于估值和稀释复盘。</p>
+            <p>退出路径：持续比较 IPO、并购、回购、二级转让和继续持有。</p>
+            <p>收益判断：先记录关键事实，后续再接入持仓成本、当前估值和预期回报。</p>
+          </div>
+        </div>
+      </section>
+
       {/* 会议记录 */}
       <section>
         <div className="flex items-center justify-between border-b border-line pb-2">
@@ -88,7 +165,7 @@ export function PostInvestment({ projectId }: { projectId: string }) {
         <div className="flex items-center justify-between border-b border-line pb-2">
           <h2 className="text-sm font-medium text-ink">跟踪记录</h2>
           <button
-            onClick={() => setShowUpdateModal(true)}
+            onClick={() => setShowUpdateModal("regular")}
             className="text-xs font-medium text-accent hover:underline"
           >
             + 新增更新
@@ -141,13 +218,59 @@ export function PostInvestment({ projectId }: { projectId: string }) {
       {showUpdateModal && (
         <UpdateModal
           projectId={projectId}
-          onClose={() => setShowUpdateModal(false)}
+          initialType={showUpdateModal}
+          onClose={() => setShowUpdateModal(null)}
           onSaved={() => {
-            setShowUpdateModal(false);
+            setShowUpdateModal(null);
             loadUpdates();
           }}
         />
       )}
+    </div>
+  );
+}
+
+function PostMetric({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: string;
+  note: string;
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-surface px-3 py-3">
+      <div className="text-xs text-ink-faint">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-ink">{value}</div>
+      <div className="mt-1 text-xs text-ink-soft">{note}</div>
+    </div>
+  );
+}
+
+function PostWorkstream({
+  title,
+  description,
+  action,
+  onClick,
+}: {
+  title: string;
+  description: string;
+  action: string;
+  onClick: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <h3 className="text-sm font-medium text-ink">{title}</h3>
+      <p className="mt-2 min-h-[40px] text-xs leading-5 text-ink-soft">
+        {description}
+      </p>
+      <button
+        onClick={onClick}
+        className="mt-3 text-xs font-medium text-accent hover:underline"
+      >
+        {action}
+      </button>
     </div>
   );
 }
@@ -404,14 +527,16 @@ function MeetingModal({
 
 function UpdateModal({
   projectId,
+  initialType,
   onClose,
   onSaved,
 }: {
   projectId: string;
+  initialType: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [updateType, setUpdateType] = useState("regular");
+  const [updateType, setUpdateType] = useState(initialType);
   const [period, setPeriod] = useState("");
   const [content, setContent] = useState("");
   const [busy, setBusy] = useState(false);

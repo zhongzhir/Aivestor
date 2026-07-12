@@ -329,6 +329,7 @@ export function ProjectDetail({
   const bpDocCount = docMeta.filter((d) => d.docKind === "bp").length;
   const stageLabel = STAGE_LABELS[processStage] ?? "待整理";
   const reportState = latestReportId ? "已有分析报告" : "等待生成报告";
+  const outcomeLabel = outcome ? outcomeDef(outcome).label : "待定";
   const judgmentCount = judgments.length;
   const hasJudgment = judgmentCount > 0;
   const workspaceState = buildWorkspaceState({
@@ -388,7 +389,7 @@ export function ProjectDetail({
               )}
             </div>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-ink-soft">
-              项目工作区把材料、判断、报告和团队协作放在同一条线上。先看当前阶段和证据状态，再决定下一步。
+              项目工作区把当前状态、投资流程和项目记录放在同一处。先确认项目所处阶段，再进入材料、判断、投委会或投后管理。
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -410,9 +411,9 @@ export function ProjectDetail({
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
-          <WorkspaceMetric label="阶段" value={stageLabel} note="可在下方流程中调整" />
-          <WorkspaceMetric label="证据完整度" value={`${effectiveCompleteness}%`} note={evidenceNote} />
-          <WorkspaceMetric label="报告" value={latestReportId ? "已生成" : "待生成"} note={reportState} />
+          <WorkspaceMetric label="当前阶段" value={stageLabel} note="对应下方投资流程" />
+          <WorkspaceMetric label="当前动作" value={workflowState.nextAction || workspaceState.title} note={workflowState.nextActionDueAt ? `目标日期 ${formatFullDate(workflowState.nextActionDueAt)}` : "目标日期可在下方维护"} />
+          <WorkspaceMetric label="证据状态" value={`${effectiveCompleteness}%`} note={evidenceNote} />
         </div>
       </div>
 
@@ -421,10 +422,23 @@ export function ProjectDetail({
         initialWorkflow={workflowState}
         fallbackNextAction={workspaceState.title}
         fallbackCompleteness={effectiveCompleteness}
+        currentStageLabel={stageLabel}
+        outcomeLabel={outcomeLabel}
         onSaved={setWorkflowState}
       />
 
       <div className="mt-6 rounded-lg border border-line bg-white p-5">
+        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">投资流程</h2>
+            <p className="mt-1 text-xs leading-5 text-ink-faint">
+              初筛、尽调、投委会和投后管理用于呈现项目完整生命周期。阶段变化会留下判断记录，当前动作在上方维护。
+            </p>
+          </div>
+          <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
+            {stageLabel}
+          </span>
+        </div>
         <StageProgress
           projectId={projectId}
           initialStage={processStage}
@@ -442,9 +456,7 @@ export function ProjectDetail({
             {([
               ["analysis", "项目分析"],
               ["decision", "决策辅助"],
-              ...(outcome === "invested" || processStage === "post_investment"
-                ? ([["post", "投后管理"]] as [Tab, string][])
-                : []),
+              ["post", processStage === "post_investment" || outcome === "invested" ? "投后管理" : "投后规划"],
             ] as [Tab, string][]).map(([id, label]) => (
               <button
                 key={id}
@@ -717,12 +729,16 @@ function WorkflowPanel({
   initialWorkflow,
   fallbackNextAction,
   fallbackCompleteness,
+  currentStageLabel,
+  outcomeLabel,
   onSaved,
 }: {
   projectId: string;
   initialWorkflow: WorkflowMeta;
   fallbackNextAction: string;
   fallbackCompleteness: number;
+  currentStageLabel: string;
+  outcomeLabel: string;
   onSaved: (workflow: WorkflowMeta) => void;
 }) {
   const [nextAction, setNextAction] = useState(initialWorkflow.nextAction ?? "");
@@ -776,9 +792,9 @@ function WorkflowPanel({
     <section className="mt-6 rounded-lg border border-line bg-white p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-ink">下一步与证据完整度</h2>
+          <h2 className="text-sm font-semibold text-ink">项目当前状态</h2>
           <p className="mt-1 text-xs text-ink-faint">
-            把当前推进动作写清楚，下一次打开项目时可以直接接上。
+            这里记录当前阶段下最需要推进的一件事，以及做出判断前还需要补齐的证据。
           </p>
         </div>
         <button
@@ -788,6 +804,12 @@ function WorkflowPanel({
         >
           {saving ? "保存中..." : "保存"}
         </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <StatusPill label="阶段" value={currentStageLabel} />
+        <StatusPill label="投资结果" value={outcomeLabel} />
+        <StatusPill label="证据完整度" value={`${completeness}%`} />
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_160px_180px]">
@@ -839,6 +861,15 @@ function WorkflowPanel({
       </label>
       {message && <p className="mt-2 text-xs text-ink-soft">{message}</p>}
     </section>
+  );
+}
+
+function StatusPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-line bg-surface px-3 py-2">
+      <div className="text-[11px] text-ink-faint">{label}</div>
+      <div className="mt-1 truncate text-sm font-medium text-ink">{value}</div>
+    </div>
   );
 }
 
@@ -1013,9 +1044,9 @@ function ActivityTimeline({ items }: { items: ActivityItem[] }) {
     <section className="mt-6 rounded-lg border border-line bg-white p-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-ink">项目动态</h2>
+          <h2 className="text-sm font-semibold text-ink">项目记录</h2>
           <p className="mt-1 text-xs text-ink-faint">
-            最近的材料、判断、报告和跟踪记录会按时间汇集在这里。
+            材料、判断、报告、会议和跟踪记录按时间汇集在这里，便于回看项目判断依据。
           </p>
         </div>
         <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
@@ -1267,7 +1298,7 @@ function WorkspaceRail({
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-              下一步
+              当前动作
             </p>
             <h2 className="mt-1 text-sm font-semibold text-ink">
               {workspaceState.title}
@@ -1310,10 +1341,10 @@ function WorkspaceRail({
       </div>
 
       <div className="rounded-lg border border-line bg-white p-4">
-        <h2 className="text-sm font-semibold text-ink">证据状态</h2>
+        <h2 className="text-sm font-semibold text-ink">判断依据</h2>
         <div className="mt-3 space-y-3 text-sm text-ink-soft">
           <RailRow label="完整度" value={`${evidenceCompleteness}%`} />
-          <RailRow label="下一步" value={nextAction || workspaceState.title} />
+          <RailRow label="当前动作" value={nextAction || workspaceState.title} />
           <RailRow label="截止日期" value={nextActionDueAt ? formatFullDate(nextActionDueAt) : "未设定"} />
           <RailRow label="材料解析" value={evidenceNote} />
           <RailRow label="BP 材料" value={`${bpDocCount} 份`} />
@@ -1372,7 +1403,7 @@ function WorkspaceRail({
       </div>
 
       <div className="rounded-lg border border-line bg-white p-4">
-        <h2 className="text-sm font-semibold text-ink">近期活动</h2>
+        <h2 className="text-sm font-semibold text-ink">近期记录</h2>
         <div className="mt-3 space-y-2 text-xs text-ink-soft">
           <p>
             已整理 {activityCount} 条项目动态，最近一条是
