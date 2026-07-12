@@ -57,6 +57,13 @@ interface UpdateRow {
   created_at: string;
 }
 
+interface WorkflowRow {
+  next_action: string | null;
+  next_action_due_at: string | null;
+  evidence_completeness: number | null;
+  workspace_note: string | null;
+}
+
 export default async function ProjectDetailPage({
   params,
 }: {
@@ -117,6 +124,23 @@ export default async function ProjectDetailPage({
     outcomeAt = outcomeRows[0]?.outcome_at ?? null;
   } catch (e) {
     console.error("[project] outcome 读取失败，使用默认值:", e);
+  }
+
+  let workflow: WorkflowRow = {
+    next_action: null,
+    next_action_due_at: null,
+    evidence_completeness: null,
+    workspace_note: null,
+  };
+  try {
+    const workflowRows = await query<WorkflowRow>(
+      `SELECT next_action, next_action_due_at, evidence_completeness, workspace_note
+         FROM projects WHERE id = $1`,
+      [params.id]
+    );
+    workflow = workflowRows[0] ?? workflow;
+  } catch (e) {
+    console.error("[project] workflow 字段读取失败，使用默认值:", e);
   }
 
   let judgments: Judgment[] = [];
@@ -224,6 +248,12 @@ export default async function ProjectDetailPage({
       projectCreatedAt={project.created_at}
       processStageUpdatedAt={processStageUpdatedAt}
       outcomeAt={outcomeAt}
+      workflow={{
+        nextAction: workflow.next_action,
+        nextActionDueAt: workflow.next_action_due_at,
+        evidenceCompleteness: workflow.evidence_completeness,
+        workspaceNote: workflow.workspace_note,
+      }}
       initialFinancialData={project.financial_data}
       isOrgProject={isOrgProject}
       hasOrg={!!scope.org}

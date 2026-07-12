@@ -57,6 +57,13 @@ interface UpdateMeta {
   created_at: string;
 }
 
+interface WorkflowMeta {
+  nextAction: string | null;
+  nextActionDueAt: string | null;
+  evidenceCompleteness: number | null;
+  workspaceNote: string | null;
+}
+
 const EST_TOKENS_PER_IMAGE = 600;
 
 function estimateMinutes(imageCount: number): number {
@@ -98,6 +105,7 @@ interface Props {
   projectCreatedAt: string;
   processStageUpdatedAt: string | null;
   outcomeAt: string | null;
+  workflow: WorkflowMeta;
   initialFinancialData: FinancialData | null;
   isOrgProject?: boolean;
   hasOrg?: boolean;
@@ -121,6 +129,7 @@ export function ProjectDetail({
   projectCreatedAt,
   processStageUpdatedAt,
   outcomeAt,
+  workflow,
   initialFinancialData,
   isOrgProject = false,
   hasOrg = false,
@@ -144,6 +153,7 @@ export function ProjectDetail({
   );
   const [finLoading, setFinLoading] = useState(false);
   const [finError, setFinError] = useState("");
+  const [workflowState, setWorkflowState] = useState<WorkflowMeta>(workflow);
 
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
 
@@ -339,6 +349,8 @@ export function ProjectDetail({
     latestReportId,
     processStage,
   });
+  const effectiveCompleteness =
+    workflowState.evidenceCompleteness ?? estimateEvidenceCompleteness(evidenceItems);
   const activityItems = buildActivityItems({
     projectId,
     projectCreatedAt,
@@ -399,10 +411,18 @@ export function ProjectDetail({
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <WorkspaceMetric label="阶段" value={stageLabel} note="可在下方流程中调整" />
-          <WorkspaceMetric label="材料" value={`${parsedDocCount}/${docMeta.length}`} note={evidenceNote} />
+          <WorkspaceMetric label="证据完整度" value={`${effectiveCompleteness}%`} note={evidenceNote} />
           <WorkspaceMetric label="报告" value={latestReportId ? "已生成" : "待生成"} note={reportState} />
         </div>
       </div>
+
+      <WorkflowPanel
+        projectId={projectId}
+        initialWorkflow={workflowState}
+        fallbackNextAction={workspaceState.title}
+        fallbackCompleteness={effectiveCompleteness}
+        onSaved={setWorkflowState}
+      />
 
       <div className="mt-6 rounded-lg border border-line bg-white p-5">
         <StageProgress
@@ -495,6 +515,7 @@ export function ProjectDetail({
               <DocumentPanel
                 projectId={projectId}
                 docMeta={docMeta}
+                evidenceItems={evidenceItems}
                 newUpload={newUpload}
                 onUploadComplete={handleUploadComplete}
                 onGenerate={handleGenerate}
@@ -649,6 +670,9 @@ export function ProjectDetail({
           docCount={docMeta.length}
           bpDocCount={bpDocCount}
           reportState={reportState}
+          evidenceCompleteness={effectiveCompleteness}
+          nextAction={workflowState.nextAction}
+          nextActionDueAt={workflowState.nextActionDueAt}
           hasJudgment={hasJudgment}
           judgmentCount={judgmentCount}
           activityCount={activityItems.length}
@@ -685,6 +709,136 @@ function WorkspaceMetric({
       <div className="mt-1 text-sm font-medium text-ink">{label}</div>
       <div className="mt-1 text-xs text-ink-soft">{note}</div>
     </div>
+  );
+}
+
+function WorkflowPanel({
+  projectId,
+  initialWorkflow,
+  fallbackNextAction,
+  fallbackCompleteness,
+  onSaved,
+}: {
+  projectId: string;
+  initialWorkflow: WorkflowMeta;
+  fallbackNextAction: string;
+  fallbackCompleteness: number;
+  onSaved: (workflow: WorkflowMeta) => void;
+}) {
+  const [nextAction, setNextAction] = useState(initialWorkflow.nextAction ?? "");
+  const [dueAt, setDueAt] = useState(dateInputValue(initialWorkflow.nextActionDueAt));
+  const [completeness, setCompleteness] = useState(
+    String(initialWorkflow.evidenceCompleteness ?? fallbackCompleteness)
+  );
+  const [note, setNote] = useState(initialWorkflow.workspaceNote ?? "");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function save() {
+    setSaving(true);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/workflow`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nextAction,
+          nextActionDueAt: dueAt,
+          evidenceCompleteness: Number(completeness),
+          workspaceNote: note,
+        }),
+      });
+      if (!res.ok) {
+        throw new Error(await readError(res, "保存失败"));
+      }
+      const data = await res.json();
+      const saved = data.workflow ?? {};
+      const next = {
+        nextAction: saved.next_action ?? null,
+        nextActionDueAt: saved.next_action_due_at ?? null,
+        evidenceCompleteness: saved.evidence_completeness ?? null,
+        workspaceNote: saved.workspace_note ?? null,
+      };
+      onSaved(next);
+      setNextAction(next.nextAction ?? "");
+      setDueAt(dateInputValue(next.nextActionDueAt));
+      setCompleteness(String(next.evidenceCompleteness ?? fallbackCompleteness));
+      setNote(next.workspaceNote ?? "");
+      setMessage("已保存");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-line bg-white p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">下一步与证据完整度</h2>
+          <p className="mt-1 text-xs text-ink-faint">
+            把当前推进动作写清楚，下一次打开项目时可以直接接上。
+          </p>
+        </div>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex h-9 items-center justify-center rounded-lg bg-accent px-3 text-xs font-medium text-white hover:bg-[#265b42] disabled:opacity-50"
+        >
+          {saving ? "保存中..." : "保存"}
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_160px_180px]">
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">下一步动作</span>
+          <input
+            value={nextAction}
+            onChange={(e) => setNextAction(e.target.value)}
+            placeholder={fallbackNextAction}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">截止日期</span>
+          <input
+            type="date"
+            value={dueAt}
+            onChange={(e) => setDueAt(e.target.value)}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">证据完整度</span>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={completeness}
+              onChange={(e) => setCompleteness(e.target.value)}
+              className="min-w-0 flex-1 accent-[#2f6f4f]"
+            />
+            <span className="w-10 text-right text-sm font-medium text-ink">
+              {completeness}%
+            </span>
+          </div>
+        </label>
+      </div>
+
+      <label className="mt-3 block">
+        <span className="text-xs font-medium text-ink-soft">工作备注</span>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          placeholder="记录当前卡点、待确认事项或会议前需要补充的信息"
+          className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
+        />
+      </label>
+      {message && <p className="mt-2 text-xs text-ink-soft">{message}</p>}
+    </section>
   );
 }
 
@@ -913,6 +1067,15 @@ function formatShortDate(value: string): string {
   });
 }
 
+function formatFullDate(value: string): string {
+  return new Date(value).toLocaleDateString("zh-CN");
+}
+
+function dateInputValue(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.slice(0, 10);
+}
+
 interface WorkspaceState {
   title: string;
   description: string;
@@ -1053,6 +1216,12 @@ function buildEvidenceItems({
   return items;
 }
 
+function estimateEvidenceCompleteness(items: EvidenceItem[]): number {
+  if (items.length === 0) return 0;
+  const done = items.filter((item) => item.done).length;
+  return Math.round((done / items.length) * 100);
+}
+
 function WorkspaceRail({
   workspaceState,
   onSelectTab,
@@ -1063,6 +1232,9 @@ function WorkspaceRail({
   docCount,
   bpDocCount,
   reportState,
+  evidenceCompleteness,
+  nextAction,
+  nextActionDueAt,
   hasJudgment,
   judgmentCount,
   activityCount,
@@ -1079,6 +1251,9 @@ function WorkspaceRail({
   docCount: number;
   bpDocCount: number;
   reportState: string;
+  evidenceCompleteness: number;
+  nextAction: string | null;
+  nextActionDueAt: string | null;
   hasJudgment: boolean;
   judgmentCount: number;
   activityCount: number;
@@ -1137,6 +1312,9 @@ function WorkspaceRail({
       <div className="rounded-lg border border-line bg-white p-4">
         <h2 className="text-sm font-semibold text-ink">证据状态</h2>
         <div className="mt-3 space-y-3 text-sm text-ink-soft">
+          <RailRow label="完整度" value={`${evidenceCompleteness}%`} />
+          <RailRow label="下一步" value={nextAction || workspaceState.title} />
+          <RailRow label="截止日期" value={nextActionDueAt ? formatFullDate(nextActionDueAt) : "未设定"} />
           <RailRow label="材料解析" value={evidenceNote} />
           <RailRow label="BP 材料" value={`${bpDocCount} 份`} />
           <RailRow label="判断记录" value={`${judgmentCount} 条`} />
@@ -1222,22 +1400,95 @@ function RailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+const DOC_KIND_LABELS: Record<string, string> = {
+  bp: "商业计划书",
+  financial_model: "财务模型",
+  research: "研究材料",
+  contract: "交易文件",
+  other: "其他材料",
+};
+
+function groupDocuments(docMeta: DocMeta[]) {
+  const order = ["bp", "financial_model", "research", "contract", "other"];
+  return order
+    .map((kind) => ({
+      kind,
+      label: DOC_KIND_LABELS[kind] ?? "其他材料",
+      docs: docMeta.filter((doc) => (doc.docKind || "other") === kind),
+    }))
+    .filter((group) => group.docs.length > 0);
+}
+
+function materialSuggestions(docMeta: DocMeta[]): string[] {
+  const kinds = new Set(docMeta.map((doc) => doc.docKind));
+  const suggestions: string[] = [];
+  if (!kinds.has("bp")) suggestions.push("商业计划书或项目介绍");
+  if (!kinds.has("financial_model")) suggestions.push("财务模型或收入拆分");
+  if (!kinds.has("research")) suggestions.push("行业研究、竞品或市场材料");
+  if (!kinds.has("contract")) suggestions.push("核心交易文件或条款草案");
+  return suggestions.slice(0, 3);
+}
+
 function DocumentPanel({
   projectId,
   docMeta,
+  evidenceItems,
   newUpload,
   onUploadComplete,
   onGenerate,
 }: {
   projectId: string;
   docMeta: DocMeta[];
+  evidenceItems: EvidenceItem[];
   newUpload: boolean;
   onUploadComplete: (results: UploadResult[]) => void;
   onGenerate: () => void;
 }) {
+  const groupedDocs = groupDocuments(docMeta);
+  const missingMaterials = materialSuggestions(docMeta);
+
   return (
     <div className="mt-6 rounded-lg border border-line bg-white p-5">
-      <h2 className="text-sm font-semibold text-ink">项目材料</h2>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-ink">项目材料</h2>
+          <p className="mt-1 text-xs text-ink-faint">
+            按材料类型整理上传内容，方便判断哪些证据已经到位。
+          </p>
+        </div>
+        <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
+          {docMeta.length} 份材料
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {evidenceItems.slice(0, 4).map((item) => (
+          <div
+            key={item.label}
+            className="rounded-lg border border-line bg-[#fffdfa] px-3 py-2"
+          >
+            <div className="flex items-center gap-2">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  item.done ? "bg-accent" : "bg-[#d79b35]"
+                }`}
+              />
+              <span className="text-xs font-medium text-ink">{item.label}</span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">{item.note}</p>
+          </div>
+        ))}
+      </div>
+
+      {missingMaterials.length > 0 && (
+        <div className="mt-4 rounded-lg border border-[#ead7b8] bg-[#fff8e8] px-3 py-2">
+          <p className="text-xs font-medium text-[#7c521b]">建议补充</p>
+          <p className="mt-1 text-xs leading-5 text-[#8a5b1f]">
+            {missingMaterials.join("、")}
+          </p>
+        </div>
+      )}
+
       <div className="mt-3">
         <FileUploader
           target="project"
@@ -1256,25 +1507,35 @@ function DocumentPanel({
       )}
 
       {docMeta.length > 0 && (
-        <ul className="mt-4 space-y-2">
-          {docMeta.map((d) => (
-            <li
-              key={d.id}
-              className="flex items-center gap-2 rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-xs text-ink-soft"
-            >
-              <span className="rounded bg-surface px-1.5 py-0.5 font-medium text-ink-soft">
-                {FILE_TYPE_LABEL[d.fileType] ?? "DOC"}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-ink">{d.filename}</span>
-              <span className="hidden text-ink-faint sm:inline">
-                {new Date(d.uploadedAt).toLocaleDateString("zh-CN")}
-              </span>
-              <span className={d.parseStatus === "done" ? "text-accent" : "text-ink-faint"}>
-                {d.parseStatus === "done" ? "已解析" : d.parseStatus}
-              </span>
-            </li>
+        <div className="mt-5 space-y-4">
+          {groupedDocs.map((group) => (
+            <section key={group.kind}>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="text-xs font-medium text-ink-soft">{group.label}</h3>
+                <span className="text-xs text-ink-faint">{group.docs.length} 份</span>
+              </div>
+              <ul className="space-y-2">
+                {group.docs.map((d) => (
+                  <li
+                    key={d.id}
+                    className="flex items-center gap-2 rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-xs text-ink-soft"
+                  >
+                    <span className="rounded bg-surface px-1.5 py-0.5 font-medium text-ink-soft">
+                      {FILE_TYPE_LABEL[d.fileType] ?? "DOC"}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-ink">{d.filename}</span>
+                    <span className="hidden text-ink-faint sm:inline">
+                      {new Date(d.uploadedAt).toLocaleDateString("zh-CN")}
+                    </span>
+                    <span className={d.parseStatus === "done" ? "text-accent" : "text-ink-faint"}>
+                      {d.parseStatus === "done" ? "已解析" : d.parseStatus}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
