@@ -344,6 +344,7 @@ export function ProjectDetail({
   const reportState = latestReportId ? "已有分析报告" : "等待生成报告";
   const judgmentCount = judgments.length;
   const hasJudgment = judgmentCount > 0;
+  const judgmentPointCount = points.map((p) => p.trim()).filter(Boolean).length;
   const workspaceState = buildWorkspaceState({
     processStage,
     hasParsedDoc,
@@ -476,6 +477,7 @@ export function ProjectDetail({
                 evidenceItems={evidenceItems}
                 evidenceCompleteness={effectiveCompleteness}
                 latestReportId={latestReportId}
+                judgmentPointCount={judgmentPointCount}
                 onGenerateReport={handleGenerate}
                 onSelectTab={setTab}
               />
@@ -727,6 +729,7 @@ function ICMemoWorkspace({
   evidenceItems,
   evidenceCompleteness,
   latestReportId,
+  judgmentPointCount,
   onGenerateReport,
   onSelectTab,
 }: {
@@ -745,6 +748,7 @@ function ICMemoWorkspace({
   evidenceItems: EvidenceItem[];
   evidenceCompleteness: number;
   latestReportId: string | null;
+  judgmentPointCount: number;
   onGenerateReport: () => void;
   onSelectTab: (tab: Tab) => void;
 }) {
@@ -767,6 +771,8 @@ function ICMemoWorkspace({
     latestReportId,
     evidenceCompleteness,
   });
+  const canGenerateAnalysisReport =
+    judgmentPointCount >= 3 && judgmentPointCount <= 10;
 
   return (
     <section className="space-y-4">
@@ -882,13 +888,28 @@ function ICMemoWorkspace({
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        <button
-          onClick={onGenerateReport}
-          className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-[#265b42]"
-        >
-          生成分析报告
-        </button>
+      {!canGenerateAnalysisReport && (
+        <p className="mt-4 text-xs leading-5 text-ink-soft">
+          生成分析报告前，需要先在“项目分析”中补充 3-10 条判断要点。
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {canGenerateAnalysisReport ? (
+          <button
+            onClick={onGenerateReport}
+            className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-[#265b42]"
+          >
+            生成分析报告
+          </button>
+        ) : (
+          <button
+            onClick={() => onSelectTab("analysis")}
+            className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-[#265b42]"
+          >
+            先补判断要点
+          </button>
+        )}
         <Link
           href={`/projects/${projectId}/brief-analysis`}
           className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
