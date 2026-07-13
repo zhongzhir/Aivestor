@@ -692,21 +692,14 @@ export function ProjectDetail({
 
         <WorkspaceRail
           workspaceState={workspaceState}
-          onSelectTab={setTab}
-          onGenerate={handleGenerate}
           evidenceNote={evidenceNote}
           evidenceItems={evidenceItems}
-          parsedDocCount={parsedDocCount}
-          docCount={docMeta.length}
           bpDocCount={bpDocCount}
           reportState={reportState}
           evidenceCompleteness={effectiveCompleteness}
           nextAction={workflowState.nextAction}
           nextActionDueAt={workflowState.nextActionDueAt}
-          hasJudgment={hasJudgment}
           judgmentCount={judgmentCount}
-          activityCount={activityItems.length}
-          latestActivity={activityItems[0] ?? null}
           latestReportId={latestReportId}
           projectId={projectId}
         />
@@ -1693,7 +1686,7 @@ function buildActivityItems({
 
 function ActivityTimeline({ items }: { items: ActivityItem[] }) {
   if (items.length === 0) return null;
-  const timelineItems = [...items].reverse();
+  const latestItem = items[0];
 
   return (
     <section className="mt-4 rounded-lg border border-line bg-white px-4 py-3">
@@ -1701,7 +1694,7 @@ function ActivityTimeline({ items }: { items: ActivityItem[] }) {
         <div>
           <h2 className="text-sm font-semibold text-ink">项目记录</h2>
           <p className="mt-1 text-xs text-ink-faint">
-            关键进展按时间向右展开，可横向滑动回看。
+            最新进展在最左侧，后续记录按时间向右展开。
           </p>
         </div>
         <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
@@ -1710,10 +1703,16 @@ function ActivityTimeline({ items }: { items: ActivityItem[] }) {
       </div>
 
       <ol className="mt-3 flex gap-3 overflow-x-auto pb-2">
-        {timelineItems.map((item) => (
+        {items.map((item, index) => (
           <li key={item.id} className="relative min-w-[220px] max-w-[260px]">
             <div className="absolute left-4 right-0 top-[18px] h-px bg-line" />
-            <div className="relative rounded-lg border border-line bg-surface p-3">
+            <div
+              className={`relative rounded-lg border p-3 ${
+                index === 0
+                  ? "border-[#d8c8b2] bg-[#fffdfa]"
+                  : "border-line bg-surface"
+              }`}
+            >
               <span className="absolute left-3 top-3 h-2.5 w-2.5 rounded-full border border-white bg-accent" />
               <div className="min-h-[76px] pl-4">
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -1744,6 +1743,11 @@ function ActivityTimeline({ items }: { items: ActivityItem[] }) {
           </li>
         ))}
       </ol>
+      {latestItem && (
+        <p className="mt-1 text-xs leading-5 text-ink-faint">
+          最近进展：{latestItem.title}。需要继续推进时，可直接进入下方主流程处理。
+        </p>
+      )}
     </section>
   );
 }
@@ -1917,91 +1921,31 @@ function estimateEvidenceCompleteness(items: EvidenceItem[]): number {
 
 function WorkspaceRail({
   workspaceState,
-  onSelectTab,
-  onGenerate,
   evidenceNote,
   evidenceItems,
-  parsedDocCount,
-  docCount,
   bpDocCount,
   reportState,
   evidenceCompleteness,
   nextAction,
   nextActionDueAt,
-  hasJudgment,
   judgmentCount,
-  activityCount,
-  latestActivity,
   latestReportId,
   projectId,
 }: {
   workspaceState: WorkspaceState;
-  onSelectTab: (tab: Tab) => void;
-  onGenerate: () => void;
   evidenceNote: string;
   evidenceItems: EvidenceItem[];
-  parsedDocCount: number;
-  docCount: number;
   bpDocCount: number;
   reportState: string;
   evidenceCompleteness: number;
   nextAction: string | null;
   nextActionDueAt: string | null;
-  hasJudgment: boolean;
   judgmentCount: number;
-  activityCount: number;
-  latestActivity: ActivityItem | null;
   latestReportId: string | null;
   projectId: string;
 }) {
   return (
     <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-      <div className="rounded-lg border border-[#e6ded1] bg-[#f7f2e8] p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-              当前动作
-            </p>
-            <h2 className="mt-1 text-sm font-semibold text-ink">
-              {workspaceState.title}
-            </h2>
-          </div>
-          <span className="rounded-full border border-[#dfd4c4] bg-white/75 px-2 py-1 text-[11px] text-ink-soft">
-            {workspaceState.badge}
-          </span>
-        </div>
-        <p className="mt-3 text-sm leading-7 text-ink-soft">
-          {workspaceState.description}
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {workspaceState.actions.map((action) => (
-            <button
-              key={action.label}
-              onClick={() =>
-                action.kind === "generate" ? onGenerate() : onSelectTab(action.tab)
-              }
-              className={`rounded-lg border px-3 py-2 text-xs font-medium ${
-                action.primary
-                  ? "border-accent bg-accent text-white hover:bg-[#265b42]"
-                  : "border-line bg-white text-ink-soft hover:bg-surface"
-              }`}
-            >
-              {action.label}
-            </button>
-          ))}
-          <Link
-            href={`/projects/${projectId}/report`}
-            className={`rounded-lg border px-3 py-2 text-xs font-medium ${
-              latestReportId
-                ? "border-line bg-white text-ink-soft hover:bg-surface"
-                : "pointer-events-none border-line bg-white/60 text-ink-faint"
-            }`}
-          >
-            查看报告
-          </Link>
-        </div>
-      </div>
-
       <div className="rounded-lg border border-line bg-white p-4">
         <h2 className="text-sm font-semibold text-ink">判断依据</h2>
         <div className="mt-3 space-y-3 text-sm text-ink-soft">
@@ -2061,23 +2005,6 @@ function WorkspaceRail({
           >
             准备条款草案
           </Link>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-line bg-white p-4">
-        <h2 className="text-sm font-semibold text-ink">近期记录</h2>
-        <div className="mt-3 space-y-2 text-xs text-ink-soft">
-          <p>
-            已整理 {activityCount} 条项目动态，最近一条是
-            {latestActivity ? `「${latestActivity.title}」` : "项目创建记录"}。
-          </p>
-          <p>已整理 {docCount} 份材料，其中 {parsedDocCount} 份可用于分析。</p>
-          <p>
-            {hasJudgment
-              ? "你已经留下判断记录，后续报告会围绕这些判断继续沉淀。"
-              : "如果你在近期关注过这个项目，可以先补一条当前判断。"}
-          </p>
-          <p>会议纪要、关系线索和投后更新会继续沉淀在这个工作区里。</p>
         </div>
       </div>
     </aside>
