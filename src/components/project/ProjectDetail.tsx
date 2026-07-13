@@ -485,7 +485,13 @@ export function ProjectDetail({
             </div>
           )}
 
-          {tab === "post" && <PostInvestment projectId={projectId} />}
+          {tab === "post" && (
+            <PostInvestment
+              projectId={projectId}
+              docMeta={docMeta}
+              onUploadComplete={handleUploadComplete}
+            />
+          )}
 
           {tab === "analysis" && (
             <>

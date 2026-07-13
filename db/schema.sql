@@ -98,10 +98,15 @@ CREATE TABLE documents (
                   CHECK (file_type IN ('pdf', 'docx', 'xlsx', 'image')),
   file_url      TEXT,                       -- 对象存储路径（S3 兼容）
   file_size     BIGINT,                     -- 字节
-  -- 文档类型标签：bp / research / contract / financial_model / news / other
+  -- 文档类型标签：bp / research / contract / financial_model / news / other / 投后材料
   doc_kind      TEXT NOT NULL DEFAULT 'other'
                   CHECK (doc_kind IN ('bp', 'research', 'contract',
-                                      'financial_model', 'news', 'other')),
+                                      'financial_model', 'news', 'other',
+                                      'post_financial_report',
+                                      'post_audit_report',
+                                      'post_operating_report',
+                                      'post_board_material',
+                                      'post_shareholder_material')),
   extracted_text TEXT,                      -- 解析出的纯文本
   -- AI 自动 + 用户手动标签（行业/阶段/类型等）
   tags          JSONB NOT NULL DEFAULT '[]'::jsonb,

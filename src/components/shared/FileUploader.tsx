@@ -14,6 +14,9 @@ interface FileUploaderProps {
   target: "project" | "knowledge";
   projectId?: string;
   category?: string;
+  docKindOptions?: readonly DocKindOption[];
+  defaultDocKind?: DocKindValue;
+  docKindHelpText?: string;
   onUploadComplete?: (results: UploadResult[]) => void;
 }
 
@@ -40,7 +43,14 @@ const DOC_KIND_OPTIONS = [
   { value: "financial_model", label: "财务模型" },
   { value: "other", label: "其他文件" },
 ] as const;
-type DocKindValue = (typeof DOC_KIND_OPTIONS)[number]["value"];
+type DocKindValue =
+  | (typeof DOC_KIND_OPTIONS)[number]["value"]
+  | "post_financial_report"
+  | "post_audit_report"
+  | "post_operating_report"
+  | "post_board_material"
+  | "post_shareholder_material";
+type DocKindOption = { value: DocKindValue; label: string };
 
 // 由文件名后缀推断统一文件类型（客户端用，与 lib/fileParser 保持一致）
 function clientFileType(fileName: string): string {
@@ -61,13 +71,17 @@ export function FileUploader({
   target,
   projectId,
   category,
+  docKindOptions,
+  defaultDocKind = "bp",
+  docKindHelpText,
   onUploadComplete,
 }: FileUploaderProps) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState("");
-  const [docKind, setDocKind] = useState<DocKindValue>("bp");
+  const options = docKindOptions ?? DOC_KIND_OPTIONS;
+  const [docKind, setDocKind] = useState<DocKindValue>(defaultDocKind);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function setItem(index: number, patch: Partial<QueueItem>) {
@@ -116,6 +130,7 @@ export function FileUploader({
       // xlsx/xls 自动归类为财务模型（用户未手动改过才自动切换）
       const lowerName = file.name.toLowerCase();
       const effectiveDocKind =
+        !docKindOptions &&
         docKind === "bp" &&
         (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls"))
           ? "financial_model"
@@ -231,7 +246,7 @@ export function FileUploader({
             disabled={busy}
             className="rounded border border-line bg-white px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none disabled:opacity-60"
           >
-            {DOC_KIND_OPTIONS.map((opt) => (
+            {options.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>
@@ -242,6 +257,7 @@ export function FileUploader({
               合同类文档将独立于 BP 上下文，仅供法律 SKILL 使用
             </span>
           )}
+          {docKindHelpText && <span className="text-ink-faint">{docKindHelpText}</span>}
         </div>
       )}
 

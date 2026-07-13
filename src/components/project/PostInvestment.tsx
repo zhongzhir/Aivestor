@@ -8,6 +8,10 @@ import {
   updateTypeDef,
 } from "@/lib/postInvestment";
 import { readError } from "@/lib/clientAI";
+import {
+  FileUploader,
+  type UploadResult,
+} from "@/components/shared/FileUploader";
 
 interface AiSummary {
   decisions?: string[];
@@ -34,6 +38,16 @@ interface Update {
   content: string;
   period: string | null;
   created_at: string;
+}
+
+interface PostDocument {
+  id: string;
+  filename: string;
+  chars: number;
+  fileType: string;
+  docKind: string;
+  parseStatus: string;
+  uploadedAt: string;
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
@@ -71,6 +85,26 @@ const UPDATE_PLACEHOLDERS: Record<string, string> = {
     "建议记录：退出路径、潜在买方或市场窗口、估值判断、回款安排和保留观察点。",
 };
 
+const POST_DOC_KIND_OPTIONS = [
+  { value: "post_financial_report", label: "财务报告" },
+  { value: "post_audit_report", label: "审计报告" },
+  { value: "post_operating_report", label: "经营报告" },
+  { value: "post_board_material", label: "董事会材料" },
+  { value: "post_shareholder_material", label: "股东会材料" },
+  { value: "other", label: "其他投后材料" },
+] as const;
+
+const POST_DOC_KIND_LABEL: Record<string, string> = {
+  post_financial_report: "财务报告",
+  post_audit_report: "审计报告",
+  post_operating_report: "经营报告",
+  post_board_material: "董事会材料",
+  post_shareholder_material: "股东会材料",
+  other: "其他材料",
+};
+
+const POST_DOC_KINDS = new Set(Object.keys(POST_DOC_KIND_LABEL));
+
 function formatDate(value: string | null | undefined) {
   return value ? new Date(value).toLocaleDateString("zh-CN") : "未设定";
 }
@@ -103,14 +137,21 @@ function extractMetricSignals(updates: Update[]) {
   return signals;
 }
 
-function buildLpSnapshot(updates: Update[], meetings: Meeting[]) {
+function buildReportMaterials(updates: Update[], meetings: Meeting[], docs: PostDocument[]) {
   const latestRegular = updates.find((u) => u.update_type === "regular");
   const latestMilestone = updates.find((u) => u.update_type === "milestone");
   const latestRisk = updates.find((u) => u.update_type === "risk");
   const latestExit = updates.find((u) => u.update_type === "exit");
   const latestMeeting = meetings[0];
+  const latestDocument = docs[0];
 
   return [
+    {
+      label: "最新材料",
+      value: latestDocument
+        ? `${latestDocument.filename}（${POST_DOC_KIND_LABEL[latestDocument.docKind] ?? "投后材料"}）`
+        : "等待上传定期报告或会议材料",
+    },
     {
       label: "经营进展",
       value: latestRegular
@@ -144,7 +185,15 @@ function firstSentence(content: string) {
   return splitSentences(content)[0]?.slice(0, 80) || "已记录，待补充摘要";
 }
 
-export function PostInvestment({ projectId }: { projectId: string }) {
+export function PostInvestment({
+  projectId,
+  docMeta = [],
+  onUploadComplete,
+}: {
+  projectId: string;
+  docMeta?: PostDocument[];
+  onUploadComplete?: (results: UploadResult[]) => void;
+}) {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [updates, setUpdates] = useState<Update[]>([]);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
@@ -175,7 +224,16 @@ export function PostInvestment({ projectId }: { projectId: string }) {
   const exitSignals = updates
     .filter((u) => u.update_type === "exit" || u.update_type === "financing")
     .slice(0, 3);
-  const lpSnapshot = buildLpSnapshot(updates, meetings);
+  const postDocuments = docMeta
+    .filter((d) => POST_DOC_KINDS.has(d.docKind))
+    .sort((a, b) => Date.parse(b.uploadedAt) - Date.parse(a.uploadedAt));
+  const reportMaterials = buildReportMaterials(updates, meetings, postDocuments);
+  const financialReportCount = postDocuments.filter((d) =>
+    ["post_financial_report", "post_audit_report"].includes(d.docKind)
+  ).length;
+  const governanceMaterialCount = postDocuments.filter((d) =>
+    ["post_board_material", "post_shareholder_material"].includes(d.docKind)
+  ).length;
   const nextMeeting = meetings
     .map((m) => m.next_meeting_date)
     .filter((d): d is string => !!d)
@@ -192,6 +250,12 @@ export function PostInvestment({ projectId }: { projectId: string }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowMeetingModal(true)}
+              className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
+            >
+              记录会议
+            </button>
             <button
               onClick={() => setShowUpdateModal("regular")}
               className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
@@ -292,6 +356,69 @@ export function PostInvestment({ projectId }: { projectId: string }) {
       <section className="rounded-lg border border-line bg-white p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
+            <h2 className="text-sm font-semibold text-ink">报告与会议材料</h2>
+            <p className="mt-1 text-xs leading-5 text-ink-faint">
+              收取并解析已投项目的财务报告、审计报告、经营报告，以及董事会、股东会等治理会议材料。
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs text-ink-soft">
+            <PostMiniMetric label="定期报告" value={`${financialReportCount} 份`} />
+            <PostMiniMetric label="会议材料" value={`${governanceMaterialCount} 份`} />
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+          <div className="rounded-lg border border-line bg-surface p-4">
+            <h3 className="text-xs font-semibold text-ink">上传投后材料</h3>
+            <p className="mt-1 text-xs leading-5 text-ink-faint">
+              上传后会进入项目材料库并完成文本解析，后续可用于投后分析、内部复盘、基金业协会材料或 LP 报告。
+            </p>
+            <div className="mt-4">
+              <FileUploader
+                target="project"
+                projectId={projectId}
+                docKindOptions={POST_DOC_KIND_OPTIONS}
+                defaultDocKind="post_operating_report"
+                docKindHelpText="用于投后管理和后续报告输出"
+                onUploadComplete={onUploadComplete}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-line bg-surface p-4">
+            <h3 className="text-xs font-semibold text-ink">近期投后材料</h3>
+            {postDocuments.length === 0 ? (
+              <p className="mt-4 rounded-lg border border-dashed border-line bg-white px-3 py-4 text-xs leading-5 text-ink-faint">
+                暂无投后材料。可以先上传最近一期经营报告、财务报表或董事会材料。
+              </p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {postDocuments.slice(0, 6).map((doc) => (
+                  <div key={doc.id} className="rounded-lg border border-line bg-white p-3">
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                      <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent">
+                        {POST_DOC_KIND_LABEL[doc.docKind] ?? "投后材料"}
+                      </span>
+                      <span>{formatDate(doc.uploadedAt)}</span>
+                      <span>{doc.parseStatus === "done" ? "已解析" : "解析中"}</span>
+                    </div>
+                    <p className="mt-1 truncate text-xs font-medium text-ink">
+                      {doc.filename}
+                    </p>
+                    <p className="mt-1 text-[11px] text-ink-faint">
+                      {doc.chars.toLocaleString()} 字 · {doc.fileType.toUpperCase()}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
             <h2 className="text-sm font-semibold text-ink">投后监控台</h2>
             <p className="mt-1 text-xs leading-5 text-ink-faint">
               把经营指标、重大事项、风险和退出路径放在同一张管理视图里，方便例会前快速进入状态。
@@ -337,25 +464,30 @@ export function PostInvestment({ projectId }: { projectId: string }) {
         <div className="mt-5 rounded-lg border border-line bg-surface p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <h3 className="text-xs font-semibold text-ink">LP 快照素材</h3>
+              <h3 className="text-xs font-semibold text-ink">投后报告素材</h3>
               <p className="mt-1 text-xs leading-5 text-ink-faint">
-                先把可复用信息整理成素材，后续接入 LP 报告模板和导出历史。
+                汇总可复用信息，后续可用于内部分析、基金业协会报送或 LP 报告。
               </p>
             </div>
             <button
               onClick={() => setShowUpdateModal("regular")}
               className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-[#265b42]"
             >
-              补充本期更新
+              补充经营更新
             </button>
           </div>
           <div className="mt-4 grid gap-2 md:grid-cols-2">
-            {lpSnapshot.map((item) => (
+            {reportMaterials.map((item) => (
               <div key={item.label} className="rounded-lg border border-line bg-white p-3">
                 <div className="text-[11px] font-medium text-ink-faint">{item.label}</div>
                 <p className="mt-1 text-xs leading-5 text-ink-soft">{item.value}</p>
               </div>
             ))}
+          </div>
+          <div className="mt-3 grid gap-2 text-xs text-ink-faint sm:grid-cols-3">
+            <p className="rounded-lg border border-line bg-white px-3 py-2">内部分析：经营变化、风险和退出判断</p>
+            <p className="rounded-lg border border-line bg-white px-3 py-2">协会报送：项目进展、估值和重大事项</p>
+            <p className="rounded-lg border border-line bg-white px-3 py-2">LP 报告：本期进展、风险和后续计划</p>
           </div>
         </div>
       </section>
@@ -466,6 +598,15 @@ function PostMetric({
       <div className="text-xs text-ink-faint">{label}</div>
       <div className="mt-1 text-lg font-semibold text-ink">{value}</div>
       <div className="mt-1 text-xs text-ink-soft">{note}</div>
+    </div>
+  );
+}
+
+function PostMiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-surface px-3 py-2">
+      <div className="text-[11px] text-ink-faint">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold text-ink">{value}</div>
     </div>
   );
 }

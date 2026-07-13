@@ -29,6 +29,11 @@ const ALLOWED_DOC_KINDS = [
   "financial_model",
   "news",
   "other",
+  "post_financial_report",
+  "post_audit_report",
+  "post_operating_report",
+  "post_board_material",
+  "post_shareholder_material",
 ] as const;
 type DocKind = (typeof ALLOWED_DOC_KINDS)[number];
 
