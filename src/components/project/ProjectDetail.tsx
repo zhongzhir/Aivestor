@@ -64,6 +64,16 @@ interface WorkflowMeta {
   workspaceNote: string | null;
 }
 
+interface DecisionEventMeta {
+  id: string;
+  stage: string;
+  event_type: string;
+  status: string;
+  title: string;
+  note: string | null;
+  created_at: string;
+}
+
 const EST_TOKENS_PER_IMAGE = 600;
 
 function estimateMinutes(imageCount: number): number {
@@ -102,6 +112,7 @@ interface Props {
   reports: ReportMeta[];
   meetings: MeetingMeta[];
   updates: UpdateMeta[];
+  decisionEvents: DecisionEventMeta[];
   projectCreatedAt: string;
   processStageUpdatedAt: string | null;
   outcomeAt: string | null;
@@ -126,6 +137,7 @@ export function ProjectDetail({
   reports,
   meetings,
   updates,
+  decisionEvents,
   projectCreatedAt,
   processStageUpdatedAt,
   outcomeAt,
@@ -154,6 +166,8 @@ export function ProjectDetail({
   const [finLoading, setFinLoading] = useState(false);
   const [finError, setFinError] = useState("");
   const [workflowState, setWorkflowState] = useState<WorkflowMeta>(workflow);
+  const [decisionEventState, setDecisionEventState] =
+    useState<DecisionEventMeta[]>(decisionEvents);
 
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
 
@@ -359,9 +373,10 @@ export function ProjectDetail({
     outcomeAt,
     docMeta,
     judgments,
-    reports,
-    meetings,
-    updates,
+  reports,
+  meetings,
+  updates,
+  decisionEvents: decisionEventState,
   });
 
   return (
@@ -424,7 +439,7 @@ export function ProjectDetail({
           <div className="flex gap-1 border-b border-line">
             {([
               ["analysis", "项目分析"],
-              ["decision", "决策辅助"],
+              ["decision", "投资决策"],
               ["post", processStage === "post_investment" || outcome === "invested" ? "投后管理" : "投后规划"],
             ] as [Tab, string][]).map(([id, label]) => (
               <button
@@ -454,6 +469,10 @@ export function ProjectDetail({
                 reports={reports}
                 meetings={meetings}
                 workflow={workflowState}
+                decisionEvents={decisionEventState}
+                onDecisionEventCreated={(event) =>
+                  setDecisionEventState((prev) => [event, ...prev])
+                }
                 evidenceItems={evidenceItems}
                 evidenceCompleteness={effectiveCompleteness}
                 latestReportId={latestReportId}
@@ -703,6 +722,8 @@ function ICMemoWorkspace({
   reports,
   meetings,
   workflow,
+  decisionEvents,
+  onDecisionEventCreated,
   evidenceItems,
   evidenceCompleteness,
   latestReportId,
@@ -719,6 +740,8 @@ function ICMemoWorkspace({
   reports: ReportMeta[];
   meetings: MeetingMeta[];
   workflow: WorkflowMeta;
+  decisionEvents: DecisionEventMeta[];
+  onDecisionEventCreated: (event: DecisionEventMeta) => void;
   evidenceItems: EvidenceItem[];
   evidenceCompleteness: number;
   latestReportId: string | null;
@@ -746,7 +769,15 @@ function ICMemoWorkspace({
   });
 
   return (
-    <section className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-5">
+    <section className="space-y-4">
+      <DecisionGatePanel
+        projectId={projectId}
+        processStage={processStage}
+        decisionEvents={decisionEvents}
+        onCreated={onDecisionEventCreated}
+      />
+
+      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
@@ -885,8 +916,213 @@ function ICMemoWorkspace({
           回到材料与判断
         </button>
       </div>
+      </div>
     </section>
   );
+}
+
+const DECISION_EVENT_TYPES = [
+  { value: "stage_gate", label: "阶段节点" },
+  { value: "project_approval", label: "立项决策" },
+  { value: "ic_memo", label: "IC Memo" },
+  { value: "ic_decision", label: "投委会决议" },
+  { value: "term_decision", label: "条款决策" },
+  { value: "post_investment", label: "投后节点" },
+  { value: "exit_decision", label: "退出决策" },
+];
+
+const DECISION_EVENT_STATUS = [
+  { value: "draft", label: "草稿" },
+  { value: "submitted", label: "待审议" },
+  { value: "approved", label: "通过" },
+  { value: "rejected", label: "否决" },
+  { value: "deferred", label: "暂缓" },
+  { value: "needs_more", label: "需补充材料" },
+  { value: "recorded", label: "已记录" },
+];
+
+function DecisionGatePanel({
+  projectId,
+  processStage,
+  decisionEvents,
+  onCreated,
+}: {
+  projectId: string;
+  processStage: string;
+  decisionEvents: DecisionEventMeta[];
+  onCreated: (event: DecisionEventMeta) => void;
+}) {
+  const [stage, setStage] = useState(processStage);
+  const [eventType, setEventType] = useState(
+    processStage === "investment_committee" ? "ic_decision" : "stage_gate"
+  );
+  const [status, setStatus] = useState("recorded");
+  const [title, setTitle] = useState(defaultDecisionTitle(processStage));
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const latestEvent = decisionEvents[0] ?? null;
+
+  async function save() {
+    setSaving(true);
+    setMessage("");
+    try {
+      const res = await fetch(`/api/projects/${projectId}/decision-events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage,
+          event_type: eventType,
+          status,
+          title,
+          note,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || "节点记录保存失败");
+      }
+      onCreated(data.event as DecisionEventMeta);
+      setNote("");
+      setMessage("节点记录已保存。项目阶段已同步更新。");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "节点记录保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-[#e6ded1] bg-white p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            Decision Gate
+          </p>
+          <h2 className="mt-1 text-base font-semibold text-ink">投资节点控制</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-ink-soft">
+            用正式节点记录支撑流程推进。分析、Memo 和辅助工具服务于节点，节点记录保留结论和依据。
+          </p>
+        </div>
+        <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-soft">
+          最近节点：
+          <span className="ml-1 font-medium text-ink">
+            {latestEvent
+              ? `${eventLabel(latestEvent.event_type)} · ${statusLabel(latestEvent.status)}`
+              : "尚未记录"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[160px_170px_150px_minmax(0,1fr)]">
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">流程节点</span>
+          <select
+            value={stage}
+            onChange={(e) => {
+              setStage(e.target.value);
+              setTitle(defaultDecisionTitle(e.target.value));
+            }}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            {[...FLOW_STAGES, ...TERMINAL_STAGES].map((s) => (
+              <option key={s} value={s}>
+                {STAGE_LABELS[s]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">节点类型</span>
+          <select
+            value={eventType}
+            onChange={(e) => setEventType(e.target.value)}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            {DECISION_EVENT_TYPES.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">节点结果</span>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            {DECISION_EVENT_STATUS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-ink-soft">节点标题</span>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none focus:border-accent"
+          />
+        </label>
+      </div>
+
+      <label className="mt-3 block">
+        <span className="text-xs font-medium text-ink-soft">结论与依据</span>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          placeholder="记录通过、否决、暂缓或需补充材料的原因。"
+          className="mt-1 w-full rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
+        />
+      </label>
+
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {decisionEvents.slice(0, 4).map((event) => (
+            <span
+              key={event.id}
+              className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft"
+            >
+              {formatShortDate(event.created_at)} · {eventLabel(event.event_type)} ·{" "}
+              {statusLabel(event.status)}
+            </span>
+          ))}
+        </div>
+        <button
+          onClick={save}
+          disabled={saving || !title.trim()}
+          className="inline-flex h-9 items-center justify-center rounded-lg bg-accent px-3 text-xs font-medium text-white hover:bg-[#265b42] disabled:opacity-50"
+        >
+          {saving ? "保存中..." : "保存节点记录"}
+        </button>
+      </div>
+      {message && <p className="mt-2 text-xs text-ink-soft">{message}</p>}
+    </div>
+  );
+}
+
+function defaultDecisionTitle(stage: string): string {
+  if (stage === "screening") return "初筛判断";
+  if (stage === "due_diligence") return "立项 / 尽调节点";
+  if (stage === "investment_committee") return "投委会决议";
+  if (stage === "post_investment") return "进入投后管理";
+  if (stage === "passed") return "项目 Pass";
+  if (stage === "exited") return "退出记录";
+  return "节点记录";
+}
+
+function eventLabel(value: string): string {
+  return DECISION_EVENT_TYPES.find((item) => item.value === value)?.label ?? value;
+}
+
+function statusLabel(value: string): string {
+  return DECISION_EVENT_STATUS.find((item) => item.value === value)?.label ?? value;
 }
 
 function MemoMetric({
@@ -1238,7 +1474,15 @@ function WorkflowPanel({
 
 interface ActivityItem {
   id: string;
-  type: "project" | "stage" | "material" | "judgment" | "report" | "meeting" | "update";
+  type:
+    | "project"
+    | "stage"
+    | "decision"
+    | "material"
+    | "judgment"
+    | "report"
+    | "meeting"
+    | "update";
   label: string;
   title: string;
   detail: string;
@@ -1285,6 +1529,7 @@ function buildActivityItems({
   reports,
   meetings,
   updates,
+  decisionEvents,
 }: {
   projectId: string;
   projectCreatedAt: string;
@@ -1297,6 +1542,7 @@ function buildActivityItems({
   reports: ReportMeta[];
   meetings: MeetingMeta[];
   updates: UpdateMeta[];
+  decisionEvents: DecisionEventMeta[];
 }): ActivityItem[] {
   const items: ActivityItem[] = [
     {
@@ -1328,6 +1574,19 @@ function buildActivityItems({
       title: `结论更新为 ${outcomeDef(outcome).label}`,
       detail: "项目结论已记录，后续可继续沉淀原因和复盘。",
       date: outcomeAt,
+    });
+  }
+
+  for (const event of decisionEvents) {
+    items.push({
+      id: `decision-${event.id}`,
+      type: "decision",
+      label: eventLabel(event.event_type),
+      title: `${event.title} · ${statusLabel(event.status)}`,
+      detail:
+        event.note ||
+        `${STAGE_LABELS[event.stage] ?? event.stage} 阶段的正式节点记录。`,
+      date: event.created_at,
     });
   }
 
@@ -1511,7 +1770,7 @@ function buildWorkspaceState({
     return {
       title: "补一条当前判断",
       description:
-        "材料已经就绪。可以先记录你现在最关心的判断点，再生成报告或进入决策辅助。",
+        "材料已经就绪。可以先记录你现在最关心的判断点，再生成报告或进入投资决策。",
       badge: "进入判断",
       actions: [{ label: "记录判断", kind: "tab", tab: "analysis", primary: true }],
     };
@@ -1522,9 +1781,9 @@ function buildWorkspaceState({
       title: "准备投委会讨论",
       description:
         "这个项目已经进入投委会语境。建议围绕证据、分歧和未解决问题整理一份可讨论的决策包。",
-      badge: "IC 准备",
+      badge: "投委会准备",
       actions: [
-        { label: "决策辅助", kind: "tab", tab: "decision", primary: true },
+        { label: "投资决策", kind: "tab", tab: "decision", primary: true },
         { label: "整理材料", kind: "tab", tab: "analysis" },
       ],
     };
@@ -1537,7 +1796,7 @@ function buildWorkspaceState({
         "已有分析报告。你可以继续打磨报告，也可以从反方视角或历史镜像里检查当前判断。",
       badge: "可复盘",
       actions: [
-        { label: "决策辅助", kind: "tab", tab: "decision", primary: true },
+        { label: "投资决策", kind: "tab", tab: "decision", primary: true },
         { label: "补充材料", kind: "tab", tab: "analysis" },
       ],
     };
@@ -1735,7 +1994,7 @@ function WorkspaceRail({
       </div>
 
       <div className="rounded-lg border border-line bg-white p-4">
-        <h2 className="text-sm font-semibold text-ink">IC 准备</h2>
+        <h2 className="text-sm font-semibold text-ink">投委会准备</h2>
         <p className="mt-2 text-xs leading-5 text-ink-soft">
           把当前材料、判断和报告整理成可讨论的决策包，方便会前快速对齐证据、分歧和下一步。
         </p>

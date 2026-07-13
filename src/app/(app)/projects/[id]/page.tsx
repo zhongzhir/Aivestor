@@ -64,6 +64,16 @@ interface WorkflowRow {
   workspace_note: string | null;
 }
 
+interface DecisionEventRow {
+  id: string;
+  stage: string;
+  event_type: string;
+  status: string;
+  title: string;
+  note: string | null;
+  created_at: string;
+}
+
 export default async function ProjectDetailPage({
   params,
 }: {
@@ -220,6 +230,20 @@ export default async function ProjectDetailPage({
     console.error("[project] 投后动态读取失败，使用空列表:", e);
   }
 
+  let decisionEvents: DecisionEventRow[] = [];
+  try {
+    decisionEvents = await query<DecisionEventRow>(
+      `SELECT id, stage, event_type, status, title, note, created_at
+         FROM project_decision_events
+        WHERE project_id = $1
+        ORDER BY created_at DESC
+        LIMIT 20`,
+      [params.id]
+    );
+  } catch (e) {
+    console.error("[project] decision events read failed, using empty list:", e);
+  }
+
   return (
     <ProjectDetail
       projectId={project.id}
@@ -245,6 +269,7 @@ export default async function ProjectDetailPage({
       reports={reports}
       meetings={meetings}
       updates={updates}
+      decisionEvents={decisionEvents}
       projectCreatedAt={project.created_at}
       processStageUpdatedAt={processStageUpdatedAt}
       outcomeAt={outcomeAt}
