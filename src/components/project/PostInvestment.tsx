@@ -14,6 +14,7 @@ import {
 } from "@/components/shared/FileUploader";
 import { PostInvestmentPlanning } from "./PostInvestmentPlanning";
 import { PostInvestmentMetrics } from "./PostInvestmentMetrics";
+import { PostInvestmentReports } from "./PostInvestmentReports";
 
 interface AiSummary {
   decisions?: string[];
@@ -357,6 +358,8 @@ export function PostInvestment({
       </section>
 
       <PostInvestmentPlanning projectId={projectId} />
+
+      <PostInvestmentReports projectId={projectId} />
 
       <section className="rounded-lg border border-line bg-white p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

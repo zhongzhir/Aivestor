@@ -47,6 +47,7 @@ export async function GET(
     term_sheet: "TermSheet",
     brief: "简要分析",
     analysis: "项目分析报告",
+    post_investment: "投后报告",
   };
   const prefix =
     (report.kind && kindPrefixMap[report.kind]) || "项目分析报告";
@@ -61,6 +62,13 @@ export async function GET(
     report.title,
     stripSourceBadges(extractConfidence(report.content).cleanContent)
   );
+  if (report.kind === "post_investment") {
+    await query(
+      `INSERT INTO post_investment_report_exports (report_id, user_id, format)
+       VALUES ($1, $2, 'docx')`,
+      [params.id, session.user.id]
+    );
+  }
   const filename = encodeURIComponent(`${docName}.docx`);
 
   return new NextResponse(new Uint8Array(buffer), {
