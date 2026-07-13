@@ -9,6 +9,7 @@ import { DecisionTools } from "./DecisionTools";
 import { PostInvestment } from "./PostInvestment";
 import { CommentPanel } from "./CommentPanel";
 import { JudgmentsByMember } from "./JudgmentsByMember";
+import { ProjectContextCards } from "./ProjectContextCards";
 import { ShareControl } from "./ShareControl";
 import { confirmSensitiveAction } from "@/lib/securityPolicy";
 import {
@@ -553,6 +554,8 @@ export function ProjectDetail({
                 onUploadComplete={handleUploadComplete}
                 onGenerate={handleGenerate}
               />
+
+              <ProjectContextCards projectId={projectId} />
 
               <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.95fr)]">
                 <section className="rounded-lg border border-line bg-white p-5">
