@@ -381,14 +381,17 @@ export function ProjectDetail({
   });
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
-      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="mx-auto w-full max-w-7xl px-6 py-5 lg:px-8">
+      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] px-5 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate text-2xl font-semibold text-ink">
                 {projectName}
               </h1>
+              <span className="rounded-full border border-[#dfd4c4] bg-white px-2.5 py-1 text-xs font-medium text-ink-soft">
+                {STAGE_LABELS[processStage] ?? processStage}
+              </span>
               {outcome && outcome !== "pending" && (
                 <span
                   className={`rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -399,9 +402,22 @@ export function ProjectDetail({
                 </span>
               )}
             </div>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-ink-soft">
-              项目工作区把当前状态、材料、判断、报告和跟踪记录放在同一处。先确认项目状态，再进入相应工作。
-            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
+              <span>
+                下一步：
+                <span className="font-medium text-ink">
+                  {workflowState.nextAction || workspaceState.title}
+                </span>
+              </span>
+              <span>
+                证据完整度：
+                <span className="font-medium text-ink">{effectiveCompleteness}%</span>
+              </span>
+              <span>
+                项目记录：
+                <span className="font-medium text-ink">{activityItems.length} 条</span>
+              </span>
+            </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             {latestReportId && (
@@ -422,20 +438,9 @@ export function ProjectDetail({
         </div>
       </div>
 
-      <WorkflowPanel
-        projectId={projectId}
-        initialWorkflow={workflowState}
-        fallbackNextAction={workspaceState.title}
-        fallbackCompleteness={effectiveCompleteness}
-        initialStage={processStage}
-        initialOutcome={outcome}
-        initialOutcomeNote={outcomeNote}
-        onSaved={setWorkflowState}
-      />
-
       <ActivityTimeline items={activityItems} />
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0">
           <div className="flex gap-1 border-b border-line">
             {([
@@ -1688,14 +1693,15 @@ function buildActivityItems({
 
 function ActivityTimeline({ items }: { items: ActivityItem[] }) {
   if (items.length === 0) return null;
+  const timelineItems = [...items].reverse();
 
   return (
-    <section className="mt-6 rounded-lg border border-line bg-white p-5">
+    <section className="mt-4 rounded-lg border border-line bg-white px-4 py-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-ink">项目记录</h2>
           <p className="mt-1 text-xs text-ink-faint">
-            材料、判断、报告、会议和跟踪记录按时间汇集在这里，便于回看项目判断依据。
+            关键进展按时间向右展开，可横向滑动回看。
           </p>
         </div>
         <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
@@ -1703,30 +1709,37 @@ function ActivityTimeline({ items }: { items: ActivityItem[] }) {
         </span>
       </div>
 
-      <ol className="mt-5 space-y-3">
-        {items.map((item) => (
-          <li key={item.id} className="grid grid-cols-[96px_1fr] gap-3 sm:grid-cols-[120px_1fr]">
-            <time className="pt-1 text-xs text-ink-faint">
-              {formatShortDate(item.date)}
-            </time>
-            <div className="relative border-l border-line pb-3 pl-4">
-              <span className="absolute -left-[5px] top-1.5 h-2.5 w-2.5 rounded-full border border-white bg-accent" />
-              <div className="flex flex-wrap items-center gap-2">
+      <ol className="mt-3 flex gap-3 overflow-x-auto pb-2">
+        {timelineItems.map((item) => (
+          <li key={item.id} className="relative min-w-[220px] max-w-[260px]">
+            <div className="absolute left-4 right-0 top-[18px] h-px bg-line" />
+            <div className="relative rounded-lg border border-line bg-surface p-3">
+              <span className="absolute left-3 top-3 h-2.5 w-2.5 rounded-full border border-white bg-accent" />
+              <div className="min-h-[76px] pl-4">
+                <div className="flex flex-wrap items-center gap-1.5">
                 <span className="rounded-md bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-soft">
                   {item.label}
                 </span>
+                  <time className="text-[11px] text-ink-faint">
+                    {formatShortDate(item.date)}
+                  </time>
+                </div>
                 {item.href ? (
                   <Link
                     href={item.href}
-                    className="text-sm font-medium text-ink hover:text-accent"
+                    className="mt-2 block line-clamp-2 text-sm font-medium leading-5 text-ink hover:text-accent"
                   >
                     {item.title}
                   </Link>
                 ) : (
-                  <span className="text-sm font-medium text-ink">{item.title}</span>
+                  <span className="mt-2 block line-clamp-2 text-sm font-medium leading-5 text-ink">
+                    {item.title}
+                  </span>
                 )}
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-soft">
+                  {item.detail}
+                </p>
               </div>
-              <p className="mt-1 text-xs leading-5 text-ink-soft">{item.detail}</p>
             </div>
           </li>
         ))}
