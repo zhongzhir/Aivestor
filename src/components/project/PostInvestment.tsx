@@ -13,6 +13,7 @@ import {
   type UploadResult,
 } from "@/components/shared/FileUploader";
 import { PostInvestmentPlanning } from "./PostInvestmentPlanning";
+import { PostInvestmentMetrics } from "./PostInvestmentMetrics";
 
 interface AiSummary {
   decisions?: string[];
@@ -341,6 +342,7 @@ export function PostInvestment({
                 ))}
               </div>
             )}
+            <PostInvestmentMetrics projectId={projectId} />
           </section>
 
           <section className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-4">
