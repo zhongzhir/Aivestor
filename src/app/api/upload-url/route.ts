@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { getUploadCredential } from "@/lib/fileStorage";
+import { getUploadCredential, consumeUploadAttempt } from "@/lib/fileStorage";
 
 export const maxDuration = 60;
 
@@ -10,6 +10,9 @@ export async function POST(req: Request) {
   const session = await getSession();
   if (!session?.user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+  if (!consumeUploadAttempt(session.user.id)) {
+    return NextResponse.json({ error: "上传请求过于频繁，请稍后再试" }, { status: 429 });
   }
   try {
     const body = await req.json();

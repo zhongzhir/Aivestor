@@ -7,7 +7,7 @@ import {
   extractExcelFinancials,
   serializeExcelFinancialDataForProject,
 } from "@/lib/excelFinancials";
-import { readFileBuffer } from "@/lib/fileStorage";
+import { readFileBuffer, hasValidDocumentSignature, consumeUploadAttempt } from "@/lib/fileStorage";
 import {
   extractDocumentImages,
   supportsImageExtraction,
@@ -47,6 +47,9 @@ export async function GET(
   const session = await getSession();
   if (!session?.user) {
     return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+  if (!consumeUploadAttempt(session.user.id)) {
+    return NextResponse.json({ error: "解析请求过于频繁，请稍后再试" }, { status: 429 });
   }
   const scope = await buildAccessScope(session.user.id);
   try {
@@ -125,6 +128,10 @@ export async function POST(
     return NextResponse.json({ error: "文件读取失败" }, { status: 422 });
   }
 
+  if (!hasValidDocumentSignature(buffer, fileType)) {
+    return NextResponse.json({ error: "文件内容与扩展名不匹配" }, { status: 422 });
+  }
+
   // 解析文本
   let parsed;
   console.log("[documents] 开始解析，fileType:", fileType, "bufferSize:", buffer.length);
@@ -132,9 +139,8 @@ export async function POST(
     parsed = await parseFile(buffer, fileType, filename);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : "";
     return NextResponse.json(
-      { error: `文档解析失败：${msg}`, detail: stack },
+      { error: `文档解析失败：${msg}` },
       { status: 422 }
     );
   }

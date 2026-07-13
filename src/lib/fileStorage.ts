@@ -14,6 +14,82 @@ import { randomUUID } from "crypto";
 import path from "path";
 import fs from "fs/promises";
 
+const MAX_REMOTE_FILE_BYTES = 25 * 1024 * 1024;
+const REMOTE_FETCH_TIMEOUT_MS = 30_000;
+const UPLOAD_WINDOW_MS = 10 * 60 * 1000;
+const UPLOAD_LIMIT = 12;
+const uploadAttempts = new Map<string, number[]>();
+
+export function consumeUploadAttempt(userId: string): boolean {
+  const now = Date.now();
+  const recent = (uploadAttempts.get(userId) || []).filter((at) => now - at < UPLOAD_WINDOW_MS);
+  if (recent.length >= UPLOAD_LIMIT) {
+    uploadAttempts.set(userId, recent);
+    return false;
+  }
+  recent.push(now);
+  uploadAttempts.set(userId, recent);
+  return true;
+}
+
+function isPrivateHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/[\[\]]/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host === "metadata.google.internal") return true;
+  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host)) return true;
+  const matched172 = host.match(/^172\.(\d+)\./);
+  if (matched172 && Number(matched172[1]) >= 16 && Number(matched172[1]) <= 31) return true;
+  return host === "169.254.169.254" || host === "::1";
+}
+
+function assertAllowedRemoteUrl(fileUrl: string): URL {
+  let url: URL;
+  try { url = new URL(fileUrl); } catch { throw new Error("invalid file URL"); }
+  const allowedHosts = (process.env.DOCUMENT_REMOTE_ALLOWED_HOSTS || "")
+    .split(",").map((host) => host.trim().toLowerCase()).filter(Boolean);
+  const host = url.hostname.toLowerCase();
+  const allowed = allowedHosts.includes(host) || host.endsWith(".public.blob.vercel-storage.com");
+  if (url.protocol !== "https:" || isPrivateHost(host) || !allowed) throw new Error("remote file host is not allowed");
+  return url;
+}
+
+async function readRemoteFile(url: URL): Promise<Buffer> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REMOTE_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { redirect: "error", signal: controller.signal });
+    if (!response.ok || !response.body) throw new Error("remote file read failed");
+    const declaredLength = Number(response.headers.get("content-length") || 0);
+    if (declaredLength > MAX_REMOTE_FILE_BYTES) throw new Error("remote file too large");
+    const reader = response.body.getReader();
+    const chunks: Buffer[] = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_REMOTE_FILE_BYTES) {
+        await reader.cancel();
+        throw new Error("remote file too large");
+      }
+      chunks.push(Buffer.from(value));
+    }
+    return Buffer.concat(chunks);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export function hasValidDocumentSignature(buffer: Buffer, fileType: string): boolean {
+  if (fileType === "pdf") return buffer.subarray(0, 5).toString() === "%PDF-";
+  if (["docx", "xlsx", "pptx"].includes(fileType)) {
+    return buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04;
+  }
+  if (["xls", "ppt"].includes(fileType)) {
+    return buffer.length >= 8 && Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).equals(buffer.subarray(0, 8));
+  }
+  return false;
+}
+
 // 本地存储根目录（Docker volume 挂载点）
 const LOCAL_UPLOAD_DIR = process.env.LOCAL_UPLOAD_DIR || "/app/uploads";
 
@@ -129,11 +205,13 @@ export async function readFileBuffer(fileUrl: string): Promise<Buffer> {
   }
 
   // 兼容旧 Vercel Blob HTTPS URL
-  const fetchRes = await fetch(fileUrl, {
+  const remoteUrl = assertAllowedRemoteUrl(fileUrl);
+  return readRemoteFile(remoteUrl);
+  /* const fetchRes = await fetch(fileUrl, {
     headers: fileUrl.includes("vercel-storage")
       ? { Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}` }
       : {},
   });
   if (!fetchRes.ok) throw new Error("文件读取失败");
-  return Buffer.from(await fetchRes.arrayBuffer());
+  return Buffer.from(await fetchRes.arrayBuffer()); */
 }
