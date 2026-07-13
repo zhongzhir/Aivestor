@@ -11,6 +11,16 @@ const nextConfig = {
       bodySizeLimit: "25mb",
     },
   },
+  webpack(config) {
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings || []),
+      {
+        module: /node_modules[\\/]file-type[\\/]source[\\/]index\.js/,
+        message: /Critical dependency: the request of a dependency is an expression/,
+      },
+    ];
+    return config;
+  },
   async headers() {
     return [
       {
