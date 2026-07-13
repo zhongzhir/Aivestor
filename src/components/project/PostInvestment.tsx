@@ -37,6 +37,112 @@ interface Update {
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
+const METRIC_KEYWORDS = [
+  "ARR",
+  "MRR",
+  "GMV",
+  "DAU",
+  "MAU",
+  "收入",
+  "营收",
+  "利润",
+  "毛利",
+  "现金",
+  "用户",
+  "客户",
+  "订单",
+  "留存",
+  "续费",
+  "门店",
+];
+
+const UPDATE_PLACEHOLDERS: Record<string, string> = {
+  regular:
+    "建议记录：本期收入 / 现金流 / 用户或客户变化 / 关键经营动作 / 下期重点。",
+  milestone:
+    "建议记录：事项名称、发生时间、影响范围、需要投资人跟进的事项。",
+  risk:
+    "建议记录：风险信号、触发原因、影响判断、当前应对和下次复核时间。",
+  financing:
+    "建议记录：融资轮次、目标金额、估值、潜在投资方、进度和稀释影响。",
+  personnel:
+    "建议记录：人员变化、岗位影响、替代安排、对经营或治理的影响。",
+  exit:
+    "建议记录：退出路径、潜在买方或市场窗口、估值判断、回款安排和保留观察点。",
+};
+
+function formatDate(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleDateString("zh-CN") : "未设定";
+}
+
+function splitSentences(content: string) {
+  return content
+    .split(/[\n。；;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function extractMetricSignals(updates: Update[]) {
+  const signals: { text: string; period: string | null; created_at: string }[] = [];
+  for (const update of updates) {
+    for (const sentence of splitSentences(update.content)) {
+      const hasMetric = METRIC_KEYWORDS.some((keyword) =>
+        sentence.toLowerCase().includes(keyword.toLowerCase())
+      );
+      const hasValue = /\d|%|万|亿|千|百/.test(sentence);
+      if (hasMetric && hasValue) {
+        signals.push({
+          text: sentence.length > 90 ? `${sentence.slice(0, 90)}...` : sentence,
+          period: update.period,
+          created_at: update.created_at,
+        });
+      }
+      if (signals.length >= 6) return signals;
+    }
+  }
+  return signals;
+}
+
+function buildLpSnapshot(updates: Update[], meetings: Meeting[]) {
+  const latestRegular = updates.find((u) => u.update_type === "regular");
+  const latestMilestone = updates.find((u) => u.update_type === "milestone");
+  const latestRisk = updates.find((u) => u.update_type === "risk");
+  const latestExit = updates.find((u) => u.update_type === "exit");
+  const latestMeeting = meetings[0];
+
+  return [
+    {
+      label: "经营进展",
+      value: latestRegular
+        ? firstSentence(latestRegular.content)
+        : "等待本期经营更新",
+    },
+    {
+      label: "重大事项",
+      value: latestMilestone
+        ? firstSentence(latestMilestone.content)
+        : "暂无需要单独披露的事项",
+    },
+    {
+      label: "风险与应对",
+      value: latestRisk ? firstSentence(latestRisk.content) : "暂无新的风险记录",
+    },
+    {
+      label: "退出判断",
+      value: latestExit ? firstSentence(latestExit.content) : "退出路径待持续观察",
+    },
+    {
+      label: "最近沟通",
+      value: latestMeeting
+        ? `${latestMeeting.title}（${formatDate(latestMeeting.meeting_date)}）`
+        : "暂无会议记录",
+    },
+  ];
+}
+
+function firstSentence(content: string) {
+  return splitSentences(content)[0]?.slice(0, 80) || "已记录，待补充摘要";
+}
 
 export function PostInvestment({ projectId }: { projectId: string }) {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -63,6 +169,13 @@ export function PostInvestment({ projectId }: { projectId: string }) {
   const riskCount = updates.filter((u) => u.update_type === "risk").length;
   const exitCount = updates.filter((u) => u.update_type === "exit").length;
   const financingCount = updates.filter((u) => u.update_type === "financing").length;
+  const milestoneCount = updates.filter((u) => u.update_type === "milestone").length;
+  const metricSignals = extractMetricSignals(updates);
+  const latestRisks = updates.filter((u) => u.update_type === "risk").slice(0, 3);
+  const exitSignals = updates
+    .filter((u) => u.update_type === "exit" || u.update_type === "financing")
+    .slice(0, 3);
+  const lpSnapshot = buildLpSnapshot(updates, meetings);
   const nextMeeting = meetings
     .map((m) => m.next_meeting_date)
     .filter((d): d is string => !!d)
@@ -95,10 +208,10 @@ export function PostInvestment({ projectId }: { projectId: string }) {
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-4">
-          <PostMetric label="最近更新" value={latestUpdate ? new Date(latestUpdate.created_at).toLocaleDateString("zh-CN") : "暂无"} note={latestUpdate ? updateTypeDef(latestUpdate.update_type).label : "可先记录一次经营跟踪"} />
+          <PostMetric label="最近更新" value={latestUpdate ? formatDate(latestUpdate.created_at) : "暂无"} note={latestUpdate ? updateTypeDef(latestUpdate.update_type).label : "可先记录一次经营跟踪"} />
           <PostMetric label="风险信号" value={`${riskCount} 条`} note="经营、现金流或治理风险" />
           <PostMetric label="退出相关" value={`${exitCount} 条`} note="IPO、并购、回购或二级转让" />
-          <PostMetric label="下次会议" value={nextMeeting ? new Date(nextMeeting).toLocaleDateString("zh-CN") : "未设定"} note="可在会议记录里维护" />
+          <PostMetric label="下次会议" value={formatDate(nextMeeting)} note="可在会议记录里维护" />
         </div>
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -128,12 +241,121 @@ export function PostInvestment({ projectId }: { projectId: string }) {
           />
         </div>
 
-        <div className="mt-5 rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-4">
-          <h3 className="text-xs font-semibold text-ink">收益与退出视图</h3>
-          <div className="mt-3 grid gap-3 text-xs text-ink-soft sm:grid-cols-3">
-            <p>融资动态：已记录 {financingCount} 条，后续可用于估值和稀释复盘。</p>
-            <p>退出路径：持续比较 IPO、并购、回购、二级转让和继续持有。</p>
-            <p>收益判断：先记录关键事实，后续再接入持仓成本、当前估值和预期回报。</p>
+        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+          <section className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xs font-semibold text-ink">指标监控</h3>
+                <p className="mt-1 text-xs leading-5 text-ink-faint">
+                  从投后更新中提取带数值的经营信号，用于快速回看变化。
+                </p>
+              </div>
+              <button
+                onClick={() => setShowUpdateModal("regular")}
+                className="shrink-0 rounded-lg border border-line bg-white px-3 py-1.5 text-xs font-medium text-ink-soft hover:bg-surface"
+              >
+                记录指标
+              </button>
+            </div>
+            {metricSignals.length === 0 ? (
+              <p className="mt-4 rounded-lg border border-dashed border-line px-3 py-4 text-xs text-ink-faint">
+                暂无可识别的指标。记录收入、现金流、用户、续费、GMV 等带数值的信息后，这里会自动汇总。
+              </p>
+            ) : (
+              <div className="mt-4 space-y-2">
+                {metricSignals.map((signal, index) => (
+                  <div
+                    key={`${signal.created_at}-${index}`}
+                    className="rounded-lg border border-line bg-white px-3 py-2"
+                  >
+                    <p className="text-xs leading-5 text-ink">{signal.text}</p>
+                    <p className="mt-1 text-[11px] text-ink-faint">
+                      {signal.period || "未标注周期"} · {formatDate(signal.created_at)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-4">
+            <h3 className="text-xs font-semibold text-ink">收益与退出视图</h3>
+            <div className="mt-3 grid gap-3 text-xs text-ink-soft">
+              <p>融资动态：已记录 {financingCount} 条，后续可用于估值和稀释复盘。</p>
+              <p>退出路径：持续比较 IPO、并购、回购、二级转让和继续持有。</p>
+              <p>收益判断：先记录关键事实，后续再接入持仓成本、当前估值和预期回报。</p>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">投后监控台</h2>
+            <p className="mt-1 text-xs leading-5 text-ink-faint">
+              把经营指标、重大事项、风险和退出路径放在同一张管理视图里，方便例会前快速进入状态。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowUpdateModal("risk")}
+              className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
+            >
+              记录风险
+            </button>
+            <button
+              onClick={() => setShowUpdateModal("milestone")}
+              className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
+            >
+              记录重大事项
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <PostMonitorColumn
+            title="重大事项"
+            count={milestoneCount}
+            empty="暂无重大事项记录"
+            items={updates.filter((u) => u.update_type === "milestone").slice(0, 3)}
+          />
+          <PostMonitorColumn
+            title="风险信号"
+            count={riskCount}
+            empty="暂无风险记录"
+            items={latestRisks}
+          />
+          <PostMonitorColumn
+            title="退出与融资"
+            count={exitCount + financingCount}
+            empty="暂无退出或融资记录"
+            items={exitSignals}
+          />
+        </div>
+
+        <div className="mt-5 rounded-lg border border-line bg-surface p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <h3 className="text-xs font-semibold text-ink">LP 快照素材</h3>
+              <p className="mt-1 text-xs leading-5 text-ink-faint">
+                先把可复用信息整理成素材，后续接入 LP 报告模板和导出历史。
+              </p>
+            </div>
+            <button
+              onClick={() => setShowUpdateModal("regular")}
+              className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white hover:bg-[#265b42]"
+            >
+              补充本期更新
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {lpSnapshot.map((item) => (
+              <div key={item.label} className="rounded-lg border border-line bg-white p-3">
+                <div className="text-[11px] font-medium text-ink-faint">{item.label}</div>
+                <p className="mt-1 text-xs leading-5 text-ink-soft">{item.value}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -271,6 +493,53 @@ function PostWorkstream({
       >
         {action}
       </button>
+    </div>
+  );
+}
+
+function PostMonitorColumn({
+  title,
+  count,
+  empty,
+  items,
+}: {
+  title: string;
+  count: number;
+  empty: string;
+  items: Update[];
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-ink">{title}</h3>
+        <span className="rounded-full border border-line bg-white px-2 py-0.5 text-[11px] text-ink-faint">
+          {count} 条
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <p className="mt-4 rounded-lg border border-dashed border-line bg-white px-3 py-4 text-xs text-ink-faint">
+          {empty}
+        </p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {items.map((item) => {
+            const def = updateTypeDef(item.update_type);
+            return (
+              <div key={item.id} className="rounded-lg border border-line bg-white p-3">
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                  <span className={`rounded px-1.5 py-0.5 font-medium ${def.badgeClass}`}>
+                    {def.icon} {def.label}
+                  </span>
+                  <span>{item.period || formatDate(item.created_at)}</span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-ink-soft">
+                  {firstSentence(item.content)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -541,6 +810,8 @@ function UpdateModal({
   const [content, setContent] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const placeholder =
+    UPDATE_PLACEHOLDERS[updateType] ?? UPDATE_PLACEHOLDERS.regular;
 
   async function save() {
     if (!content.trim()) {
@@ -597,9 +868,11 @@ function UpdateModal({
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
+            placeholder={placeholder}
             rows={5}
             className="w-full resize-y rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-accent"
           />
+          <p className="mt-1 text-xs leading-5 text-ink-faint">{placeholder}</p>
         </Field>
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
