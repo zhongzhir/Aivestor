@@ -442,7 +442,24 @@ export function ProjectDetail({
           </div>
 
           {tab === "decision" && (
-            <div className="mt-6">
+            <div className="mt-6 space-y-6">
+              <ICMemoWorkspace
+                projectId={projectId}
+                projectName={projectName}
+                processStage={processStage}
+                outcome={outcome}
+                outcomeNote={outcomeNote}
+                judgments={judgments}
+                docMeta={docMeta}
+                reports={reports}
+                meetings={meetings}
+                workflow={workflowState}
+                evidenceItems={evidenceItems}
+                evidenceCompleteness={effectiveCompleteness}
+                latestReportId={latestReportId}
+                onGenerateReport={handleGenerate}
+                onSelectTab={setTab}
+              />
               <DecisionTools projectId={projectId} processStage={processStage} />
             </div>
           )}
@@ -673,6 +690,345 @@ export function ProjectDetail({
       )}
     </div>
   );
+}
+
+function ICMemoWorkspace({
+  projectId,
+  projectName,
+  processStage,
+  outcome,
+  outcomeNote,
+  judgments,
+  docMeta,
+  reports,
+  meetings,
+  workflow,
+  evidenceItems,
+  evidenceCompleteness,
+  latestReportId,
+  onGenerateReport,
+  onSelectTab,
+}: {
+  projectId: string;
+  projectName: string;
+  processStage: string;
+  outcome: string | null;
+  outcomeNote: string | null;
+  judgments: Judgment[];
+  docMeta: DocMeta[];
+  reports: ReportMeta[];
+  meetings: MeetingMeta[];
+  workflow: WorkflowMeta;
+  evidenceItems: EvidenceItem[];
+  evidenceCompleteness: number;
+  latestReportId: string | null;
+  onGenerateReport: () => void;
+  onSelectTab: (tab: Tab) => void;
+}) {
+  const latestJudgment = judgments[0] ?? null;
+  const parsedDocs = docMeta.filter((doc) => doc.parseStatus === "done");
+  const analysisReports = reports.filter((report) =>
+    ["analysis", "brief", "competitive_landscape"].includes(report.kind)
+  );
+  const memoReadiness = buildMemoReadiness({
+    parsedDocCount: parsedDocs.length,
+    judgmentCount: judgments.length,
+    reportCount: analysisReports.length,
+    evidenceCompleteness,
+    meetingCount: meetings.length,
+  });
+  const openQuestions = buildOpenQuestions({
+    evidenceItems,
+    workflow,
+    latestJudgment,
+    latestReportId,
+    evidenceCompleteness,
+  });
+
+  return (
+    <section className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            IC Memo
+          </p>
+          <h2 className="mt-1 text-lg font-semibold text-ink">
+            投委会工作区
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-ink-soft">
+            把材料、判断、报告和未解决问题整理成一份会前可讨论的决策包。这里先帮助你看清
+            {projectName} 当前是否具备进入投委会讨论的基础。
+          </p>
+        </div>
+        <div className="rounded-lg border border-line bg-white px-4 py-3 text-sm">
+          <p className="text-xs text-ink-faint">准备度</p>
+          <p className="mt-1 text-2xl font-semibold text-ink">
+            {memoReadiness.score}%
+          </p>
+          <p className="mt-1 text-xs text-ink-soft">{memoReadiness.label}</p>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <MemoMetric
+          label="当前阶段"
+          value={STAGE_LABELS[processStage] ?? processStage}
+          note="以项目当前状态为准"
+        />
+        <MemoMetric
+          label="判断记录"
+          value={`${judgments.length} 条`}
+          note={
+            latestJudgment
+              ? compactText(latestJudgment.key_hypothesis || latestJudgment.bear_case)
+              : "会前建议先留下一条当前判断"
+          }
+        />
+        <MemoMetric
+          label="材料与报告"
+          value={`${parsedDocs.length} / ${analysisReports.length}`}
+          note="已解析材料 / 可引用报告"
+        />
+        <MemoMetric
+          label="投资结果"
+          value={outcome ? outcomeDef(outcome).label : "待定"}
+          note={outcomeNote || "可在项目当前状态中维护"}
+        />
+      </div>
+
+      <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+        <div className="rounded-lg border border-line bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-ink">Memo 结构</h3>
+            <span className="rounded-full bg-surface px-2 py-1 text-[11px] text-ink-soft">
+              会前底稿
+            </span>
+          </div>
+          <div className="mt-4 space-y-3">
+            {buildMemoSections({
+              latestJudgment,
+              evidenceCompleteness,
+              reportCount: analysisReports.length,
+              meetingCount: meetings.length,
+              workflow,
+            }).map((section) => (
+              <div
+                key={section.title}
+                className="rounded-md border border-line bg-[#fffdfa] px-3 py-3"
+              >
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
+                      section.ready ? "bg-accent" : "bg-[#d79b35]"
+                    }`}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-ink">{section.title}</p>
+                    <p className="mt-1 text-xs leading-5 text-ink-soft">
+                      {section.note}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-line bg-white p-4">
+          <h3 className="text-sm font-semibold text-ink">会前未决问题</h3>
+          <div className="mt-4 space-y-3">
+            {openQuestions.map((question) => (
+              <div key={question} className="rounded-md bg-surface px-3 py-2">
+                <p className="text-xs leading-5 text-ink-soft">{question}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 border-t border-line pt-4">
+            <p className="text-xs leading-5 text-ink-soft">
+              建议在会议前把未决问题收敛到 3-5 个。问题不必全部解决，但需要明确哪些会影响投资结论。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2">
+        <button
+          onClick={onGenerateReport}
+          className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-[#265b42]"
+        >
+          生成分析报告
+        </button>
+        <Link
+          href={`/projects/${projectId}/brief-analysis`}
+          className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
+        >
+          生成一页简报
+        </Link>
+        <Link
+          href={`/projects/${projectId}/term-sheet`}
+          className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
+        >
+          准备条款草案
+        </Link>
+        {latestReportId && (
+          <Link
+            href={`/projects/${projectId}/report`}
+            className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
+          >
+            查看已有报告
+          </Link>
+        )}
+        <button
+          onClick={() => onSelectTab("analysis")}
+          className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
+        >
+          回到材料与判断
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function MemoMetric({
+  label,
+  value,
+  note,
+}: {
+  label: string;
+  value: string;
+  note: string;
+}) {
+  return (
+    <div className="rounded-lg border border-line bg-white p-4">
+      <p className="text-xs text-ink-faint">{label}</p>
+      <p className="mt-2 text-lg font-semibold text-ink">{value}</p>
+      <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-soft">{note}</p>
+    </div>
+  );
+}
+
+function buildMemoReadiness({
+  parsedDocCount,
+  judgmentCount,
+  reportCount,
+  evidenceCompleteness,
+  meetingCount,
+}: {
+  parsedDocCount: number;
+  judgmentCount: number;
+  reportCount: number;
+  evidenceCompleteness: number;
+  meetingCount: number;
+}) {
+  const base = Math.round(evidenceCompleteness * 0.45);
+  const docs = parsedDocCount > 0 ? 18 : 0;
+  const judgments = judgmentCount > 0 ? 18 : 0;
+  const reports = reportCount > 0 ? 14 : 0;
+  const meetings = meetingCount > 0 ? 5 : 0;
+  const score = Math.min(100, base + docs + judgments + reports + meetings);
+  const label =
+    score >= 80
+      ? "可以进入会前讨论"
+      : score >= 55
+        ? "已有底稿，仍建议补齐关键证据"
+        : "先补材料、判断和分析底稿";
+  return { score, label };
+}
+
+function buildMemoSections({
+  latestJudgment,
+  evidenceCompleteness,
+  reportCount,
+  meetingCount,
+  workflow,
+}: {
+  latestJudgment: Judgment | null;
+  evidenceCompleteness: number;
+  reportCount: number;
+  meetingCount: number;
+  workflow: WorkflowMeta;
+}) {
+  return [
+    {
+      title: "投资建议",
+      ready: !!latestJudgment,
+      note: latestJudgment
+        ? compactText(latestJudgment.bull_case || latestJudgment.key_hypothesis)
+        : "先记录一条当前判断，明确为什么继续看、为什么暂缓或为什么 Pass。",
+    },
+    {
+      title: "关键证据",
+      ready: evidenceCompleteness >= 60,
+      note:
+        evidenceCompleteness >= 60
+          ? `当前证据完整度为 ${evidenceCompleteness}%，可以支撑初步讨论。`
+          : `当前证据完整度为 ${evidenceCompleteness}%，建议补齐核心材料和验证信息。`,
+    },
+    {
+      title: "主要风险",
+      ready: !!latestJudgment?.bear_case,
+      note: latestJudgment?.bear_case
+        ? compactText(latestJudgment.bear_case)
+        : "把最可能改变投资结论的风险写清楚，会议讨论会更集中。",
+    },
+    {
+      title: "待验证假设",
+      ready: !!latestJudgment?.key_hypothesis || !!workflow.nextAction,
+      note:
+        latestJudgment?.key_hypothesis ||
+        workflow.nextAction ||
+        "列出接下来最需要验证的一件事，并放回项目当前状态持续跟踪。",
+    },
+    {
+      title: "材料与报告",
+      ready: reportCount > 0,
+      note:
+        reportCount > 0
+          ? `已有 ${reportCount} 份可引用分析输出。`
+          : "生成分析报告或一页简报后，可以作为 IC Memo 的底稿。",
+    },
+    {
+      title: "会议记录",
+      ready: meetingCount > 0,
+      note:
+        meetingCount > 0
+          ? `已有 ${meetingCount} 条会议记录可回看。`
+          : "如已和创始人、专家或内部成员讨论，建议补一条会议记录。",
+    },
+  ];
+}
+
+function buildOpenQuestions({
+  evidenceItems,
+  workflow,
+  latestJudgment,
+  latestReportId,
+  evidenceCompleteness,
+}: {
+  evidenceItems: EvidenceItem[];
+  workflow: WorkflowMeta;
+  latestJudgment: Judgment | null;
+  latestReportId: string | null;
+  evidenceCompleteness: number;
+}) {
+  const questions: string[] = [];
+  const missingEvidence = evidenceItems.filter((item) => !item.done).slice(0, 2);
+  for (const item of missingEvidence) {
+    questions.push(`${item.label}：${item.note}`);
+  }
+  if (!latestJudgment?.bear_case) {
+    questions.push("这笔投资最需要被反驳的风险是什么？");
+  }
+  if (!latestJudgment?.key_hypothesis) {
+    questions.push("如果只能验证一个假设，哪一项会最直接影响是否继续推进？");
+  }
+  if (!latestReportId) {
+    questions.push("是否需要先形成一版分析报告，作为投委会讨论底稿？");
+  }
+  if (evidenceCompleteness < 70 && workflow.nextAction) {
+    questions.push(`下一步是否仍是：${workflow.nextAction}`);
+  }
+  return questions.slice(0, 5);
 }
 
 function WorkflowPanel({
