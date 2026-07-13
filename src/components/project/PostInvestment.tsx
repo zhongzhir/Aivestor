@@ -12,6 +12,7 @@ import {
   FileUploader,
   type UploadResult,
 } from "@/components/shared/FileUploader";
+import { PostInvestmentPlanning } from "./PostInvestmentPlanning";
 
 interface AiSummary {
   decisions?: string[];
@@ -352,6 +353,8 @@ export function PostInvestment({
           </section>
         </div>
       </section>
+
+      <PostInvestmentPlanning projectId={projectId} />
 
       <section className="rounded-lg border border-line bg-white p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
