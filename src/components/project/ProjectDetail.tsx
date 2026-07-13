@@ -341,7 +341,6 @@ export function ProjectDetail({
 
   const parsedDocCount = docMeta.filter((d) => d.parseStatus === "done").length;
   const bpDocCount = docMeta.filter((d) => d.docKind === "bp").length;
-  const reportState = latestReportId ? "已有分析报告" : "等待生成报告";
   const judgmentCount = judgments.length;
   const hasJudgment = judgmentCount > 0;
   const judgmentPointCount = points.map((p) => p.trim()).filter(Boolean).length;
@@ -351,10 +350,6 @@ export function ProjectDetail({
     hasJudgment,
     latestReportId,
   });
-  const evidenceNote =
-    docMeta.length === 0
-      ? "尚未看到项目材料"
-      : `${parsedDocCount}/${docMeta.length} 份材料已解析`;
   const evidenceItems = buildEvidenceItems({
     docCount: docMeta.length,
     parsedDocCount,
@@ -418,6 +413,14 @@ export function ProjectDetail({
                 <span className="font-medium text-ink">{activityItems.length} 条</span>
               </span>
             </div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-faint">
+              <span>
+                材料：<span className="text-ink-soft">{parsedDocCount}/{docMeta.length} 份已解析</span>
+              </span>
+              <span>
+                报告：<span className="text-ink-soft">{latestReportId ? "已有分析报告" : "待生成分析报告"}</span>
+              </span>
+            </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             {latestReportId && (
@@ -440,7 +443,7 @@ export function ProjectDetail({
 
       <ActivityTimeline items={activityItems} />
 
-      <div className="mt-4 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mt-4">
         <div className="min-w-0">
           <div className="flex gap-1 border-b border-line">
             {([
@@ -690,19 +693,6 @@ export function ProjectDetail({
           )}
         </div>
 
-        <WorkspaceRail
-          workspaceState={workspaceState}
-          evidenceNote={evidenceNote}
-          evidenceItems={evidenceItems}
-          bpDocCount={bpDocCount}
-          reportState={reportState}
-          evidenceCompleteness={effectiveCompleteness}
-          nextAction={workflowState.nextAction}
-          nextActionDueAt={workflowState.nextActionDueAt}
-          judgmentCount={judgmentCount}
-          latestReportId={latestReportId}
-          projectId={projectId}
-        />
       </div>
 
       {showSkillModal && (
@@ -1764,10 +1754,6 @@ function formatShortDate(value: string): string {
   });
 }
 
-function formatFullDate(value: string): string {
-  return new Date(value).toLocaleDateString("zh-CN");
-}
-
 function dateInputValue(value: string | null | undefined): string {
   if (!value) return "";
   return value.slice(0, 10);
@@ -1917,107 +1903,6 @@ function estimateEvidenceCompleteness(items: EvidenceItem[]): number {
   if (items.length === 0) return 0;
   const done = items.filter((item) => item.done).length;
   return Math.round((done / items.length) * 100);
-}
-
-function WorkspaceRail({
-  workspaceState,
-  evidenceNote,
-  evidenceItems,
-  bpDocCount,
-  reportState,
-  evidenceCompleteness,
-  nextAction,
-  nextActionDueAt,
-  judgmentCount,
-  latestReportId,
-  projectId,
-}: {
-  workspaceState: WorkspaceState;
-  evidenceNote: string;
-  evidenceItems: EvidenceItem[];
-  bpDocCount: number;
-  reportState: string;
-  evidenceCompleteness: number;
-  nextAction: string | null;
-  nextActionDueAt: string | null;
-  judgmentCount: number;
-  latestReportId: string | null;
-  projectId: string;
-}) {
-  return (
-    <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-      <div className="rounded-lg border border-line bg-white p-4">
-        <h2 className="text-sm font-semibold text-ink">判断依据</h2>
-        <div className="mt-3 space-y-3 text-sm text-ink-soft">
-          <RailRow label="完整度" value={`${evidenceCompleteness}%`} />
-          <RailRow label="当前动作" value={nextAction || workspaceState.title} />
-          <RailRow label="截止日期" value={nextActionDueAt ? formatFullDate(nextActionDueAt) : "未设定"} />
-          <RailRow label="材料解析" value={evidenceNote} />
-          <RailRow label="BP 材料" value={`${bpDocCount} 份`} />
-          <RailRow label="判断记录" value={`${judgmentCount} 条`} />
-          <RailRow label="报告状态" value={reportState} />
-        </div>
-        <div className="mt-4 space-y-2">
-          {evidenceItems.map((item) => (
-            <div
-              key={item.label}
-              className="flex items-start gap-2 rounded-md bg-surface px-3 py-2 text-xs leading-5"
-            >
-              <span
-                className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                  item.done ? "bg-accent" : "bg-[#d79b35]"
-                }`}
-              />
-              <div>
-                <p className="font-medium text-ink">{item.label}</p>
-                <p className="mt-0.5 text-ink-soft">{item.note}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-line bg-white p-4">
-        <h2 className="text-sm font-semibold text-ink">投委会准备</h2>
-        <p className="mt-2 text-xs leading-5 text-ink-soft">
-          把当前材料、判断和报告整理成可讨论的决策包，方便会前快速对齐证据、分歧和下一步。
-        </p>
-        <div className="mt-4 grid gap-2">
-          <Link
-            href={`/projects/${projectId}/report`}
-            className={`rounded-lg border px-3 py-2 text-xs font-medium ${
-              latestReportId
-                ? "border-line text-ink-soft hover:bg-surface"
-                : "pointer-events-none border-line text-ink-faint"
-            }`}
-          >
-            整理已有报告
-          </Link>
-          <Link
-            href={`/projects/${projectId}/brief-analysis`}
-            className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
-          >
-            生成一页简报
-          </Link>
-          <Link
-            href={`/projects/${projectId}/term-sheet`}
-            className="rounded-lg border border-line px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface"
-          >
-            准备条款草案
-          </Link>
-        </div>
-      </div>
-    </aside>
-  );
-}
-
-function RailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <span className="text-ink-faint">{label}</span>
-      <span className="text-right text-ink-soft">{value}</span>
-    </div>
-  );
 }
 
 const DOC_KIND_LABELS: Record<string, string> = {
