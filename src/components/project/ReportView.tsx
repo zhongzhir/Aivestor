@@ -120,6 +120,8 @@ export function ReportView({
       if (rid) setReportId(rid);
       await readTextStream(res, (t) => setContent((c) => c + t));
     } catch (e) {
+      setContent("");
+      setReportId(null);
       setError(e instanceof Error ? e.message : "生成失败");
     } finally {
       setMode("idle");

@@ -162,7 +162,8 @@ export async function POST(
       await query("DELETE FROM reports WHERE id = $1 AND content = ''", [
         reportId,
       ]);
-    }
+    },
+    { usingFreeQuota: creds.usingFreeQuota }
   );
   res.headers.set("X-Report-Id", reportId);
   return res;

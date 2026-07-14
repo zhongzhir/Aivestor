@@ -1,4 +1,8 @@
 // 客户端流式读取与跨页数据传递工具。
+import {
+  AI_STREAM_ERROR_PREFIX,
+  decodeAIStreamError,
+} from "@/lib/aiStreamProtocol";
 // AI API Key 已改为服务端加密存储，不再经客户端透传。
 
 // 从一个非 2xx 响应里提取可读错误信息。
@@ -42,11 +46,39 @@ export async function readTextStream(
   const reader = res.body?.getReader();
   if (!reader) return;
   const decoder = new TextDecoder();
+  let pending = "";
   for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
-    onChunk(decoder.decode(value, { stream: true }));
+    if (done) {
+      pending += decoder.decode();
+      break;
+    }
+    pending += decoder.decode(value, { stream: true });
+    const errorAt = pending.indexOf(AI_STREAM_ERROR_PREFIX);
+    if (errorAt >= 0) {
+      if (errorAt > 0) onChunk(pending.slice(0, errorAt));
+      pending = pending.slice(errorAt);
+      continue;
+    }
+
+    // 保留一小段尾部，避免错误标记恰好被网络分块拆开。
+    const safeLength = pending.length - (AI_STREAM_ERROR_PREFIX.length - 1);
+    if (safeLength > 0) {
+      onChunk(pending.slice(0, safeLength));
+      pending = pending.slice(safeLength);
+    }
   }
+
+  const errorAt = pending.indexOf(AI_STREAM_ERROR_PREFIX);
+  if (errorAt >= 0) {
+    if (errorAt > 0) onChunk(pending.slice(0, errorAt));
+    throw new Error(
+      decodeAIStreamError(
+        pending.slice(errorAt + AI_STREAM_ERROR_PREFIX.length)
+      )
+    );
+  }
+  if (pending) onChunk(pending);
 }
 
 // 用于在项目页与报告页之间传递本轮判断要点

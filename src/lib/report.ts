@@ -2,6 +2,12 @@ import { type AIProvider, type ChatMessage, isValidProvider } from "@/lib/ai";
 import { decrypt } from "@/lib/crypto";
 import { query } from "@/lib/db";
 import { getSystemApiKey, getFreeQuotaStatus } from "@/lib/freeQuota";
+import {
+  aiErrorLogDetails,
+  type AIErrorContext,
+  userFacingAIError,
+} from "@/lib/aiError";
+import { encodeAIStreamError } from "@/lib/aiStreamProtocol";
 import type { FinancialData, FinPoint } from "@/lib/types";
 
 // 报告生成 / 修改的 prompt 构建与流式响应工具。
@@ -337,7 +343,8 @@ export async function loadUserAICredentials(
 export function streamTextResponse(
   generator: AsyncGenerator<string>,
   onComplete: (fullText: string) => Promise<void>,
-  onError?: (err: unknown) => Promise<void>
+  onError?: (err: unknown) => Promise<void>,
+  errorContext: AIErrorContext = {}
 ): Response {
   const encoder = new TextEncoder();
   let full = "";
@@ -351,8 +358,16 @@ export function streamTextResponse(
         }
         await onComplete(full);
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "未知错误";
-        controller.enqueue(encoder.encode(`\n\n> [生成中断] ${msg}`));
+        const logDetails = aiErrorLogDetails(err);
+        console.error("[streamTextResponse] AI stream failed:", {
+          ...logDetails,
+          usingFreeQuota: !!errorContext.usingFreeQuota,
+        });
+        controller.enqueue(
+          encoder.encode(
+            encodeAIStreamError(userFacingAIError(err, errorContext))
+          )
+        );
         if (onError) {
           try {
             await onError(err);
