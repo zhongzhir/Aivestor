@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
@@ -113,7 +113,7 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            "对话表不存在 —— 请在 Railway 控制台执行 db/migrations/013_conversations.sql",
+            "对话表不存在 —— 请执行数据库迁移 db/migrations/013_conversations.sql",
           code: info.code,
         },
         { status: 500 }
@@ -252,7 +252,7 @@ export async function PUT(
       return NextResponse.json(
         {
           error:
-            "对话表不存在 —— 请在 Railway 控制台执行 db/migrations/013_conversations.sql",
+            "对话表不存在 —— 请执行数据库迁移 db/migrations/013_conversations.sql",
           code: info.code,
         },
         { status: 500 }

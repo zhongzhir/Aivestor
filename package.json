@@ -2,7 +2,7 @@
   "name": "investment-workbench",
   "version": "0.1.0",
   "private": true,
-  "description": "投资工作台 — 面向一级股权投资专业人员的 AI 增强型工作平台",
+  "description": "面向一级股权投资人的全周期 AI 工作台",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

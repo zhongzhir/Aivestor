@@ -1,10 +1,27 @@
-# Aivestor 私有化部署指南
+# Aivestor 私有化安装快速指南
 
-**版本**：V3.1 · 2026-06-01  
-**文档读者**：负责部署的 IT 人员或具备 Linux/Docker 基础的技术人员  
-**适用场景**：机构内网私有化部署、个人服务器自托管
+**版本**：V3.2 · 2026-07-14
+**文档读者**：首次安装私有化版本的个人开发者、机构 IT 或具备 Docker 基础的用户
+**适用场景**：本机试用、个人服务器自托管、机构内网私有化部署
 
-> 如果你是普通用户，无需阅读本文档。直接访问 [https://vestia-two.vercel.app](https://vestia-two.vercel.app) 注册使用云端版本即可。
+> 如果你只是想使用 Aivestor，无需下载安装。直接访问 [https://aivestor.cn](https://aivestor.cn) 注册即可；也可以在 Chrome/Edge 中选择「安装 Aivestor」把网页固定成桌面应用。
+>
+> 如果你希望项目材料、数据库和上传文件都留在自己的电脑、服务器或机构内网，请继续阅读本文档。
+
+## 最短路径
+
+已经安装 Docker 的情况下，执行下面三步即可启动完整 Aivestor：
+
+```bash
+git clone https://github.com/zhongzhir/aivestor.git
+cd aivestor
+./setup.sh
+docker compose --env-file .env.docker up -d --build
+```
+
+Windows 用户可以下载 ZIP 解压后双击 `setup.bat`，再在 PowerShell 或 WSL2 中执行 Docker 启动命令。首次启动通常需要 3 ~ 10 分钟，完成后打开 `http://localhost` 注册第一个账号。
+
+> 更完整的环境变量、HTTPS、备份和升级说明见 [DEPLOY.md](./DEPLOY.md)。
 
 ---
 
@@ -318,7 +335,7 @@ docker exec -it aivestor-db psql -U aivestor aivestor_db
 ```
 
 **Q：应用启动后访问显示 502 Bad Gateway**  
-V3.1 起 nginx 已通过 `depends_on: condition: service_healthy` 等待 app 健康检查通过再放流量，正常情况下不会再出现冷启 502。若仍遇到：
+当前 Docker 编排已通过 `depends_on: condition: service_healthy` 等待 app 健康检查通过再放流量，正常情况下不会再出现冷启 502。若仍遇到：
 - 检查 `docker compose ps`，aivestor-app 应显示 `(healthy)`；若停留在 `(starting)`，多等 30 秒
 - 否则查应用日志：`docker compose logs --tail=100 app`，常见原因是 DATABASE_URL/密钥未设或数据库未起来
 

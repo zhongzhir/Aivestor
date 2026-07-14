@@ -1,13 +1,14 @@
-# Aivestor 本地化部署指南（Docker 版）
+# Aivestor 私有化部署指南（Docker 版）
 
-> 本文档面向**有 Docker 基础的 IT 人员或个人开发者**，覆盖从零到运行的完整路径与运维操作。
-> 普通用户使用云端版本：<https://aivestor.cn>。
+> Aivestor 支持两种使用方式：普通用户直接访问 <https://aivestor.cn> 注册使用；需要数据完全留在自控环境的个人、团队和机构，可以按本文档用 Docker 一键部署自己的 Aivestor 实例。
+>
+> 本文档面向**有 Docker 基础的 IT 人员、个人开发者或机构技术负责人**，覆盖从零到运行的完整路径与运维操作。
 
 ---
 
 ## 快速开始
 
-三步起步：
+三步起步，在本机或服务器上启动完整 Aivestor：
 
 ```bash
 git clone https://github.com/zhongzhir/aivestor.git
@@ -16,7 +17,7 @@ cd aivestor
 docker compose --env-file .env.docker up -d --build
 ```
 
-首次启动约 3 ~ 10 分钟（拉镜像 + 构建 app）。完成后浏览器打开 `http://localhost`（或脚本里指定的访问地址）注册即可。
+首次启动约 3 ~ 10 分钟（拉镜像 + 构建 app）。完成后浏览器打开 `http://localhost`（或脚本里指定的访问地址）注册即可。第一个注册账号建议作为管理员账号长期保存。
 
 > ⚠️ **必须经 Nginx 80 端口访问，不要直连 `http://...:3000`。**
 > Next.js 应用容器虽然把 3000 暴露在宿主上方便调试，但 NextAuth 会用 `NEXTAUTH_URL`（指向 80）来比对 cookie 的 host；直连 :3000 会导致 cookie 校验失败，登录后立刻 401。**始终通过 `NEXTAUTH_URL` 指向的地址访问**。
@@ -34,6 +35,13 @@ docker compose --env-file .env.docker up -d --build
 | CPU / 内存 / 磁盘 | 最低 2 核 / 4 GB / 10 GB；推荐 4 核 / 8 GB / 20 GB+ |
 
 > ℹ️ Linux 安装 Docker：`curl -fsSL https://get.docker.com | sh`，然后 `sudo apt install docker-compose-plugin`。其他系统参考 <https://docs.docker.com/engine/install/>。
+
+## 为什么选择私有化部署
+
+- **数据边界清晰**：数据库、上传材料、项目记录都保存在你控制的机器或内网服务器上。
+- **适合机构合规**：可接入自己的域名、网络、备份、审计和访问控制流程。
+- **不绑定云端账号**：团队可独立维护实例，模型 Key、OSS、邮件和短信服务均由部署方自行配置。
+- **升级路径简单**：代码更新后重新构建容器即可，数据保存在 Docker Volume 中，不随容器重建丢失。
 
 ---
 
@@ -292,7 +300,7 @@ docker compose --env-file .env.docker up -d --build
 ```
 
 **Q：启动后访问首页显示 502 Bad Gateway 或空白？**
-A：V3.1.1 起 nginx 通过 `depends_on: condition: service_healthy` 等待 app 就绪后才接流量，正常不应出现冷启 502。若仍遇到：
+A：当前 Docker 编排已通过 `depends_on: condition: service_healthy` 等待 app 就绪后才接流量，正常不应出现冷启 502。若仍遇到：
 1. `docker compose ps` 看 `aivestor-app` 是否 `(healthy)`；若仍 `(starting)`，再等 30 秒
 2. `docker compose logs --tail=100 app`；常见根因：`DATABASE_URL` 不可达、`ENCRYPTION_KEY` 留空、数据库还在初始化
 
@@ -343,7 +351,7 @@ UPDATE users SET password_hash = '<上一步输出的哈希>' WHERE email = 'use
 ```
 
 **Q：Windows 上 `setup.bat` 闪退或乱码？**
-A：V3.1.1 的 setup.bat 已改为全英文 + 任何错误都 `pause` 不静默退出。若仍闪退：
+A：当前 `setup.bat` 已改为全英文交互，并在错误时停留窗口便于查看原因。若仍闪退：
 1. 不要双击运行，改为打开 `cmd` → `cd` 到项目目录 → 输入 `setup.bat` 回车，这样即便首屏报错也能看到
 2. 或改用 WSL2 跑 `./setup.sh`，体验更顺滑
 

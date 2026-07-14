@@ -14,7 +14,7 @@ export default function LandingPage() {
             "@type": "SoftwareApplication",
             "name": "Aivestor",
             "url": "https://aivestor.cn",
-            "description": "面向一级股权投资专业人员的AI增强型工作台。支持BP分析、私有知识库、投资判断沉淀、跨会话记忆。数据主权归用户。",
+            "description": "面向一级股权投资人的全周期AI工作台。连接项目管线、材料分析、投资决策、IC Memo、投后管理与知识沉淀。",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web",
             "inLanguage": "zh-CN",
@@ -36,6 +36,10 @@ export default function LandingPage() {
               "BP智能分析与报告生成",
               "私有知识库（向量检索）",
               "投资判断记录与回溯",
+              "投资节点控制与IC Memo",
+              "投后指标、行动项与退出策略",
+              "投后报告生成与导出",
+              "项目关系与知识上下文",
               "跨会话AI记忆",
               "SKILL分析框架广场",
               "数据溯源标注",
@@ -52,16 +56,19 @@ export default function LandingPage() {
           <div style={{ fontSize: "42px", fontWeight: "800", marginBottom: "12px" }}>
             <span style={{ fontWeight: "300" }}>Ai</span>vestor
           </div>
-          <p style={{ fontSize: "22px", color: "#1B6FE8", fontWeight: "600", marginBottom: "16px" }}>
-            投资人的 AI 增强工作台
+          <p style={{ fontSize: "13px", color: "#1B6FE8", fontWeight: "700", letterSpacing: "0.12em", marginBottom: "12px" }}>
+            AIVESTOR 2.0
+          </p>
+          <p style={{ fontSize: "22px", color: "#0D1B3E", fontWeight: "600", marginBottom: "16px" }}>
+            股权投资全周期 AI 工作台
           </p>
           <p style={{ fontSize: "17px", color: "#666", lineHeight: "1.7", maxWidth: "600px", margin: "0 auto 32px" }}>
-            不只是生成报告——把你每一次投资判断沉淀成可调用的资产。<br />
-            私有知识库越用越懂你，三年后还能看到当初怎么判断的。
+            从项目初筛、尽调和投资决策，到投后管理与报告输出。<br />
+            让材料、判断、关系与行动留在同一个持续演进的项目工作区。
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
             <Link href="/login" style={{ background: "#1B6FE8", color: "#fff", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600", fontSize: "16px" }}>
-              申请内测
+              免费开始使用
             </Link>
             <Link href="/demo/consumer" style={{ border: "2px solid #1B6FE8", color: "#1B6FE8", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600", fontSize: "16px" }}>
               查看示例报告 →
@@ -72,13 +79,13 @@ export default function LandingPage() {
         {/* 解决的问题 */}
         <section style={{ marginBottom: "80px" }}>
           <h2 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "32px", textAlign: "center", color: "#0D1B3E" }}>
-            为什么投资人不该直接用 ChatGPT 做尽调
+            AI 能回答问题，工作台负责让决策连续发生
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "20px" }}>
             {[
-              { title: "分析结论无法沉淀", desc: "每次分析BP都从头开始，历史判断散落在邮件和记忆里，无法检索，无法复用" },
-              { title: "通用AI不懂你的逻辑", desc: "ChatGPT不知道你的投资偏好、关注赛道、历史踩坑，每次都要重新解释背景" },
-              { title: "个人认知演变不可见", desc: "做了5年投资，你的判断框架进化了多少？哪类项目你持续高估？没有数据，只有感觉" },
+              { title: "项目上下文容易断裂", desc: "材料、会议、判断和报告分散在不同工具里，重新打开项目时还要从头找回状态" },
+              { title: "决策过程缺少支点", desc: "分析结论很多，但关键假设、待核问题、投资节点和正式决策没有形成连续记录" },
+              { title: "投前与投后彼此割裂", desc: "投前形成的判断很少进入投后验证，指标、行动、退出策略和对外报告又靠人工拼接" },
             ].map((item) => (
               <div key={item.title} style={{ background: "#F0F5FF", borderRadius: "12px", padding: "24px", borderLeft: "4px solid #1B6FE8" }}>
                 <div style={{ fontWeight: "700", marginBottom: "8px", color: "#0D1B3E" }}>{item.title}</div>
@@ -95,12 +102,14 @@ export default function LandingPage() {
           </h2>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
             {[
-              { icon: "📄", title: "BP 分析报告", desc: "上传BP，生成结构化七章节分析，支持Word/PPT导出" },
-              { icon: "🧠", title: "私有知识库", desc: "判断自动沉淀，语义检索，越用越懂你" },
-              { icon: "🎯", title: "投资判断中心", desc: "多空记录、Outcome追踪、认知盲区识别" },
-              { icon: "🛠", title: "SKILL 广场", desc: "20+官方分析框架，支持自定义与分享" },
-              { icon: "💬", title: "跨会话记忆", desc: "AI记住你的投资偏好，无需每次重新介绍背景" },
-              { icon: "🔒", title: "数据主权", desc: "用户自带API Key，数据不经第三方，支持私有部署" },
+              { icon: "🗂", title: "项目管线与工作台", desc: "集中查看活跃项目、阶段、下一步动作与近期变化" },
+              { icon: "📄", title: "材料分析与报告", desc: "解析BP与财务材料，生成可追溯、可修改、可导出的报告" },
+              { icon: "🎯", title: "投资决策与 IC", desc: "记录关键假设和决策节点，在项目内准备并评审 IC Memo" },
+              { icon: "📈", title: "投后管理", desc: "跟踪指标、重大事项、行动项、退出策略与投后报告" },
+              { icon: "🔗", title: "关系与知识上下文", desc: "把联系人、介绍来源和历史知识带回当前项目" },
+              { icon: "🧠", title: "个人与机构知识", desc: "个人判断与机构沉淀分层保留，在工作流中按需调用" },
+              { icon: "🛠", title: "SKILL 广场", desc: "近30个投资框架，支持自定义、导入导出与项目调用" },
+              { icon: "🔒", title: "数据与权限边界", desc: "支持自带模型密钥、组织权限控制、数据导出与私有部署" },
             ].map((item) => (
               <div key={item.title} style={{ background: "#fff", border: "1px solid #E8F0FD", borderRadius: "12px", padding: "20px" }}>
                 <div style={{ fontSize: "28px", marginBottom: "10px" }}>{item.icon}</div>
@@ -127,12 +136,13 @@ export default function LandingPage() {
               </thead>
               <tbody>
                 {[
-                  ["上下文记忆", "每次对话从零开始", "跨会话记忆你的投资偏好与历史"],
-                  ["数据归属", "数据在 OpenAI 服务器", "数据主权归用户，支持私有部署"],
+                  ["上下文组织", "记忆以通用对话为主", "项目、判断、知识与投后记录结构化关联"],
+                  ["部署与控制", "取决于所用模型服务", "支持数据导出、自带模型密钥与私有部署"],
                   ["历史沉淀", "分析完即消失", "每次判断留存，可回溯，可对比"],
                   ["个人化程度", "对所有用户一样", "越用越懂你的投资逻辑"],
-                  ["专业工作流", "单轮对话，结构松散", "完整工作台：上传→分析→存档→检索"],
-                  ["决策辅助", "需要自己设计prompt", "内置多角度质疑框架"],
+                  ["专业工作流", "以对话和单次任务为主", "项目管线→分析→决策→投后→输出"],
+                  ["决策落地", "需要自行组织记录", "关键假设、投资节点与 IC Memo 连续留痕"],
+                  ["投后管理", "需要另建表格和文档", "指标、行动、退出策略与报告在项目内衔接"],
                 ].map(([dim, gpt, aivestor], i) => (
                   <tr key={dim} style={{ background: i % 2 === 0 ? "#F8FAFF" : "#fff" }}>
                     <td style={{ padding: "12px 16px", fontWeight: "600", color: "#0D1B3E" }}>{dim}</td>
@@ -157,8 +167,12 @@ export default function LandingPage() {
                 a: "最核心的区别是“沉淀”。用ChatGPT分析完一个项目，对话结束数据就消失了。Aivestor会把每次判断存入你的私有知识库，半年后再看新项目时，AI能自动关联你历史上看过的类似案例，告诉你上次在哪里判断对了、哪里踩坑了。"
               },
               {
+                q: "需要下载安装吗？",
+                a: "普通用户不需要下载安装，直接打开 aivestor.cn 注册即可使用。想固定到桌面时，可在 Chrome 或 Edge 中选择“安装 Aivestor”或“将此站点作为应用安装”。如果你需要数据完全留在自控环境，也可以使用 Docker 私有化部署。"
+              },
+              {
                 q: "我的投资分析数据安全吗？会被平台看到吗？",
-                a: "不会。Aivestor采用“用户自带API Key”模式——AI调用从你自己的账号发出，平台不持有你的对话内容。数据库加密存储，API Key用AES-256-GCM加密。本地化部署版本规划支持 Docker 与本地模型，适合对数据边界要求更高的团队。"
+                a: "Aivestor支持用户自带API Key，密钥使用AES-256-GCM加密；项目与组织资源按权限隔离，并提供数据导出和Docker私有部署。使用SaaS版本时，项目材料与工作记录会按产品功能存储和处理；对数据边界要求更高的团队可选择私有部署。"
               },
               {
                 q: "支持哪些 AI 模型？必须用某个特定模型吗？",
@@ -166,7 +180,7 @@ export default function LandingPage() {
               },
               {
                 q: "适合什么阶段的投资机构？个人投资人能用吗？",
-                a: "都可以。产品面向所有一级股权投资从业者：VC/PE分析师、投资经理、合伙人，以及活跃的天使投资人。机构团队版（多人协作、机构知识库）在路线图中，目前以个人版为主。"
+                a: "都可以。个人版适合分析师、投资经理和天使投资人持续管理自己的判断；机构版已支持组织权限、共享项目与知识、团队判断协作、LP报告和机构数据应用，采用联系开通方式。"
               },
               {
                 q: "知识库里的内容是怎么产生的？需要手动维护吗？",
@@ -174,11 +188,11 @@ export default function LandingPage() {
               },
               {
                 q: "SKILL 广场是什么？",
-                a: "投资分析框架的模板库。平台内置20+官方SKILL，覆盖消费、SaaS、医疗、硬件等细分赛道，每个SKILL定义了分析该类项目的结构化问题框架。你可以直接使用官方框架，也可以自定义、导入导出，或让AI根据你的历史判断自动生成专属框架。"
+                a: "投资分析框架的模板库。平台内置近30个官方SKILL，覆盖消费、SaaS、医疗、硬件、尽调、IC和投后等场景。你可以直接使用官方框架，也可以自定义、导入导出，或让AI根据你的历史判断自动生成专属框架。"
               },
               {
-                q: "现在可以使用吗？怎么申请？",
-                a: "目前处于内测阶段。个人用户可直接访问 www.aivestor.cn 注册登录使用，内测用户享有免费 AI 使用额度，欢迎反馈你的需求和问题。机构用户需求可联系 Aivestor@qq.com 提供定制化服务。"
+                q: "现在可以使用吗？",
+                a: "可以。个人用户可直接访问 aivestor.cn 注册使用，并获得平台试用额度；也可以配置自己的模型API Key。机构版采用联系开通方式，可通过 Aivestor@qq.com 沟通团队协作、数据接入与私有化部署需求。"
               },
             ].map((item) => (
               <div key={item.q} style={{ border: "1px solid #E8F0FD", borderRadius: "12px", padding: "20px 24px" }}>
@@ -199,7 +213,7 @@ export default function LandingPage() {
             专业分析框架，开箱即用
           </h2>
           <p style={{ fontSize: "16px", color: "#666", lineHeight: "1.7", textAlign: "center", maxWidth: "640px", margin: "0 auto 32px" }}>
-            20个由投资实践提炼的分析框架，覆盖BP解读、尽调、行业研究、财务评估等核心场景
+            近30个由投资实践提炼的分析框架，覆盖BP解读、尽调、行业研究、IC和投后等核心场景
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "16px" }}>
             {[
@@ -216,7 +230,7 @@ export default function LandingPage() {
           </div>
           <div style={{ textAlign: "center", marginTop: "28px" }}>
             <Link href="/skills" style={{ color: "#1B6FE8", fontWeight: "600", fontSize: "16px", textDecoration: "none" }}>
-              查看全部20个分析框架 →
+              查看全部分析框架 →
             </Link>
           </div>
         </section>
@@ -224,17 +238,17 @@ export default function LandingPage() {
         {/* CTA */}
         <section style={{ textAlign: "center", background: "#0D1B3E", borderRadius: "16px", padding: "48px 32px", color: "#fff" }}>
           <h2 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "12px" }}>
-            加入内测
+            把下一个项目放进 Aivestor
           </h2>
           <p style={{ color: "#9BB8E8", marginBottom: "28px", fontSize: "16px" }}>
-            面向一级市场从业者开放，平台永久免费，内测用户享有免费 AI 使用额度。
+            个人用户可直接注册并使用平台试用额度；机构团队可联系开通协作与数据能力。
           </p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
             <Link href="/login" style={{ background: "#1B6FE8", color: "#fff", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600" }}>
               立即注册
             </Link>
             <a href="mailto:Aivestor@qq.com" style={{ border: "2px solid #4A9EFF", color: "#4A9EFF", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600" }}>
-              发邮件申请
+              咨询机构版
             </a>
           </div>
         </section>

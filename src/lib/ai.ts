@@ -3,8 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { consumeQuota } from "@/lib/freeQuota";
 
 // 统一 AI 调用层。
-// 关键约束：平台不存储 API Key —— Key 由调用方（API 路由）从请求头透传进来，
-// 用完即弃，不落库、不记录日志。
+// 关键约束：本层只接收调用方传入的明文 Key，不自行读取或持久化。
+// 用户自带 Key 在 API 路由层按需解密后传入；平台代付 Key 来自环境变量。
 
 export type AIProvider =
   | "deepseek"

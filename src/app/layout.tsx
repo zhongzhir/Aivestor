@@ -13,11 +13,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "Aivestor — 投资人的 AI 增强工作台",
+    default: "Aivestor — 股权投资全周期 AI 工作台",
     template: "%s | Aivestor",
   },
   description:
-    "面向一级股权投资人的AI工作台。BP分析、私有知识库、投资判断沉淀、跨会话记忆。数据主权归用户。",
+    "面向一级股权投资人的全周期工作台，连接项目管线、材料分析、投资决策、IC Memo、投后管理与知识沉淀。",
   keywords: [
     "投资分析",
     "AI工具",
@@ -25,6 +25,8 @@ export const metadata: Metadata = {
     "私募股权",
     "BP分析",
     "尽职调查",
+    "投委会",
+    "投后管理",
     "知识库",
     "venture capital",
     "AI investment",
@@ -36,8 +38,8 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
   },
   openGraph: {
-    title: "Aivestor — 投资人的 AI 增强工作台",
-    description: "面向一级股权投资人的AI工作台。把每次投资判断沉淀为私有知识资产。",
+    title: "Aivestor — 股权投资全周期 AI 工作台",
+    description: "从项目初筛、尽调和投资决策，到投后管理与报告输出，让材料、判断和行动在一个工作区持续沉淀。",
     url: "https://aivestor.cn",
     siteName: "Aivestor",
     locale: "zh_CN",

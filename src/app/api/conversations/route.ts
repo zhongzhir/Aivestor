@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 
@@ -58,7 +58,7 @@ export async function GET() {
     console.error("[conversations][GET] 失败:", info, e);
     const hint =
       info.code === "42P01"
-        ? "对话表不存在 —— 请在 Railway 执行 db/migrations/013_conversations.sql"
+        ? "对话表不存在 —— 请执行数据库迁移 db/migrations/013_conversations.sql"
         : undefined;
     return NextResponse.json(
       {
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     );
   } catch (e) {
     const info = describeError(e);
-    // 完整结构化打印 —— Vercel/Railway 日志可看
+    // 完整结构化打印 —— 服务端日志可看
     console.error("[conversations][POST] 失败:", info, e);
 
     // 表不存在（SQLSTATE 42P01）：精准提示用户跑迁移
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "对话表不存在 —— 请在 Railway 控制台执行 db/migrations/013_conversations.sql",
+            "对话表不存在 —— 请执行数据库迁移 db/migrations/013_conversations.sql",
           code: info.code,
           detail: info.detail,
         },

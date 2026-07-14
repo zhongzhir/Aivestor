@@ -4,7 +4,8 @@ import { query } from "@/lib/db";
 import { sendEmail } from "@/lib/aliyun";
 import { isValidEmail } from "@/lib/authUtils";
 
-const APP_URL = "https://vestia-two.vercel.app";
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "https://aivestor.cn";
 
 // 无论邮箱是否存在都返回此提示，防止邮箱枚举。
 const GENERIC = {

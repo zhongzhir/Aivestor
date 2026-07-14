@@ -6,7 +6,7 @@
 --   1. 知识库为产品地基，所有文档与知识条目均归属单一用户（私有化）。
 --   2. 嵌入向量维度默认 1536（兼容 OpenAI / 通义千问 text-embedding）。
 --      若改用其他嵌入模型，需同步调整 vector(N) 维度并重建索引。
---   3. 平台不存储任何 AI 服务 API Key，故无相关表。
+--   3. 用户模型 API Key 加密存储，平台代付 Key 由环境变量注入。
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -1595,7 +1595,7 @@ ALTER TABLE free_quota_usage ALTER COLUMN tokens_limit SET DEFAULT 5000000;
 -- ============================================================
 -- 机构版迁移（P1–P4，2026-06-13 追加）
 -- ============================================================
--- 背景：本 init.sql 此前停留在合并 001–018 迁移的状态（V3.1.1，2026-06-01），
+-- 背景：本 init.sql 此前停留在合并 001–018 迁移的状态，
 --   机构版 020–027 全部未合并，导致全新本地部署因缺表/缺列而机构版功能 500。
 --   本段按生产实际执行顺序追加合并：020 → 021 → 022 → 023 → 027 → 026。
 --
@@ -1604,7 +1604,7 @@ ALTER TABLE free_quota_usage ALTER COLUMN tokens_limit SET DEFAULT 5000000;
 --   `ALTER ... reports_kind_check` 会因缺列报错。故此处先内联补建 reports.kind，
 --   再追加机构版迁移。
 --
--- 已知遗留（记录在 devlog/2026-06-13-p4-nav-workspace.md）：第二序列中
+-- 已知遗留：第二序列中
 --   016_add_workflow_skills / 017_add_screening_criteria / 019_add_legal_skills /
 --   019_admin_plan 仍未并入本文件（非机构版、非 500 阻断项；016/019_legal 为
 --   skill_catalog 数据补充，017/019_admin 为 user_profiles/users 列与约束）。

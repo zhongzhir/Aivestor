@@ -129,7 +129,7 @@ async function searchOrg(
 //   - 仅向量检索（zjjr 层无全文兜底，vec 为空时由调用方跳过本路）。
 //   - 过期降权不剔除：valid_until 未过期 freshness=1.0，过期=0.5（5.5）。
 //   - 来源标注：特征正文在生成时已内置「来源：中鉴基金研究院，数据截止…，仅供参考」
-//     （services/zjjr-sync narrate.ts）；此处兜底确保标注存在。
+//     生成；此处兜底确保标注存在。
 //   - 静默降级：表为空 / 查询异常（如迁移 028 未执行）→ 返回 []，不阻塞主流程。
 interface ZjjrRawHit {
   title: string | null;

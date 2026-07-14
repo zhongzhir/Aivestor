@@ -119,7 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_zjjr_features_valid ON zjjr_features(valid_until)
 --     CREATE INDEX IF NOT EXISTS idx_zjjr_features_embedding ON zjjr_features
 --       USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
 --
---   （建索引时机与 SQL 见架构文档 5.2 与 services/zjjr-sync/src/pipeline/write.ts。
+--   （建索引时机：首次全量导入完成、zjjr_features 已有足够样本后执行。
 --    日常增量写入由索引自动维护；features_rebuild 大批量重灌后需
 --    `REINDEX INDEX idx_zjjr_features_embedding;` 重算聚类中心。）
 

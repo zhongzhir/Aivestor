@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             error:
-              "投资人画像表不存在 —— 请在 Railway 控制台执行 db/migrations/011_user_profile.sql",
+              "投资人画像表不存在 —— 请执行数据库迁移 db/migrations/011_user_profile.sql",
             code: info.code,
             detail: info.detail,
           },
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             error:
-              "投资人画像表不存在 —— 请在 Railway 控制台执行 db/migrations/011_user_profile.sql",
+              "投资人画像表不存在 —— 请执行数据库迁移 db/migrations/011_user_profile.sql",
             code: info.code,
           },
           { status: 500 }

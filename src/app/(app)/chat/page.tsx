@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -58,7 +58,7 @@ export default function ChatPage() {
         const j = await res.json().catch(() => ({}));
         const detail =
           j?.error ||
-          `创建失败（HTTP ${res.status}）。若后端首次部署，请先在 Railway 执行 db/migrations/013_conversations.sql。`;
+          `创建失败（HTTP ${res.status}）。若后端首次部署，请先执行数据库迁移 db/migrations/013_conversations.sql。`;
         setPageError(detail);
         console.error("[chat] POST /api/conversations failed", res.status, j);
         return;

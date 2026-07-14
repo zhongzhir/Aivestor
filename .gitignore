@@ -31,7 +31,22 @@ yarn-error.log*
 
 # 内部上下文文档（不入库）
 AIVESTOR_CONTEXT.md
+aivestor_log.md
 *.context.md
+
+# 内部审计、排障与运营材料（不入库）
+AUDIT_REPORT_*.md
+dev-*.log
+devlog/
+docs/ops/
+docs/brand/
+docs/system/
+docs/deploy/DIAG_*.md
+docs/deploy/HOTFIX_*.md
+docs/deploy/*DEPLOYMENT*.md
+services/zjjr-sync/
+scripts/security-policy.test.ts
+AIVESTOR_*传播文.md
 
 # typescript
 *.tsbuildinfo

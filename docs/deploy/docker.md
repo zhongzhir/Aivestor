@@ -1,11 +1,11 @@
-# Docker 本地部署
+# Docker 私有化部署
 
-如果你对数据安全有严格要求，希望数据完全在本机，可以使用 Docker Compose 一键本地化部署。
+如果你对数据边界、内网访问或机构合规有明确要求，可以用 Docker Compose 一键部署自己的 Aivestor 实例。数据库、上传文件和项目记录保存在你控制的本机或服务器上。
 
 ## 前置要求
 
 - Docker Desktop（Windows / macOS）或 Docker Engine（Linux）
-- 约 2GB 磁盘空间
+- 最低 2 核 CPU / 4GB 内存 / 10GB 磁盘；多用户建议 4 核 / 8GB / 20GB+
 
 ## 快速部署
 
@@ -28,12 +28,12 @@ setup.bat
 chmod +x setup.sh && ./setup.sh
 ```
 
-脚本会引导你填写必要的配置（邮箱服务、AI API Key 等），自动生成 `.env.docker` 文件。
+脚本会引导你填写访问地址和可选的百炼 API Key，并自动生成数据库密码、登录密钥和 API Key 加密密钥，写入 `.env.docker` 文件。
 
 ### 3. 启动服务
 
 ```bash
-docker compose up -d
+docker compose --env-file .env.docker up -d --build
 ```
 
 ### 4. 访问
@@ -54,10 +54,10 @@ docker compose up -d
 
 ## 数据持久化
 
-所有数据（数据库、上传文件）通过 Docker Volume 持久化存储在本机，重启不丢失。
+所有数据（数据库、上传文件）通过 Docker Volume 持久化存储在本机或服务器上，重启和重建容器不会丢失。正式使用前建议配置定期数据库备份。
 
 ## 已验证版本
 
-当前 Docker Hub 镜像：`zhongzhir/aivestor:3.1.1`
+当前推荐方式：从 GitHub 仓库拉取源码后使用 Docker Compose 构建运行。
 
 > 如遇部署问题，欢迎提 [GitHub Issue](https://github.com/zhongzhir/aivestor/issues) 或发邮件至 Aivestor@qq.com
