@@ -28,5 +28,5 @@ export function renderSourceBadges(markdown: string): string {
 // 用于导出（Word / PPT / 纯文本）：剥离所有溯源标记。
 export function stripSourceBadges(markdown: string): string {
   if (!markdown) return markdown;
-  return markdown.replace(/\[src:(doc|data|ai)\]/g, "");
+  return markdown.replace(/\[src:(doc|data|ai|inconsistent)\]/g, "");
 }

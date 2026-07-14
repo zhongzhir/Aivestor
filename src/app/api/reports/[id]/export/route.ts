@@ -4,6 +4,8 @@ import { query } from "@/lib/db";
 import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
 import { buildDocxBuffer } from "@/lib/docx";
+import { buildFormalDocxBuffer } from "@/lib/formal-report/docx";
+import { inferFormalReportProfile } from "@/lib/formal-report/profiles";
 import {
   buildAccessScope,
   scopedProjectChildWhere,
@@ -11,7 +13,7 @@ import {
 
 // GET /api/reports/[id]/export — 导出 Word 文档
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   const session = await getSession();
@@ -30,10 +32,18 @@ export async function GET(
     content: string;
     kind: string | null;
     project_name: string | null;
+    organization_name: string | null;
+    industry: string | null;
+    stage: string | null;
+    version: number | null;
+    updated_at: string;
   }>(
-    `SELECT r.title, r.content, r.kind, p.name AS project_name
+    `SELECT r.title, r.content, r.kind, r.version, r.updated_at,
+            p.name AS project_name, p.industry, p.stage,
+            o.name AS organization_name
        FROM reports r
        LEFT JOIN projects p ON p.id = r.project_id
+       LEFT JOIN orgs o ON o.id = r.org_id
       WHERE r.id = $1 AND ${child.sql}`,
     [params.id, ...child.params]
   );
@@ -47,6 +57,8 @@ export async function GET(
     term_sheet: "TermSheet",
     brief: "简要分析",
     analysis: "项目分析报告",
+    committee: "投决会报告",
+    lp_report: "LP报告",
     post_investment: "投后报告",
   };
   const prefix =
@@ -58,10 +70,28 @@ export async function GET(
 
   // 导出前剥离溯源标记 [src:doc]/[src:data]/[src:ai]——它们仅用于前端徽章渲染，
   // 在 Word 导出中是纯文本噪声。对全部 kind 统一剥离，自然覆盖对外文档 lp_report。
-  const buffer = await buildDocxBuffer(
-    report.title,
-    stripSourceBadges(extractConfidence(report.content).cleanContent)
+  const cleanContent = stripSourceBadges(
+    extractConfidence(report.content).cleanContent
   );
+  const url = new URL(req.url);
+  const formal = url.searchParams.get("formal") === "1";
+  const requestedProfile = url.searchParams.get("profile");
+  const profile = inferFormalReportProfile(report.kind, requestedProfile);
+  const buffer = formal
+    ? await buildFormalDocxBuffer({
+        profile,
+        metadata: {
+          title: report.title,
+          projectName: report.project_name,
+          organizationName: report.organization_name,
+          industry: report.industry,
+          stage: report.stage,
+          reportDate: new Date(report.updated_at),
+          version: report.version,
+        },
+        markdown: cleanContent,
+      })
+    : await buildDocxBuffer(report.title, cleanContent);
   if (report.kind === "post_investment") {
     await query(
       `INSERT INTO post_investment_report_exports (report_id, user_id, format)
@@ -69,7 +99,9 @@ export async function GET(
       [params.id, session.user.id]
     );
   }
-  const filename = encodeURIComponent(`${docName}.docx`);
+  const filename = encodeURIComponent(
+    `${docName}${formal ? `_${profile.label}_正式版` : ""}.docx`
+  );
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {

@@ -202,6 +202,21 @@ export function ReportView({
             导出 Word
           </a>
           <a
+            href={
+              reportId
+                ? `/api/reports/${reportId}/export?formal=1`
+                : undefined
+            }
+            aria-disabled={!reportId || streaming}
+            className={`rounded-md border px-3 py-1.5 text-sm ${
+              reportId && !streaming
+                ? "border-accent bg-accent-soft text-accent hover:bg-[#f3e5dc]"
+                : "pointer-events-none border-line text-ink-faint opacity-50"
+            }`}
+          >
+            正式版 Word
+          </a>
+          <a
             href={reportId ? `/api/reports/${reportId}/export-ppt` : undefined}
             aria-disabled={!reportId || streaming}
             className={`rounded-md border px-3 py-1.5 text-sm ${

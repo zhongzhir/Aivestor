@@ -107,6 +107,7 @@ export function PostInvestmentReports({ projectId }: { projectId: string }) {
                 </select>
                 <Link href={`/projects/${projectId}/report?reportId=${report.id}`} className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface">查看</Link>
                 <a href={`/api/reports/${report.id}/export`} className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface">导出 Word</a>
+                <a href={`/api/reports/${report.id}/export?formal=1&profile=post_investment`} className="rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-xs text-accent hover:bg-[#f3e5dc]">正式版 Word</a>
               </div>
             </div>
           ))}

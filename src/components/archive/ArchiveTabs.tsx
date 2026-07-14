@@ -339,6 +339,12 @@ function ReportsTab({
                   Word
                 </a>
                 <a
+                  href={`/api/reports/${r.id}/export?formal=1`}
+                  className="rounded border border-accent/40 bg-accent-soft px-2 py-1 text-accent hover:bg-[#f3e5dc]"
+                >
+                  正式版
+                </a>
+                <a
                   href={`/api/reports/${r.id}/export-ppt`}
                   className="rounded border border-slate-200 px-2 py-1 text-ink-soft hover:bg-slate-50"
                 >

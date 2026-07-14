@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { requireOrgAPI, hasCapability } from "@/lib/orgAuth";
-import { buildDocxBuffer } from "@/lib/docx";
+import { buildFormalDocxBuffer } from "@/lib/formal-report/docx";
+import { FORMAL_REPORT_PROFILES } from "@/lib/formal-report/profiles";
 import { STAGE_LABELS } from "@/lib/stages";
 
 const DISCLAIMER =
@@ -119,7 +120,15 @@ export async function GET(req: NextRequest) {
 
   const format = req.nextUrl.searchParams.get("format");
   if (format === "docx") {
-    const buffer = await buildDocxBuffer(`${org.name} · 协会报告底稿`, markdown);
+    const buffer = await buildFormalDocxBuffer({
+      profile: FORMAL_REPORT_PROFILES.association,
+      metadata: {
+        title: `${org.name} · 协会报告底稿`,
+        organizationName: org.name,
+        reportDate: new Date(),
+      },
+      markdown,
+    });
     const filename = encodeURIComponent(
       `协会报告底稿_${org.name}_${new Date().toISOString().slice(0, 10)}.docx`
     );
