@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatTokens } from "@/lib/tokensFormat";
+import { confirmSensitiveAction } from "@/lib/securityPolicy";
 
 interface QuotaStatus {
   enabled: boolean;
@@ -90,6 +91,7 @@ export function ApiKeyConfig({
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [testState, setTestState] = useState<TestState>({ phase: "idle" });
@@ -211,6 +213,35 @@ export function ApiKeyConfig({
     }
   }
 
+  async function removeOwnKey() {
+    setError("");
+    setMessage("");
+    if (
+      !confirmSensitiveAction(
+        "将移除已保存的自有 API Key，并切回平台免费额度。确认继续？"
+      )
+    ) {
+      return;
+    }
+
+    setRemoving(true);
+    try {
+      const res = await fetch("/api/user/api-key", { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || "移除失败");
+      }
+      setNewKey("");
+      setTestState({ phase: "idle" });
+      await Promise.all([refresh(), loadQuota()]);
+      setMessage("已移除自有 API Key，当前使用平台免费额度");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "移除失败");
+    } finally {
+      setRemoving(false);
+    }
+  }
+
   const showHighlight = !loading && !configured;
 
   return (
@@ -285,7 +316,7 @@ export function ApiKeyConfig({
           <select
             value={provider}
             onChange={(e) => onProviderChange(e.target.value)}
-            disabled={loading || saving}
+            disabled={loading || saving || removing}
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           >
             {PROVIDERS.map((p) => (
@@ -311,7 +342,7 @@ export function ApiKeyConfig({
               setNewKey(e.target.value);
               setTestState({ phase: "idle" });
             }}
-            disabled={loading || saving}
+            disabled={loading || saving || removing}
             placeholder={configured ? "输入新 Key 可替换" : "sk-..."}
             className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
@@ -333,7 +364,7 @@ export function ApiKeyConfig({
             type="text"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            disabled={loading || saving}
+            disabled={loading || saving || removing}
             placeholder={currentProvider?.defaultBaseUrl ?? "默认值（按服务商）"}
             className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-mono placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
@@ -355,7 +386,7 @@ export function ApiKeyConfig({
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleSave}
-            disabled={loading || saving}
+            disabled={loading || saving || removing}
             className="rounded-lg bg-[#1B6FE8] px-4 py-1.5 text-sm font-medium tracking-[0.01em] text-white transition-colors duration-150 hover:bg-[#1762d0] disabled:opacity-50"
           >
             {saving ? "保存中…" : "保存"}
@@ -363,7 +394,11 @@ export function ApiKeyConfig({
           <button
             onClick={testConnection}
             disabled={
-              loading || saving || testState.phase === "testing" || !newKey.trim()
+              loading ||
+              saving ||
+              removing ||
+              testState.phase === "testing" ||
+              !newKey.trim()
             }
             className={`rounded-lg border px-4 py-1.5 text-sm font-medium transition-colors duration-150 disabled:opacity-50 ${
               testState.phase === "ok"
@@ -381,6 +416,15 @@ export function ApiKeyConfig({
                   ? "✗ 连接失败"
                   : "测试连接"}
           </button>
+          {configured && (
+            <button
+              onClick={removeOwnKey}
+              disabled={loading || saving || removing}
+              className="rounded-lg border border-red-200 px-4 py-1.5 text-sm font-medium text-red-600 transition-colors duration-150 hover:bg-red-50 disabled:opacity-50"
+            >
+              {removing ? "移除中…" : "移除自有 Key，使用平台额度"}
+            </button>
+          )}
         </div>
       </div>
     </div>

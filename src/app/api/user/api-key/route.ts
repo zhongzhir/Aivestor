@@ -115,3 +115,39 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ ok: true, provider, baseUrl });
 }
+
+// DELETE /api/user/api-key — 移除自有 Key，恢复平台免费额度路径
+export async function DELETE() {
+  const session = await getSession();
+  if (!session?.user) {
+    return NextResponse.json({ error: "未登录" }, { status: 401 });
+  }
+
+  try {
+    await query(
+      `UPDATE users
+          SET api_key_encrypted = NULL,
+              ai_provider = 'deepseek',
+              ai_base_url = NULL
+        WHERE id = $1`,
+      [session.user.id]
+    );
+  } catch (e) {
+    // 兼容尚未应用 ai_base_url 迁移的旧数据库。
+    console.warn("[api-key] 移除 Key 时回退到旧字段集:", e);
+    await query(
+      `UPDATE users
+          SET api_key_encrypted = NULL,
+              ai_provider = 'deepseek'
+        WHERE id = $1`,
+      [session.user.id]
+    );
+  }
+
+  return NextResponse.json({
+    ok: true,
+    configured: false,
+    provider: "deepseek",
+    baseUrl: null,
+  });
+}
