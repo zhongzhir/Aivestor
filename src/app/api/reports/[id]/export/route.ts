@@ -5,6 +5,7 @@ import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
 import { buildDocxBuffer } from "@/lib/docx";
 import { buildFormalDocxBuffer } from "@/lib/formal-report/docx";
+import { composeFormalReport } from "@/lib/formal-report/composer";
 import { inferFormalReportProfile } from "@/lib/formal-report/profiles";
 import {
   buildAccessScope,
@@ -36,9 +37,8 @@ export async function GET(
     industry: string | null;
     stage: string | null;
     version: number | null;
-    updated_at: string;
   }>(
-    `SELECT r.title, r.content, r.kind, r.version, r.updated_at,
+    `SELECT r.title, r.content, r.kind, r.version,
             p.name AS project_name, p.industry, p.stage,
             o.name AS organization_name
        FROM reports r
@@ -77,19 +77,27 @@ export async function GET(
   const formal = url.searchParams.get("formal") === "1";
   const requestedProfile = url.searchParams.get("profile");
   const profile = inferFormalReportProfile(report.kind, requestedProfile);
+  const formalMetadata = {
+    title: report.title,
+    projectName: report.project_name,
+    organizationName: report.organization_name,
+    industry: report.industry,
+    stage: report.stage,
+    reportDate: new Date(),
+    version: report.version,
+  };
+  const composed = formal
+    ? composeFormalReport({
+        profile,
+        metadata: formalMetadata,
+        markdown: cleanContent,
+      })
+    : null;
   const buffer = formal
     ? await buildFormalDocxBuffer({
         profile,
-        metadata: {
-          title: report.title,
-          projectName: report.project_name,
-          organizationName: report.organization_name,
-          industry: report.industry,
-          stage: report.stage,
-          reportDate: new Date(report.updated_at),
-          version: report.version,
-        },
-        markdown: cleanContent,
+        metadata: formalMetadata,
+        markdown: composed!.markdown,
       })
     : await buildDocxBuffer(report.title, cleanContent);
   if (report.kind === "post_investment") {

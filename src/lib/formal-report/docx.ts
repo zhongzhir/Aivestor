@@ -16,7 +16,6 @@ import {
   TableBorders,
   TableCell,
   TableLayoutType,
-  TableOfContents,
   TableRow,
   TextRun,
   VerticalAlign,
@@ -51,6 +50,8 @@ function plainMarkdown(text: string): string {
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1（$2）")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/\*\*|__/g, "")
+    .replace(/\\([\\`*{}\[\]()#+.!_>\-])/g, "$1")
     .trim();
 }
 
@@ -66,7 +67,7 @@ function inlineRuns(
           text: segment,
           bold: options?.bold || index % 2 === 1,
           color: options?.color ?? COLOR_INK,
-          size: options?.size ?? 21,
+          size: options?.size ?? 22,
           font: FONT_BODY,
         })
     );
@@ -75,7 +76,7 @@ function inlineRuns(
 function bodyParagraph(text: string): Paragraph {
   return new Paragraph({
     children: inlineRuns(text),
-    spacing: { line: 330, lineRule: LineRuleType.AUTO, after: 150 },
+    spacing: { line: 345, lineRule: LineRuleType.AUTO, after: 170 },
     widowControl: true,
   });
 }
@@ -167,7 +168,7 @@ function callout(
 
 function calloutKind(text: string): "decision" | "risk" | "note" | null {
   const normalized = plainMarkdown(text).replace(/^【|】$/g, "");
-  if (/^(投资建议|投资结论|初步结论|决策结论|核心结论|关键结论)[：:]/.test(normalized)) {
+  if (/^(投资建议|投资结论|初步结论|决策结论|核心结论|关键结论|核心分析视角|核心观点|核心判断)[：:]/.test(normalized)) {
     return "decision";
   }
   if (/^(关键风险|风险提示|主要风险)[：:]/.test(normalized)) return "risk";
@@ -239,6 +240,16 @@ function renderContent(
   const blocks = parseFormalReportMarkdown(markdown);
   const children: FileChild[] = [];
   let numberedIndex = 0;
+  let primarySectionIndex = 0;
+
+  function secondaryHeadingColors(text: string) {
+    const clean = plainMarkdown(text).toLowerCase();
+    if (/strengths|优势/.test(clean)) return { color: "256D4B", fill: "EAF5EF" };
+    if (/weaknesses|劣势/.test(clean)) return { color: "9A6700", fill: "FFF4D6" };
+    if (/opportunities|机会/.test(clean)) return { color: "245A9A", fill: "EAF2FB" };
+    if (/threats|威胁|风险/.test(clean)) return { color: COLOR_RISK, fill: COLOR_RISK_SOFT };
+    return { color: profile.accentDark, fill: profile.accentSoft };
+  }
 
   for (const block of blocks) {
     if (block.type === "heading") {
@@ -254,32 +265,63 @@ function renderContent(
           : block.level === 2
             ? HeadingLevel.HEADING_2
             : HeadingLevel.HEADING_3;
+      if (block.level === 1) primarySectionIndex += 1;
+      const secondaryColors = secondaryHeadingColors(block.text);
+      const headingChildren: TextRun[] = [];
+      if (block.level === 1) {
+        headingChildren.push(
+          new TextRun({
+            text: `${String(primarySectionIndex).padStart(2, "0")}  `,
+            color: profile.accent,
+            size: 20,
+            bold: true,
+            font: FONT_HEADING,
+          })
+        );
+      }
+      headingChildren.push(
+        ...inlineRuns(block.text, {
+          color:
+            block.level === 1
+              ? COLOR_WHITE
+              : block.level === 2
+                ? secondaryColors.color
+                : profile.accentDark,
+          size: block.level === 1 ? 30 : block.level === 2 ? 25 : 22,
+          bold: true,
+        })
+      );
       children.push(
         new Paragraph({
           heading,
-          children: inlineRuns(block.text, {
-            color: block.level === 1 ? profile.accentDark : COLOR_INK,
-            size: block.level === 1 ? 31 : block.level === 2 ? 26 : 22,
-            bold: true,
-          }),
+          children: headingChildren,
           spacing: {
-            before: block.level === 1 ? 440 : block.level === 2 ? 300 : 220,
-            after: block.level === 1 ? 220 : 150,
+            before: block.level === 1 ? 480 : block.level === 2 ? 320 : 230,
+            after: block.level === 1 ? 250 : 160,
           },
           pageBreakBefore: block.level === 1 && children.length > 0,
           keepNext: true,
           widowControl: true,
+          indent:
+            block.level === 1
+              ? { left: 220, right: 160 }
+              : block.level === 2
+                ? { left: 160, right: 100 }
+                : undefined,
           shading:
             block.level === 1
-              ? { type: ShadingType.CLEAR, fill: profile.accentSoft }
-              : undefined,
+              ? { type: ShadingType.CLEAR, fill: profile.accentDark }
+              : block.level === 2
+                ? { type: ShadingType.CLEAR, fill: secondaryColors.fill }
+                : undefined,
           border:
-            block.level === 1
+            block.level <= 2
               ? {
                   left: {
                     style: BorderStyle.SINGLE,
-                    size: 18,
-                    color: profile.accent,
+                    size: block.level === 1 ? 22 : 14,
+                    color:
+                      block.level === 1 ? profile.accent : secondaryColors.color,
                     space: 8,
                   },
                 }
@@ -302,8 +344,7 @@ function renderContent(
         new Paragraph({
           bullet: { level: block.level },
           children: inlineRuns(block.text),
-          spacing: { line: 310, lineRule: LineRuleType.AUTO, after: 90 },
-          indent: { left: 420 + block.level * 320 },
+          spacing: { line: 330, lineRule: LineRuleType.AUTO, after: 110 },
           widowControl: true,
         })
       );
@@ -311,12 +352,16 @@ function renderContent(
     }
 
     if (block.type === "number") {
-      numberedIndex += 1;
+      const ordinal = block.ordinal ?? String(numberedIndex + 1);
+      const ordinalNumber = Number.parseInt(ordinal, 10);
+      numberedIndex = Number.isFinite(ordinalNumber)
+        ? ordinalNumber
+        : numberedIndex + 1;
       children.push(
         new Paragraph({
           children: [
             new TextRun({
-              text: `${numberedIndex}. `,
+              text: `${ordinal}. `,
               bold: true,
               color: profile.accent,
               size: 21,
@@ -325,7 +370,7 @@ function renderContent(
             ...inlineRuns(block.text),
           ],
           indent: { left: 360 + block.level * 320, hanging: 300 },
-          spacing: { line: 310, lineRule: LineRuleType.AUTO, after: 90 },
+          spacing: { line: 330, lineRule: LineRuleType.AUTO, after: 130 },
           widowControl: true,
         })
       );
@@ -421,7 +466,7 @@ function coverChildren(
   }).format(metadata.reportDate);
   const detailRows: [string, string][] = [
     ["报告类型", profile.label],
-    ["报告日期", date],
+    ["出具日期", date],
   ];
   if (metadata.organizationName) detailRows.unshift(["出具机构", metadata.organizationName]);
   if (metadata.industry) detailRows.push(["所属行业", metadata.industry]);
@@ -429,64 +474,171 @@ function coverChildren(
   if (metadata.version) detailRows.push(["文档版本", `V${metadata.version}.0`]);
 
   return [
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: TableBorders.NONE,
+      rows: [
+        new TableRow({
+          cantSplit: true,
+          children: [
+            new TableCell({
+              shading: { type: ShadingType.CLEAR, fill: profile.accentDark },
+              margins: { top: 520, bottom: 560, left: 520, right: 480 },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: "AIVESTOR  /  INVESTMENT DESK",
+                      bold: true,
+                      color: profile.accent,
+                      size: 19,
+                      font: FONT_HEADING,
+                      characterSpacing: 45,
+                    }),
+                  ],
+                  spacing: { after: 920 },
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text:
+                        metadata.projectName ||
+                        metadata.organizationName ||
+                        metadata.title,
+                      bold: true,
+                      color: COLOR_WHITE,
+                      size: 44,
+                      font: FONT_HEADING,
+                    }),
+                  ],
+                  spacing: { after: 220 },
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: profile.label,
+                      bold: true,
+                      color: profile.accent,
+                      size: 29,
+                      font: FONT_HEADING,
+                    }),
+                  ],
+                  spacing: { after: 100 },
+                }),
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: profile.subtitle,
+                      color: "C7D0E0",
+                      size: 19,
+                      font: FONT_BODY,
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        }),
+      ],
+    }),
+    new Paragraph({ spacing: { after: 520 } }),
     new Paragraph({
       children: [
         new TextRun({
-          text: "AIVESTOR",
+          text: "REPORT INFORMATION",
           bold: true,
           color: profile.accent,
-          size: 25,
+          size: 17,
           font: FONT_HEADING,
-          characterSpacing: 80,
-        }),
-      ],
-      spacing: { after: 1800 },
-    }),
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: metadata.projectName || metadata.organizationName || metadata.title,
-          bold: true,
-          color: profile.accentDark,
-          size: 42,
-          font: FONT_HEADING,
-        }),
-      ],
-      spacing: { after: 260 },
-    }),
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: profile.label,
-          bold: true,
-          color: profile.accent,
-          size: 30,
-          font: FONT_HEADING,
-        }),
-      ],
-      spacing: { after: 120 },
-    }),
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: profile.subtitle,
-          color: COLOR_MUTED,
-          size: 21,
-          font: FONT_BODY,
+          characterSpacing: 35,
         }),
       ],
       border: {
-        bottom: { style: BorderStyle.SINGLE, size: 16, color: profile.accent },
+        bottom: { style: BorderStyle.SINGLE, size: 8, color: profile.accent },
       },
-      spacing: { after: 720 },
+      spacing: { after: 220 },
     }),
     labelValueTable(detailRows),
-    new Paragraph({ spacing: { after: 980 } }),
+    new Paragraph({ spacing: { after: 520 } }),
     callout(
       `${profile.confidentiality}。本报告基于现有项目材料与系统记录整理，正式使用前须由经办人员复核。`,
       profile,
       "note"
     ),
+  ];
+}
+
+function staticTableOfContents(
+  entries: { title: string; level: 1 | 2 | 3 }[],
+  profile: FormalReportProfile
+): FileChild[] {
+  const visible = entries.filter((entry) => entry.level <= 2);
+  if (visible.length === 0) {
+    return [bodyParagraph("正文未使用可识别的章节标题。")];
+  }
+
+  let sectionIndex = 0;
+  return [
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      layout: TableLayoutType.FIXED,
+      borders: TableBorders.NONE,
+      rows: visible.map((entry) => {
+        if (entry.level === 1) sectionIndex += 1;
+        const isPrimary = entry.level === 1;
+        const bottomBorder = {
+          style: BorderStyle.SINGLE,
+          size: isPrimary ? 8 : 3,
+          color: isPrimary ? profile.accentSoft : COLOR_LINE,
+        };
+        return new TableRow({
+          cantSplit: true,
+          children: [
+            new TableCell({
+              width: { size: 13, type: WidthType.PERCENTAGE },
+              verticalAlign: VerticalAlign.CENTER,
+              borders: { bottom: bottomBorder },
+              margins: { top: 150, bottom: 150, left: 60, right: 80 },
+              children: [
+                new Paragraph({
+                  children: [
+                    new TextRun({
+                      text: isPrimary
+                        ? String(sectionIndex).padStart(2, "0")
+                        : "—",
+                      bold: isPrimary,
+                      color: isPrimary ? profile.accent : COLOR_MUTED,
+                      size: isPrimary ? 24 : 18,
+                      font: FONT_HEADING,
+                    }),
+                  ],
+                }),
+              ],
+            }),
+            new TableCell({
+              width: { size: 87, type: WidthType.PERCENTAGE },
+              verticalAlign: VerticalAlign.CENTER,
+              borders: { bottom: bottomBorder },
+              margins: {
+                top: isPrimary ? 180 : 120,
+                bottom: isPrimary ? 180 : 120,
+                left: isPrimary ? 100 : 360,
+                right: 80,
+              },
+              children: [
+                new Paragraph({
+                  children: inlineRuns(entry.title, {
+                    color: isPrimary ? profile.accentDark : COLOR_MUTED,
+                    size: isPrimary ? 23 : 19,
+                    bold: isPrimary,
+                  }),
+                }),
+              ],
+            }),
+          ],
+        });
+      }),
+    }),
   ];
 }
 
@@ -515,9 +667,9 @@ export async function buildFormalDocxBuffer(input: {
     styles: {
       default: {
         document: {
-          run: { font: FONT_BODY, size: 21, color: COLOR_INK },
+          run: { font: FONT_BODY, size: 22, color: COLOR_INK },
           paragraph: {
-            spacing: { line: 330, lineRule: LineRuleType.AUTO, after: 150 },
+            spacing: { line: 345, lineRule: LineRuleType.AUTO, after: 170 },
           },
         },
         title: {
@@ -544,7 +696,7 @@ export async function buildFormalDocxBuffer(input: {
           titlePage: true,
           page: {
             size: { width: PAGE_WIDTH_DXA, height: PAGE_HEIGHT_DXA },
-            margin: { top: 1200, right: 1440, bottom: 1200, left: 1440 },
+            margin: { top: 720, right: 1180, bottom: 900, left: 1180 },
           },
         },
         children: coverChildren(profile, metadata),
@@ -569,26 +721,30 @@ export async function buildFormalDocxBuffer(input: {
         footers: { default: mainFooter },
         children: [
           new Paragraph({
-            heading: HeadingLevel.HEADING_1,
-            children: inlineRuns("目录", {
+            children: inlineRuns("目录  /  CONTENTS", {
               color: profile.accentDark,
-              size: 31,
+              size: 30,
               bold: true,
             }),
-            spacing: { after: 280 },
+            border: {
+              bottom: { style: BorderStyle.SINGLE, size: 12, color: profile.accent },
+            },
+            spacing: { after: 340 },
           }),
-          new TableOfContents("目录", {
-            hyperlink: true,
-            headingStyleRange: "1-3",
-            cachedEntries: tocEntries,
-          }),
+          ...staticTableOfContents(tocEntries, profile),
           new Paragraph({ children: [new PageBreak()] }),
           ...renderContent(markdown, profile, metadata.title),
-          new Paragraph({ children: [new PageBreak()] }),
           new Paragraph({
             heading: HeadingLevel.HEADING_1,
+            pageBreakBefore: true,
+            shading: { type: ShadingType.CLEAR, fill: profile.accentDark },
+            border: {
+              left: { style: BorderStyle.SINGLE, size: 18, color: profile.accent },
+            },
+            indent: { left: 180, right: 120 },
+            spacing: { before: 0, after: 260, line: 340 },
             children: inlineRuns("文档说明", {
-              color: profile.accentDark,
+              color: "FFFFFF",
               size: 31,
               bold: true,
             }),

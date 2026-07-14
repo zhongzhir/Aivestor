@@ -23,10 +23,31 @@ function flushParagraph(parts: string[], out: FormalReportBlock[]) {
   parts.length = 0;
 }
 
-export function parseFormalReportMarkdown(markdown: string): FormalReportBlock[] {
+export function normalizeFormalReportMarkdown(markdown: string): string {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const firstContent = lines.findIndex((line) => line.trim());
+  if (
+    firstContent >= 0 &&
+    /^好的[，,]/.test(lines[firstContent].trim()) &&
+    /(我将|作为资深|遵循您的指令)/.test(lines[firstContent])
+  ) {
+    let end = firstContent;
+    while (end < lines.length && lines[end].trim()) end += 1;
+    lines.splice(firstContent, end - firstContent);
+  }
+  return lines.join("\n").trim();
+}
+
+export function parseFormalReportMarkdown(markdown: string): FormalReportBlock[] {
+  const lines = normalizeFormalReportMarkdown(markdown).split("\n");
   const out: FormalReportBlock[] = [];
   const paragraph: string[] = [];
+  const headingDepths = lines
+    .map((line) => /^(#{1,6})\s+/.exec(line.trim())?.[1].length)
+    .filter((depth): depth is number => depth != null);
+  const baseHeadingDepth = headingDepths.length
+    ? Math.min(...headingDepths)
+    : 1;
 
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i];
@@ -51,14 +72,39 @@ export function parseFormalReportMarkdown(markdown: string): FormalReportBlock[]
       continue;
     }
 
-    const heading = /^(#{1,3})\s+(.+)$/.exec(line);
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
     if (heading) {
       flushParagraph(paragraph, out);
+      const normalizedLevel = Math.min(
+        3,
+        Math.max(1, heading[1].length - baseHeadingDepth + 1)
+      ) as 1 | 2 | 3;
       out.push({
         type: "heading",
-        level: heading[1].length as 1 | 2 | 3,
+        level: normalizedLevel,
         text: heading[2].trim(),
       });
+      continue;
+    }
+
+    const strongNumbered = /^\*\*(\d+)[.)、]\s*(.+?)\*\*([：:].*)?$/.exec(
+      line
+    );
+    if (strongNumbered) {
+      flushParagraph(paragraph, out);
+      out.push({
+        type: "number",
+        ordinal: strongNumbered[1],
+        text: `**${strongNumbered[2]}**${strongNumbered[3] ?? ""}`,
+        level: 0,
+      });
+      continue;
+    }
+
+    const strongSubheading = /^\*\*(.+?)\*\*[：:]$/.exec(line);
+    if (strongSubheading && strongSubheading[1].length <= 48) {
+      flushParagraph(paragraph, out);
+      out.push({ type: "heading", level: 3, text: strongSubheading[1] });
       continue;
     }
 
@@ -79,7 +125,7 @@ export function parseFormalReportMarkdown(markdown: string): FormalReportBlock[]
       continue;
     }
 
-    const bullet = /^(\s*)[-*+]\s+(.+)$/.exec(raw);
+    const bullet = /^(\s*)(?:[-*+]|[•▪■●◆])\s+(.+)$/.exec(raw);
     if (bullet) {
       flushParagraph(paragraph, out);
       out.push({
@@ -97,6 +143,7 @@ export function parseFormalReportMarkdown(markdown: string): FormalReportBlock[]
         type: "number",
         text: numbered[2].trim(),
         level: Math.min(2, Math.floor(numbered[1].length / 2)),
+        ordinal: /^\s*(\d+)/.exec(raw)?.[1],
       });
       continue;
     }

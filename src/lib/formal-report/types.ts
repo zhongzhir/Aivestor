@@ -30,7 +30,7 @@ export type FormalReportBlock =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; text: string }
   | { type: "bullet"; text: string; level: number }
-  | { type: "number"; text: string; level: number }
+  | { type: "number"; text: string; level: number; ordinal?: string }
   | { type: "quote"; text: string }
   | { type: "table"; rows: string[][] }
   | { type: "divider" };
