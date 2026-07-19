@@ -160,7 +160,7 @@ export async function POST(
       `UPDATE projects
           SET process_stage = $1,
               process_stage_updated_at = NOW()
-        WHERE id = $2`,
+        WHERE id = $2 AND deleted_at IS NULL`,
       [body.stage, params.id]
     );
 

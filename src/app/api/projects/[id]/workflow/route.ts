@@ -68,7 +68,7 @@ export async function PATCH(
               evidence_completeness = $3,
               workspace_note = $4,
               updated_at = NOW()
-        WHERE id = $5
+        WHERE id = $5 AND deleted_at IS NULL
         RETURNING next_action, next_action_due_at, evidence_completeness, workspace_note`,
       [
         cleanText(body.nextAction),

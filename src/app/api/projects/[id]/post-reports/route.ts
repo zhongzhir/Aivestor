@@ -104,7 +104,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const body = (await req.json()) as { template_key?: string; period_start?: string; period_end?: string };
     const templateKey = ["internal_review", "lp_update", "assoc_update"].includes(body.template_key ?? "") ? body.template_key! : "internal_review";
     const [projectRows, updates, metrics, actions, exits] = await Promise.all([
-      query<{ name: string }>("SELECT name FROM projects WHERE id = $1", [params.id]),
+      query<{ name: string }>("SELECT name FROM projects WHERE id = $1 AND deleted_at IS NULL", [params.id]),
       query<{ update_type: string; content: string; period: string | null }>("SELECT update_type, content, period FROM post_investment_updates WHERE project_id = $1 ORDER BY created_at DESC LIMIT 30", [params.id]),
       query<{ metric_name: string; value_numeric: string; unit: string | null; period: string }>("SELECT metric_name, value_numeric, unit, period FROM post_investment_metrics WHERE project_id = $1 ORDER BY created_at DESC LIMIT 30", [params.id]),
       query<{ title: string; owner: string | null; due_date: string | null; status: string }>("SELECT title, owner, due_date, status FROM post_investment_action_items WHERE project_id = $1 ORDER BY due_date ASC NULLS LAST LIMIT 30", [params.id]),

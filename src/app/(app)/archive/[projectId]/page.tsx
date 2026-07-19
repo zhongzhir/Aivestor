@@ -46,7 +46,8 @@ export default async function ProjectArchivePage({
 
   // 访问已校验，按 id 取项目字段即可。
   const projects = await query<ProjectRow>(
-    `SELECT id, name, industry, stage, status FROM projects WHERE id = $1`,
+    `SELECT id, name, industry, stage, status FROM projects
+      WHERE id = $1 AND deleted_at IS NULL`,
     [params.projectId]
   );
   if (projects.length === 0) notFound();
@@ -98,7 +99,7 @@ export default async function ProjectArchivePage({
 
   try {
     const outcomeRows = await query<ArchiveOutcome>(
-      "SELECT outcome, outcome_note FROM projects WHERE id = $1",
+      "SELECT outcome, outcome_note FROM projects WHERE id = $1 AND deleted_at IS NULL",
       [params.projectId]
     );
     if (outcomeRows[0]) outcome = outcomeRows[0];

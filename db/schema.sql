@@ -71,6 +71,8 @@ CREATE TABLE projects (
   -- AI 从 BP 提取的结构化财务数据（见 FinancialData 类型）
   financial_data JSONB,
   summary       TEXT,                       -- 项目一句话概述
+  deleted_at    TIMESTAMPTZ,                -- 软删除时间；非空时用户侧隐藏
+  deleted_by    UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

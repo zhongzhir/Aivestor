@@ -17,12 +17,12 @@ async function getDashboard(orgId: string): Promise<OrgDashboardData> {
   const [funnel, industries, members, trend] = await Promise.all([
     query<{ process_stage: string | null; c: string }>(
       `SELECT process_stage, COUNT(*)::text AS c
-         FROM projects WHERE org_id = $1 GROUP BY process_stage`,
+         FROM projects WHERE org_id = $1 AND deleted_at IS NULL GROUP BY process_stage`,
       [orgId]
     ),
     query<{ industry: string; c: string }>(
       `SELECT COALESCE(industry, '未标注') AS industry, COUNT(*)::text AS c
-         FROM projects WHERE org_id = $1 GROUP BY 1 ORDER BY 2 DESC LIMIT 10`,
+         FROM projects WHERE org_id = $1 AND deleted_at IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 10`,
       [orgId]
     ),
     query<{ name: string; projects: string; judgments: string; reports: string }>(
@@ -33,6 +33,7 @@ async function getDashboard(orgId: string): Promise<OrgDashboardData> {
          FROM org_members m
          JOIN users u ON u.id = m.user_id
          LEFT JOIN projects p ON p.org_id = m.org_id AND p.owner_id = u.id
+          AND p.deleted_at IS NULL
          LEFT JOIN investment_judgments j ON j.org_id = m.org_id AND j.user_id = u.id
          LEFT JOIN reports r ON r.org_id = m.org_id AND r.user_id = u.id
         WHERE m.org_id = $1

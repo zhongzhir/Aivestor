@@ -113,7 +113,7 @@ export async function POST(req: Request) {
     }
     const projects = await query<ProjectRow>(
       `SELECT name, company_name, industry, stage, judgment_points
-         FROM projects WHERE id = $1`,
+         FROM projects WHERE id = $1 AND deleted_at IS NULL`,
       [projectId]
     );
     if (projects.length === 0) {

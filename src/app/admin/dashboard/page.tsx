@@ -26,7 +26,7 @@ async function getStats() {
     query<CountRow>(
       "SELECT COUNT(*)::text AS c FROM users WHERE created_at > NOW() - INTERVAL '7 days'"
     ),
-    query<CountRow>("SELECT COUNT(*)::text AS c FROM projects"),
+    query<CountRow>("SELECT COUNT(*)::text AS c FROM projects WHERE deleted_at IS NULL"),
     query<CountRow>("SELECT COUNT(*)::text AS c FROM reports"),
     query<CountRow>("SELECT COUNT(*)::text AS c FROM knowledge_base_entries"),
     query<CountRow>(

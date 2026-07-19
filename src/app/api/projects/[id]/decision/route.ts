@@ -197,7 +197,7 @@ export async function POST(
   // 1. 项目信息（访问已校验，按 id 取）
   const projects = await query<ProjectRow>(
     `SELECT name, summary, industry, process_stage, financial_data
-       FROM projects WHERE id = $1`,
+       FROM projects WHERE id = $1 AND deleted_at IS NULL`,
     [params.id]
   );
   if (projects.length === 0) {
@@ -243,7 +243,7 @@ export async function POST(
               p.name AS project_name
          FROM investment_judgments ij
          JOIN projects p ON ij.project_id = p.id
-        WHERE ij.user_id = $1
+        WHERE ij.user_id = $1 AND p.deleted_at IS NULL
         ORDER BY ij.created_at DESC
         LIMIT 20`,
       [session.user.id]

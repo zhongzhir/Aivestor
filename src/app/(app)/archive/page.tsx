@@ -6,6 +6,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ArchiveFilters } from "./ArchiveFilters";
 import { OrgArchiveFilters } from "../org/archive/OrgArchiveFilters";
 import { ArchiveViewSwitch } from "@/components/archive/ArchiveViewSwitch";
+import { ArchiveProjectActions } from "@/components/archive/ArchiveProjectActions";
 import { ALL_STAGES } from "@/lib/stages";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ interface ProjectRow {
   owner_name?: string | null;
   file_count: number;
   report_count: number;
+  user_id: string;
+  org_id: string | null;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -71,7 +74,7 @@ export default async function ArchivePage({
         : "";
     const status = ALLOWED_STATUS.has(statusRaw) ? statusRaw : "";
 
-    const where: string[] = ["p.org_id = $1"];
+    const where: string[] = ["p.org_id = $1", "p.deleted_at IS NULL"];
     const params: unknown[] = [ctx.orgId];
     if (search) {
       params.push(`%${search}%`);
@@ -96,6 +99,7 @@ export default async function ArchivePage({
       [projects, owners] = await Promise.all([
         query<ProjectRow>(
           `SELECT p.id, p.name, p.industry, p.stage, p.status, p.updated_at,
+                  p.user_id, p.org_id,
                   u.name AS owner_name,
                   (SELECT COUNT(*)::int FROM documents d WHERE d.project_id = p.id) AS file_count,
                   (SELECT COUNT(*)::int FROM reports r WHERE r.project_id = p.id) AS report_count
@@ -144,7 +148,12 @@ export default async function ArchivePage({
         ) : (
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             {projects.map((p) => (
-              <ArchiveCard key={p.id} p={p} showOwner />
+              <ArchiveCard
+                key={p.id}
+                p={p}
+                showOwner
+                canDelete={ctx.role === "admin"}
+              />
             ))}
           </div>
         )}
@@ -164,7 +173,7 @@ export default async function ArchivePage({
       : "";
   const outcome = outcomeRaw && ALLOWED_OUTCOMES.has(outcomeRaw) ? outcomeRaw : "";
 
-  const where: string[] = ["p.user_id = $1"];
+  const where: string[] = ["p.user_id = $1", "p.deleted_at IS NULL"];
   const params: unknown[] = [session.user.id];
 
   if (search) {
@@ -189,6 +198,7 @@ export default async function ArchivePage({
   try {
     projects = await query<ProjectRow>(
       `SELECT p.id, p.name, p.industry, p.stage, p.status, p.updated_at,
+              p.user_id, p.org_id,
               (SELECT COUNT(*)::int FROM documents d WHERE d.project_id = p.id) AS file_count,
               (SELECT COUNT(*)::int FROM reports r WHERE r.project_id = p.id) AS report_count
          FROM projects p
@@ -232,7 +242,14 @@ export default async function ArchivePage({
       ) : (
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
           {projects.map((p) => (
-            <ArchiveCard key={p.id} p={p} />
+            <ArchiveCard
+              key={p.id}
+              p={p}
+              canDelete={
+                p.org_id === null ||
+                (!!ctx && ctx.orgId === p.org_id && ctx.role === "admin")
+              }
+            />
           ))}
         </div>
       )}
@@ -240,29 +257,42 @@ export default async function ArchivePage({
   );
 }
 
-function ArchiveCard({ p, showOwner }: { p: ProjectRow; showOwner?: boolean }) {
+function ArchiveCard({
+  p,
+  showOwner,
+  canDelete,
+}: {
+  p: ProjectRow;
+  showOwner?: boolean;
+  canDelete: boolean;
+}) {
   return (
-    <Link href={`/archive/${p.id}`} className="card-base card-hover block p-4">
-      <div className="flex items-start justify-between gap-3">
-        <span className="line-clamp-1 flex-1 text-sm font-medium text-slate-800">
-          {p.name}
-        </span>
-        <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
-          {STATUS_LABEL[p.status] ?? p.status}
-        </span>
-      </div>
-      <p className="mt-1.5 text-xs text-slate-500">
-        {p.industry || "未分类"}
-        {p.stage && ` · ${p.stage}`}
-        {showOwner && p.owner_name && ` · 负责人 ${p.owner_name}`}
-      </p>
-      <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
-        <span>📎 {p.file_count} 个文件</span>
-        <span>📄 {p.report_count} 份报告</span>
-      </div>
-      <p className="mt-2 text-xs text-slate-400">
-        更新于 {new Date(p.updated_at).toLocaleDateString("zh-CN")}
-      </p>
-    </Link>
+    <div className="card-base card-hover flex items-start gap-2 p-4">
+      <Link href={`/archive/${p.id}`} className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <span className="line-clamp-1 flex-1 text-sm font-medium text-slate-800">
+            {p.name}
+          </span>
+          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
+            {STATUS_LABEL[p.status] ?? p.status}
+          </span>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          {p.industry || "未分类"}
+          {p.stage && ` · ${p.stage}`}
+          {showOwner && p.owner_name && ` · 负责人 ${p.owner_name}`}
+        </p>
+        <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
+          <span>📎 {p.file_count} 个文件</span>
+          <span>📄 {p.report_count} 份报告</span>
+        </div>
+        <p className="mt-2 text-xs text-slate-400">
+          更新于 {new Date(p.updated_at).toLocaleDateString("zh-CN")}
+        </p>
+      </Link>
+      {canDelete && (
+        <ArchiveProjectActions projectId={p.id} projectName={p.name} />
+      )}
+    </div>
   );
 }

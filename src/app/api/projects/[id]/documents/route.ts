@@ -183,7 +183,7 @@ export async function POST(
   if (fileType === "xlsx" || fileType === "xls") {
     try {
       const fin = extractExcelFinancials(buffer);
-      await query("UPDATE projects SET financial_data = $1 WHERE id = $2", [
+      await query("UPDATE projects SET financial_data = $1 WHERE id = $2 AND deleted_at IS NULL", [
         serializeExcelFinancialDataForProject(fin),
         params.id,
       ]);

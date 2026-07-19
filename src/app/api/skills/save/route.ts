@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     // 关联了项目：SKILL 分析结果写入 reports 表，进项目档案的「分析报告」
     if (body.project_id) {
       const owned = await query<{ id: string }>(
-        "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
+        "SELECT id FROM projects WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
         [body.project_id, session.user.id]
       );
       if (owned.length === 0) {

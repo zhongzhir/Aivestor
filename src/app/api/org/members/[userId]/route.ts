@@ -139,7 +139,7 @@ export async function DELETE(
   // 1.5 前置校验：该成员名下存在组织项目时，必须指定接收人
   if (hasOrgColumns) {
     const owned = await query<{ id: string; name: string }>(
-      "SELECT id, name FROM projects WHERE org_id = $1 AND owner_id = $2",
+      "SELECT id, name FROM projects WHERE org_id = $1 AND owner_id = $2 AND deleted_at IS NULL",
       [ctx.orgId, params.userId]
     );
     if (owned.length > 0) {
@@ -183,7 +183,7 @@ export async function DELETE(
     if (hasOrgColumns && transferOwnerTo) {
       await client.query(
         `UPDATE projects SET owner_id = $1
-          WHERE org_id = $2 AND owner_id = $3`,
+          WHERE org_id = $2 AND owner_id = $3 AND deleted_at IS NULL`,
         [transferOwnerTo, ctx.orgId, params.userId]
       );
     }

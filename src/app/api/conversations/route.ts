@@ -45,7 +45,7 @@ export async function GET() {
     const rows = await query<ListRow>(
       `SELECT c.id, c.title, c.project_id, p.name AS project_name, c.updated_at
          FROM conversations c
-         LEFT JOIN projects p ON p.id = c.project_id
+         LEFT JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL
         WHERE c.user_id = $1
         ORDER BY c.updated_at DESC
         LIMIT 50`,
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
     let projectId: string | null = null;
     if (body.project_id) {
       const owned = await query<{ id: string }>(
-        "SELECT id FROM projects WHERE id = $1 AND user_id = $2",
+        "SELECT id FROM projects WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
         [body.project_id, session.user.id]
       );
       if (owned[0]) projectId = owned[0].id;

@@ -27,7 +27,7 @@ export async function GET(
     `SELECT c.id, c.title, c.project_id, p.name AS project_name,
             c.messages, c.summary, c.created_at, c.updated_at
        FROM conversations c
-       LEFT JOIN projects p ON p.id = c.project_id
+       LEFT JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL
       WHERE c.id = $1 AND c.user_id = $2`,
     [params.id, session.user.id]
   );

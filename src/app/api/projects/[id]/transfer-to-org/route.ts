@@ -33,7 +33,8 @@ export async function POST(
     // 仅本人的纯个人项目（org_id IS NULL）可转入。
     const proj = await client.query(
       `UPDATE projects SET org_id = $1, owner_id = $2
-        WHERE id = $3 AND user_id = $2 AND org_id IS NULL`,
+        WHERE id = $3 AND user_id = $2 AND org_id IS NULL
+          AND deleted_at IS NULL`,
       [orgId, userId, params.id]
     );
     if (proj.rowCount === 0) {

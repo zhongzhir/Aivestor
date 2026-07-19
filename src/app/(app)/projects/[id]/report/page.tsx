@@ -40,7 +40,7 @@ export default async function ReportPage({
   const projects = await query<{
     name: string;
     financial_data: import("@/lib/types").FinancialData | null;
-  }>("SELECT name, financial_data FROM projects WHERE id = $1", [params.id]);
+  }>("SELECT name, financial_data FROM projects WHERE id = $1 AND deleted_at IS NULL", [params.id]);
   if (projects.length === 0) notFound();
 
   // 报告可见性跟随项目；analyst 不可见 kind='committee'（与 archive / export 一致）。

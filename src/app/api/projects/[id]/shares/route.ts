@@ -9,7 +9,7 @@ async function loadOrgProject(
   projectId: string
 ): Promise<{ orgId: string; ownerId: string | null } | null> {
   const rows = await query<{ org_id: string | null; owner_id: string | null }>(
-    "SELECT org_id, owner_id FROM projects WHERE id = $1",
+    "SELECT org_id, owner_id FROM projects WHERE id = $1 AND deleted_at IS NULL",
     [projectId]
   );
   const proj = rows[0];

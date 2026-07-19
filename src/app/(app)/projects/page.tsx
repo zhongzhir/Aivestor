@@ -93,7 +93,7 @@ export default async function ProjectsPage({
       : "";
   const outcome = outcomeRaw && ALLOWED_OUTCOMES.has(outcomeRaw) ? outcomeRaw : "";
 
-  const where: string[] = ["p.user_id = $1"];
+  const where: string[] = ["p.user_id = $1", "p.deleted_at IS NULL"];
   const params: unknown[] = [session.user.id];
 
   if (search) {
@@ -136,7 +136,7 @@ export default async function ProjectsPage({
 
   const stageRows = await query<{ stage: string }>(
     `SELECT DISTINCT stage FROM projects
-      WHERE user_id = $1 AND stage IS NOT NULL AND stage <> ''
+      WHERE user_id = $1 AND deleted_at IS NULL AND stage IS NOT NULL AND stage <> ''
       ORDER BY stage`,
     [session.user.id]
   );

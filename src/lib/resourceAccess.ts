@@ -71,9 +71,13 @@ export function scopedProjectWhere(
 ): { sql: string; params: unknown[] } {
   const a = opts?.alias;
   const uidCol = col(a, "user_id");
+  const liveProject = `${col(a, "deleted_at")} IS NULL`;
 
   if (!scope.org) {
-    return { sql: `${uidCol} = $${startIndex}`, params: [scope.userId] };
+    return {
+      sql: `(${uidCol} = $${startIndex} AND ${liveProject})`,
+      params: [scope.userId],
+    };
   }
 
   const n = startIndex; // userId
@@ -84,16 +88,17 @@ export function scopedProjectWhere(
 
   if (isManager(scope.org.role)) {
     return {
-      sql: `(${uidCol} = $${n} OR ${orgCol} = $${m})`,
+      sql: `((${uidCol} = $${n} OR ${orgCol} = $${m}) AND ${liveProject})`,
       params: [scope.userId, scope.org.orgId],
     };
   }
 
   // analyst：仅自己 owner 的 + 被显式共享的
   const sql =
-    `(${uidCol} = $${n} OR (${orgCol} = $${m} AND ` +
+    `((${uidCol} = $${n} OR (${orgCol} = $${m} AND ` +
     `(${ownerCol} = $${n} OR ${idCol} IN ` +
-    `(SELECT project_id FROM project_shares WHERE shared_with = $${n}))))`;
+    `(SELECT project_id FROM project_shares WHERE shared_with = $${n})))) ` +
+    `AND ${liveProject})`;
   return { sql, params: [scope.userId, scope.org.orgId] };
 }
 
@@ -117,30 +122,37 @@ export function scopedProjectChildWhere(
 ): { sql: string; params: unknown[] } {
   const a = opts?.alias;
   const uidCol = col(a, "user_id");
+  const pidCol = col(a, opts?.projectIdColumn ?? "project_id");
 
   if (!scope.org) {
-    return { sql: `${uidCol} = $${startIndex}`, params: [scope.userId] };
+    return {
+      sql:
+        `(${uidCol} = $${startIndex} AND ` +
+        `${pidCol} IN (SELECT id FROM projects WHERE deleted_at IS NULL))`,
+      params: [scope.userId],
+    };
   }
 
   const n = startIndex; // userId
   const m = startIndex + 1; // orgId
   const orgCol = col(a, "org_id");
-  const pidCol = col(a, opts?.projectIdColumn ?? "project_id");
   const orgId = scope.org.orgId;
 
   // 可见项目子查询（与 scopedProjectWhere 同一规则，但只取 id 列、不带别名）
   let visibleProjects: string;
   if (isManager(scope.org.role)) {
-    visibleProjects = `SELECT id FROM projects WHERE org_id = $${m}`;
+    visibleProjects =
+      `SELECT id FROM projects WHERE org_id = $${m} AND deleted_at IS NULL`;
   } else {
     visibleProjects =
-      `SELECT id FROM projects WHERE org_id = $${m} AND ` +
+      `SELECT id FROM projects WHERE org_id = $${m} AND deleted_at IS NULL AND ` +
       `(owner_id = $${n} OR id IN ` +
       `(SELECT project_id FROM project_shares WHERE shared_with = $${n}))`;
   }
 
   let sql =
-    `(${uidCol} = $${n} OR (${orgCol} = $${m} AND ${pidCol} IN (${visibleProjects})))`;
+    `(${uidCol} = $${n} OR (${orgCol} = $${m} AND ${pidCol} IN (${visibleProjects}))) ` +
+    `AND ${pidCol} IN (SELECT id FROM projects WHERE deleted_at IS NULL)`;
 
   // analyst 不可见投委会总报告（kind='committee'，含他人判断内容）
   if (opts?.excludeMergedForAnalyst && scope.org.role === "analyst") {
@@ -165,7 +177,7 @@ export async function assertProjectAccess(
     org_id: string | null;
     owner_id: string | null;
   }>(
-    "SELECT user_id, org_id, owner_id FROM projects WHERE id = $1",
+    "SELECT user_id, org_id, owner_id FROM projects WHERE id = $1 AND deleted_at IS NULL",
     [projectId]
   );
   const proj = rows[0];
@@ -191,11 +203,14 @@ export async function assertProjectAccess(
   const role = scope.org.role;
   const isOwner = proj.owner_id === scope.userId;
 
-  // partner/admin 对组织项目全可见全可写；删除时 partner 仅自己 owner 的。
+  // 删除是机构高风险操作：组织项目仅 admin 可执行。
+  if (action === "delete") {
+    if (role === "admin") return info;
+    throw new ResourceForbiddenError("仅机构管理员可删除项目");
+  }
+
+  // partner/admin 对组织项目全可见全可写。
   if (isManager(role)) {
-    if (action === "delete" && role === "partner" && !isOwner) {
-      throw new ResourceForbiddenError("仅可删除自己负责的项目");
-    }
     return info;
   }
 

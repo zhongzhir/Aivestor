@@ -132,7 +132,7 @@ export async function GET() {
     query<ProjectRow>(
       `SELECT id, name, company_name, industry, stage, status, summary,
               judgment_points
-         FROM projects WHERE user_id = $1 ORDER BY created_at DESC`,
+         FROM projects WHERE user_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
       [userId]
     ),
     query<JudgmentRow>(

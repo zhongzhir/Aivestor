@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   }>(
     `SELECT id, name, industry, stage, status
        FROM projects
-      WHERE org_id = $1 AND status = 'invested'${projScope}
+      WHERE org_id = $1 AND deleted_at IS NULL AND status = 'invested'${projScope}
       ORDER BY name ASC`,
     projParams
   );
@@ -125,6 +125,7 @@ export async function POST(req: Request) {
        FROM post_investment_updates pu
        JOIN projects p ON p.id = pu.project_id
       WHERE p.org_id = $1
+        AND p.deleted_at IS NULL
         AND pu.created_at >= $2::date
         AND pu.created_at < ($3::date + INTERVAL '1 day')${updScope}
       ORDER BY pu.created_at ASC`,

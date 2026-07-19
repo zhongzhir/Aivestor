@@ -241,7 +241,7 @@ export async function POST(
     );
   }
 
-  await query("UPDATE projects SET financial_data = $1 WHERE id = $2", [
+  await query("UPDATE projects SET financial_data = $1 WHERE id = $2 AND deleted_at IS NULL", [
     JSON.stringify(financialData),
     params.id,
   ]);

@@ -72,7 +72,7 @@ export async function POST() {
             p.name AS project_name
        FROM investment_judgments ij
        JOIN projects p ON p.id = ij.project_id
-      WHERE ij.user_id = $1
+      WHERE ij.user_id = $1 AND p.deleted_at IS NULL
       ORDER BY ij.created_at DESC
       LIMIT 50`,
     [session.user.id]

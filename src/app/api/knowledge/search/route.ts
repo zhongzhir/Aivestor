@@ -244,6 +244,7 @@ export async function POST(req: NextRequest) {
        FROM investment_judgments ij
        JOIN projects p ON ij.project_id = p.id
       WHERE ij.user_id = $1
+        AND p.deleted_at IS NULL
         AND (
           p.name ILIKE $2
           OR ij.bull_case ILIKE $2

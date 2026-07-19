@@ -64,7 +64,7 @@ async function buildProjectVars(
     financial_data: unknown;
   }>(
     `SELECT name, industry, summary, process_stage, financial_data
-       FROM projects WHERE id = $1`,
+       FROM projects WHERE id = $1 AND deleted_at IS NULL`,
     [projectId]
   );
   if (projects.length === 0) return null;

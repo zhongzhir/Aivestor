@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
       status: string;
     }>(
       `SELECT name, industry, stage, status FROM projects
-        WHERE org_id = $1 AND status = 'invested'
+        WHERE org_id = $1 AND deleted_at IS NULL AND status = 'invested'
         ORDER BY name ASC`,
       [ctx.orgId]
     ),

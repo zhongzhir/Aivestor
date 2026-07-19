@@ -65,7 +65,7 @@ async function buildProjectContext(
   userId: string
 ): Promise<string> {
   const projects = await query<ProjectRow>(
-    "SELECT name, stage, status FROM projects WHERE id = $1 AND user_id = $2",
+    "SELECT name, stage, status FROM projects WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
     [projectId, userId]
   );
   const project = projects[0];

@@ -102,7 +102,7 @@ export default async function DashboardPage() {
               WHERE project_id = p.id
               ORDER BY updated_at DESC LIMIT 1
            ) r ON true
-          WHERE p.user_id = $1
+          WHERE p.user_id = $1 AND p.deleted_at IS NULL
           ORDER BY p.updated_at DESC
           LIMIT 6`,
         [user.id]
@@ -116,7 +116,8 @@ export default async function DashboardPage() {
               p.process_stage, p.updated_at,
               NULL::uuid AS latest_report_id, NULL::text AS latest_report_status
          FROM projects p
-        WHERE p.user_id = $1 AND p.status IN ('evaluating', 'invested')
+        WHERE p.user_id = $1 AND p.deleted_at IS NULL
+          AND p.status IN ('evaluating', 'invested')
         ORDER BY p.updated_at ASC`,
       [user.id]
     ).catch(() => []);
@@ -130,7 +131,7 @@ export default async function DashboardPage() {
   const [activeCount, knowledgeCount, draftReportCount] = user
     ? await Promise.all([
         safeCount(
-          "SELECT COUNT(*)::text AS count FROM projects WHERE user_id = $1 AND status IN ('evaluating', 'invested')",
+          "SELECT COUNT(*)::text AS count FROM projects WHERE user_id = $1 AND deleted_at IS NULL AND status IN ('evaluating', 'invested')",
           [user.id]
         ),
         safeCount(
@@ -141,7 +142,7 @@ export default async function DashboardPage() {
           `SELECT COUNT(*)::text AS count
              FROM reports r
              JOIN projects p ON p.id = r.project_id
-            WHERE p.user_id = $1 AND r.status = 'draft'`,
+            WHERE p.user_id = $1 AND p.deleted_at IS NULL AND r.status = 'draft'`,
           [user.id]
         ),
       ])

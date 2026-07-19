@@ -91,7 +91,7 @@ export default async function ProjectDetailPage({
 
   const projects = await query<ProjectRow>(
     `SELECT id, name, judgment_points, financial_data, org_id, owner_id, created_at
-       FROM projects WHERE id = $1`,
+       FROM projects WHERE id = $1 AND deleted_at IS NULL`,
     [params.id]
   );
   if (projects.length === 0) notFound();
@@ -107,7 +107,7 @@ export default async function ProjectDetailPage({
       process_stage: string | null;
       process_stage_updated_at: string | null;
     }>(
-      "SELECT process_stage, process_stage_updated_at FROM projects WHERE id = $1",
+      "SELECT process_stage, process_stage_updated_at FROM projects WHERE id = $1 AND deleted_at IS NULL",
       [params.id]
     );
     processStage = stageRows[0]?.process_stage ?? "screening";
@@ -126,7 +126,7 @@ export default async function ProjectDetailPage({
       outcome_note: string | null;
       outcome_at: string | null;
     }>(
-      "SELECT outcome, outcome_note, outcome_at FROM projects WHERE id = $1",
+      "SELECT outcome, outcome_note, outcome_at FROM projects WHERE id = $1 AND deleted_at IS NULL",
       [params.id]
     );
     outcome = outcomeRows[0]?.outcome ?? null;
@@ -145,7 +145,7 @@ export default async function ProjectDetailPage({
   try {
     const workflowRows = await query<WorkflowRow>(
       `SELECT next_action, next_action_due_at, evidence_completeness, workspace_note
-         FROM projects WHERE id = $1`,
+         FROM projects WHERE id = $1 AND deleted_at IS NULL`,
       [params.id]
     );
     workflow = workflowRows[0] ?? workflow;

@@ -13,7 +13,7 @@ export default async function TermSheetPage({
 }) {
   const session = await requireAuth();
   const rows = await query<{ name: string }>(
-    `SELECT name FROM projects WHERE id = $1 AND user_id = $2`,
+    `SELECT name FROM projects WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
     [params.id, session.user.id]
   );
   if (rows.length === 0) notFound();

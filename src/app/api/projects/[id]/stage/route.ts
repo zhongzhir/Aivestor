@@ -45,7 +45,7 @@ export async function PATCH(
   }>(
     `UPDATE projects
         SET process_stage = $1, process_stage_updated_at = NOW()
-      WHERE id = $2
+      WHERE id = $2 AND deleted_at IS NULL
       RETURNING id, name, process_stage, process_stage_updated_at`,
     [body.stage, params.id]
   );

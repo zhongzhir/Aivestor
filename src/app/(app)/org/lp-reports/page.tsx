@@ -13,7 +13,7 @@ export default async function LpReportsPage() {
   // 在投项目供"项目范围"选择（可选；不选则覆盖全部在投项目）。
   const invested = await query<{ id: string; name: string }>(
     `SELECT id, name FROM projects
-      WHERE org_id = $1 AND status = 'invested'
+      WHERE org_id = $1 AND deleted_at IS NULL AND status = 'invested'
       ORDER BY name ASC`,
     [ctx.orgId]
   );

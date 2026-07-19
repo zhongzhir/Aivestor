@@ -21,7 +21,7 @@ export default async function CognitionPage() {
               ij.key_hypothesis, ij.confidence_level, ij.created_at
          FROM investment_judgments ij
          JOIN projects p ON ij.project_id = p.id
-        WHERE ij.user_id = $1
+        WHERE ij.user_id = $1 AND p.deleted_at IS NULL
         ORDER BY ij.created_at DESC`,
       [session.user.id]
     );

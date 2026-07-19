@@ -78,7 +78,7 @@ export async function POST(
   // 加载项目（访问已校验，按 id 取字段即可）
   const projects = await query<ProjectRow>(
     `SELECT name, company_name, industry, stage, financial_data
-       FROM projects WHERE id = $1`,
+       FROM projects WHERE id = $1 AND deleted_at IS NULL`,
     [params.id]
   );
   if (projects.length === 0) {
@@ -107,7 +107,7 @@ export async function POST(
   }
 
   // 保存本轮判断要点到项目
-  await query("UPDATE projects SET judgment_points = $1 WHERE id = $2", [
+  await query("UPDATE projects SET judgment_points = $1 WHERE id = $2 AND deleted_at IS NULL", [
     JSON.stringify(judgmentPoints),
     params.id,
   ]);

@@ -60,7 +60,7 @@ export default async function AdminUserDetailPage({
   const [projects, logs, quotaRows] = await Promise.all([
     query<Project>(
       `SELECT id, name, stage, process_stage, created_at
-         FROM projects WHERE user_id = $1
+         FROM projects WHERE user_id = $1 AND deleted_at IS NULL
         ORDER BY created_at DESC`,
       [params.id]
     ),
