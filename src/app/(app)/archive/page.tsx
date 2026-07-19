@@ -124,7 +124,7 @@ export default async function ArchivePage({
     const hasFilters = Boolean(search || ownerRaw || processStage || status);
 
     return (
-      <div className="mx-auto max-w-doc px-6 py-10">
+      <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
         <h1 className="text-xl font-semibold text-ink">项目档案</h1>
         <p className="mt-1 text-sm text-ink-soft">
           机构档案 · 组织内全部项目 · 共 {projects.length} 个
@@ -146,7 +146,7 @@ export default async function ArchivePage({
             />
           </div>
         ) : (
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {projects.map((p) => (
               <ArchiveCard
                 key={p.id}
@@ -215,7 +215,7 @@ export default async function ArchivePage({
   );
 
   return (
-    <div className="mx-auto max-w-doc px-6 py-10">
+    <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
       <h1 className="text-xl font-semibold text-ink">项目档案</h1>
       <p className="mt-1 text-sm text-ink-soft">每个项目的完整生命周期记录</p>
 
@@ -240,7 +240,7 @@ export default async function ArchivePage({
           )}
         </div>
       ) : (
-        <div className="mt-8 grid gap-3 sm:grid-cols-2">
+        <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {projects.map((p) => (
             <ArchiveCard
               key={p.id}
