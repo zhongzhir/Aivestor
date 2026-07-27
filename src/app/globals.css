@@ -140,6 +140,162 @@ b {
   font-weight: 700;
 }
 
+/* Skill 结果：面向快速阅读的独立 Markdown 排版，不复用正式报告正文。 */
+.skill-result {
+  color: #344054;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui,
+    sans-serif;
+  font-size: 0.9375rem;
+  line-height: 1.8;
+  letter-spacing: 0.005em;
+  overflow-wrap: anywhere;
+}
+
+.skill-markdown > :first-child {
+  margin-top: 0;
+}
+
+.skill-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.skill-markdown p {
+  margin: 0 0 0.9rem;
+}
+
+.skill-markdown h1,
+.skill-markdown h2,
+.skill-markdown h3,
+.skill-markdown h4 {
+  color: #1f2937;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui,
+    sans-serif;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
+.skill-markdown h1 {
+  margin: 0 0 1rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid #e5ded2;
+  font-size: 1.25rem;
+  font-weight: 750;
+}
+
+.skill-markdown h2 {
+  margin: 1.45rem 0 0.6rem;
+  padding-left: 0.65rem;
+  border-left: 3px solid #2f6f4f;
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.skill-markdown h3,
+.skill-markdown h4 {
+  margin: 1.1rem 0 0.45rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.skill-markdown ul,
+.skill-markdown ol {
+  margin: 0.55rem 0 1rem;
+  padding-left: 1.5rem;
+}
+
+.skill-markdown li {
+  margin: 0.25rem 0;
+  padding-left: 0.2rem;
+}
+
+.skill-markdown li > p {
+  margin: 0;
+}
+
+.skill-markdown blockquote {
+  margin: 1rem 0;
+  padding: 0.7rem 0.9rem;
+  border-left: 3px solid #d5a94a;
+  border-radius: 0 0.45rem 0.45rem 0;
+  background: #fff8e8;
+  color: #694f18;
+}
+
+.skill-markdown blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.skill-markdown table {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: 100%;
+  margin: 1rem 0 1.15rem;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.skill-markdown th,
+.skill-markdown td {
+  min-width: 7rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid #e5ded2;
+  text-align: left;
+  vertical-align: top;
+}
+
+.skill-markdown th {
+  background: #f6f3ed;
+  color: #344054;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.skill-markdown tr:nth-child(even) td {
+  background: #fcfbf8;
+}
+
+.skill-markdown code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  background: #f2f4f7;
+  color: #475467;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 0.86em;
+}
+
+.skill-markdown pre {
+  margin: 1rem 0 1.15rem;
+  padding: 0.8rem 0.9rem;
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: #f4f5f7;
+  color: #344054;
+  line-height: 1.6;
+}
+
+.skill-markdown pre code {
+  padding: 0;
+  background: transparent;
+  white-space: pre;
+}
+
+.skill-markdown hr {
+  margin: 1.25rem 0;
+  border: 0;
+  border-top: 1px solid #e5ded2;
+}
+
+.skill-markdown a {
+  color: #2f6f4f;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* 报告溯源徽章：[src:doc] / [src:data] / [src:ai] 渲染产物 */
 .src-badge {
   display: inline-flex;

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import ReactMarkdown from "react-markdown";
 import { readTextStream, readError } from "@/lib/clientAI";
+import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 
 interface RunnerSkill {
   id: string;
@@ -161,10 +161,10 @@ export function SkillRunner({ skill, onClose }: Props) {
           {/* 结果 */}
           {(running || hasResult) && (
             <div className="mt-5 border-t border-line pt-5">
-              <article className="report-body min-h-[120px]">
+              <article className="skill-result min-h-[120px]">
                 {hasResult ? (
                   <>
-                    <ReactMarkdown>{result}</ReactMarkdown>
+                    <SkillMarkdown content={result} />
                     {running && <span className="type-cursor" />}
                   </>
                 ) : (

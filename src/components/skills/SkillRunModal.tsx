@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import ReactMarkdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize from "rehype-sanitize";
 import { readTextStream, readError } from "@/lib/clientAI";
 import { CATEGORY_ICONS, CATEGORY_LABELS } from "@/lib/skills";
+import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
 
 interface SkillItem {
   id: string;
@@ -273,14 +271,10 @@ export function SkillRunModal({
                   </p>
                 </div>
 
-                <article className="report-body min-h-[120px]">
+                <article className="skill-result min-h-[120px]">
                   {hasResult ? (
                     <>
-                      <ReactMarkdown
-                        rehypePlugins={[rehypeRaw, rehypeSanitize]}
-                      >
-                        {result}
-                      </ReactMarkdown>
+                      <SkillMarkdown content={result} />
                       {running && <span className="type-cursor" />}
                     </>
                   ) : (
