@@ -6,6 +6,7 @@ import {
   exportDateStr,
   type ExportKnowledgeEntry,
 } from "@/lib/export";
+import { BRAND } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export async function GET() {
   );
 
   const markdown = buildKnowledgeSnapshot(entries);
-  const filename = `aivestor-knowledge-${exportDateStr()}.md`;
+  const filename = `${BRAND.shortProductName}-knowledge-${exportDateStr()}.md`;
 
   return new NextResponse(markdown, {
     headers: {

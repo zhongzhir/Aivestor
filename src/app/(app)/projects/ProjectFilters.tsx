@@ -66,7 +66,7 @@ export function ProjectFilters({ stageOptions }: Props) {
         value={search}
         onChange={(event) => setSearch(event.target.value)}
         placeholder="搜索项目、公司、赛道或判断要点"
-        className="w-full rounded-lg border border-line bg-[#fffdfa] px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-[#2f6f4f] focus:outline-none"
+        className="w-full rounded-lg border border-line bg-[#fffdfa] px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-[var(--brand-primary)] focus:outline-none"
       />
       <div className="mt-3 flex flex-wrap gap-2 text-xs">
         <select

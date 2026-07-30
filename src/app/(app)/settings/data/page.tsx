@@ -8,7 +8,7 @@ export default function DataSettingsPage() {
     <section className="rounded-lg border border-line bg-white p-6">
       <h2 className="text-base font-semibold text-ink">数据与协议</h2>
       <p className="mt-2 text-sm leading-6 text-ink-soft">
-        导出你在 Aivestor 沉淀的投资偏好、知识库与项目判断。项目材料和判断记录仍归属于你或所属组织。
+        导出你在系统中沉淀的投资偏好、知识库与项目判断。项目材料和判断记录仍归属于你或所属组织。
       </p>
       <div className="mt-6">
         <DataExport />

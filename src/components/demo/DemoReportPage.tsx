@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BRAND } from "@/lib/brand";
 import ReactMarkdown from "react-markdown";
 
 export interface DemoMeta {
@@ -26,7 +27,7 @@ export function DemoReportPage({ meta, report }: Props) {
           示例项目 · 只读展示
         </p>
         <p className="mt-1 text-xs leading-5 text-amber-700">
-          这是一个虚构项目，仅用于演示 Aivestor 的分析能力。
+          这是一个虚构项目，仅用于演示 {BRAND.productName} 的分析能力。
         </p>
       </div>
 
@@ -70,7 +71,7 @@ export function DemoReportPage({ meta, report }: Props) {
           想要这样的分析报告？
         </p>
         <p className="mt-1 text-sm text-slate-500">
-          上传你的 BP，让 Aivestor 基于你的判断风格生成专属分析
+          上传你的 BP，让 {BRAND.productName} 基于你的判断风格生成专属分析
         </p>
         <Link
           href="/projects"

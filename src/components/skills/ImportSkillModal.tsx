@@ -122,7 +122,7 @@ export function ImportSkillModal({ onClose, onImported }: Props) {
         </div>
 
         <p className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
-          支持 Aivestor 导出的 JSON 格式；
+          支持本系统导出的 JSON 格式；
           兼容包含 <code className="px-1">name</code> + <code className="px-1">prompt</code>{" "}
           字段的通用格式（如豆包、GPTs 等）
         </p>
@@ -156,7 +156,7 @@ export function ImportSkillModal({ onClose, onImported }: Props) {
         {preview && (
           <div className="mt-4 rounded-lg border border-line p-4">
             <p className="text-xs text-ink-faint">
-              格式：{preview.format === "aivestor" ? "Aivestor 导出" : "通用"}
+              格式：{preview.format === "aivestor" ? "系统导出" : "通用"}
             </p>
             <p className="mt-2 text-sm font-medium text-ink">
               {preview.name}

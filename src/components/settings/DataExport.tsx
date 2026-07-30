@@ -76,7 +76,7 @@ export function DataExport() {
         setSnapErr(data.error || "导出失败");
         return;
       }
-      await downloadFromResponse(res, `aivestor-knowledge-${todayStr()}.md`);
+      await downloadFromResponse(res, `knowledge-${todayStr()}.md`);
     } catch {
       setSnapErr("网络异常，导出失败");
     } finally {
@@ -94,7 +94,7 @@ export function DataExport() {
         setArchiveErr(data.error || "导出失败");
         return;
       }
-      await downloadFromResponse(res, `aivestor-archive-${todayStr()}.docx`);
+      await downloadFromResponse(res, `archive-${todayStr()}.docx`);
     } catch {
       setArchiveErr("网络异常，导出失败");
     } finally {

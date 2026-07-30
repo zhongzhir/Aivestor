@@ -28,6 +28,7 @@ import type {
   FormalReportMetadata,
   FormalReportProfile,
 } from "@/lib/formal-report/types";
+import { BRAND } from "@/lib/brand";
 
 const FONT_BODY = "宋体";
 const FONT_HEADING = "微软雅黑";
@@ -403,7 +404,7 @@ function renderContent(
 }
 
 function header(profile: FormalReportProfile, metadata: FormalReportMetadata): Header {
-  const name = metadata.projectName || metadata.organizationName || "Aivestor";
+  const name = metadata.projectName || metadata.organizationName || BRAND.productName;
   return new Header({
     children: [
       new Paragraph({
@@ -427,7 +428,7 @@ function header(profile: FormalReportProfile, metadata: FormalReportMetadata): H
 function footer(profile: FormalReportProfile): Footer {
   const pageChildren: ParagraphChild[] = [
     new TextRun({
-      text: `Aivestor  ·  ${profile.confidentiality}    第 `,
+      text: `${BRAND.productName}  ·  ${profile.confidentiality}    第 `,
       color: COLOR_MUTED,
       size: 16,
       font: FONT_BODY,
@@ -488,7 +489,7 @@ function coverChildren(
                 new Paragraph({
                   children: [
                     new TextRun({
-                      text: "AIVESTOR  /  INVESTMENT DESK",
+                      text: `${BRAND.englishName}  /  INVESTMENT DESK`,
                       bold: true,
                       color: profile.accent,
                       size: 19,
@@ -658,11 +659,11 @@ export async function buildFormalDocxBuffer(input: {
     .map((block) => ({ title: plainMarkdown(block.text), level: block.level }));
 
   const doc = new Document({
-    creator: "Aivestor",
+    creator: BRAND.legalName,
     title: metadata.title,
     subject: profile.label,
     description: profile.subtitle,
-    keywords: `Aivestor,${profile.label},投资报告`,
+    keywords: `${BRAND.name},${profile.label},投资报告`,
     features: { updateFields: true },
     styles: {
       default: {
@@ -750,7 +751,7 @@ export async function buildFormalDocxBuffer(input: {
             }),
           }),
           callout(
-            "本报告由 Aivestor 基于用户提供的材料、结构化数据及投资判断整理生成。报告中的事实、预测、估值和投资建议应在正式提交前完成独立复核；本报告不构成对任何主体的公开投资建议或承诺。",
+            `本报告由 ${BRAND.productName} 基于用户提供的材料、结构化数据及投资判断整理生成。报告中的事实、预测、估值和投资建议应在正式提交前完成独立复核；本报告不构成对任何主体的公开投资建议或承诺。`,
             profile,
             "note"
           ),

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import { BRAND } from "@/lib/brand";
 
-export const metadata: Metadata = { title: "免责声明 · Aivestor" };
+export const metadata: Metadata = { title: `免责声明 · ${BRAND.shortProductName}` };
 
 const serif = {
   fontFamily: 'Georgia, "Times New Roman", "Songti SC", serif',
@@ -18,7 +19,7 @@ export default function DisclaimerPage() {
         <section>
           <h2 className="text-lg font-semibold text-ink">AI 分析声明</h2>
           <p className="mt-2">
-            Aivestor 平台提供的所有 AI
+            {BRAND.productName} 平台提供的所有 AI
             生成内容（包括项目分析报告、决策辅助建议、知识库问答等）均由人工智能自动生成，仅供参考。上述内容不构成任何形式的投资建议、法律意见或财务建议。用户应结合自身专业判断使用，本平台对用户基于上述内容作出的任何决策不承担责任。
           </p>
         </section>

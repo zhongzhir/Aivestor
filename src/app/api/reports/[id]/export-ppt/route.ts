@@ -9,6 +9,7 @@ import {
   scopedProjectChildWhere,
 } from "@/lib/resourceAccess";
 import type { FinancialData } from "@/lib/types";
+import { BRAND } from "@/lib/brand";
 
 // 品牌色
 const NAVY = "0D1B3E";
@@ -101,7 +102,7 @@ export async function GET(
 
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_WIDE"; // 13.33 x 7.5 英寸
-  pptx.author = "Aivestor 投资工作台";
+  pptx.author = BRAND.productName;
 
   const today = new Date().toLocaleDateString("zh-CN", {
     year: "numeric",
@@ -112,7 +113,7 @@ export async function GET(
   // —— 封面页 ——
   const cover = pptx.addSlide();
   cover.background = { color: NAVY };
-  cover.addText("AIVESTOR", {
+  cover.addText(BRAND.englishName, {
     x: 0.7,
     y: 0.5,
     w: 4,
@@ -477,7 +478,7 @@ export async function GET(
     color: WHITE,
     align: "center",
   });
-  end.addText("AIVESTOR  投资工作台", {
+  end.addText(BRAND.productName, {
     x: 0.7,
     y: 4.3,
     w: 11.9,

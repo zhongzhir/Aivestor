@@ -434,7 +434,7 @@ export function ProjectDetail({
             )}
             <button
               onClick={handleGenerate}
-              className="rounded-lg bg-[#2f6f4f] px-3 py-2 text-sm font-medium text-white hover:bg-[#265b42]"
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
             >
               生成分析报告
             </button>

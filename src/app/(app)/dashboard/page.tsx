@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { sleepDays } from "@/lib/projectSleep";
+import { BRAND } from "@/lib/brand";
 
 const QUICK_ACTIONS = [
   {
@@ -174,7 +175,7 @@ export default async function DashboardPage() {
       <section className="grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-6 shadow-[0_1px_2px_rgba(55,53,47,0.04)]">
           <p className="text-sm text-ink-soft">
-            {user ? `${user.name}，早上好` : "欢迎来到 Aivestor"}
+            {user ? `${user.name}，早上好` : `欢迎来到 ${BRAND.productName}`}
           </p>
           <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -187,7 +188,7 @@ export default async function DashboardPage() {
             </div>
             <Link
               href="/projects/new"
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-[#2f6f4f] px-4 text-sm font-medium text-white transition-colors hover:bg-[#265b42]"
+              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:opacity-90"
             >
               新建项目分析
             </Link>
@@ -243,7 +244,7 @@ export default async function DashboardPage() {
                 href={action.href}
                 className="group grid grid-cols-[auto_1fr] gap-3 rounded-lg border border-line p-3 transition-colors hover:border-[#b7c8bc] hover:bg-[#f7fbf8]"
               >
-                <span className="flex h-8 min-w-8 items-center justify-center rounded-md bg-[#edf4ef] px-2 text-xs font-medium text-[#2f6f4f]">
+                <span className="flex h-8 min-w-8 items-center justify-center rounded-md bg-accent-soft px-2 text-xs font-medium text-accent">
                   {action.label}
                 </span>
                 <span>
@@ -262,7 +263,7 @@ export default async function DashboardPage() {
         <div className="rounded-lg border border-line bg-white p-5">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">最近项目</h2>
-            <Link href="/projects" className="text-xs font-medium text-[#2f6f4f]">
+            <Link href="/projects" className="text-xs font-medium text-accent">
               查看项目管线
             </Link>
           </div>
@@ -295,7 +296,7 @@ export default async function DashboardPage() {
                       {STATUS_LABEL[project.status] ?? project.status}
                     </span>
                     <span>{relativeTime(project.updated_at)}</span>
-                    <span className="font-medium text-[#2f6f4f]">继续</span>
+                    <span className="font-medium text-accent">继续</span>
                   </span>
                 </Link>
               ))}
