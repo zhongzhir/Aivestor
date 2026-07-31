@@ -1,13 +1,13 @@
 import { query } from "@/lib/db";
 import { formatTokens } from "@/lib/tokensFormat";
 
-// 系统免费额度（平台代付 DeepSeek）—— 服务端专用
+// 系统免费额度（平台代付通用 AI）—— 服务端专用
 // 引用 pg（Node.js 专用），不要在 'use client' 组件中 import 本文件。
 // 客户端需要 formatTokens 时请直接从 "@/lib/tokensFormat" 取。
 //
 // 设计原则：
 // - user_id 粒度限额（邮箱用户无需绑定手机号即可使用免费额度）
-// - SYSTEM_DEEPSEEK_API_KEY 未配置时整套机制静默禁用，不影响现有用户
+// - 未配置系统 AI Key（SYSTEM_AI_API_KEY / BAILIAN_API_KEY / 旧 DeepSeek Key）时整套机制静默禁用
 // - 用户已配置自己的 Key 时完全不走免费额度路径
 
 // 为兼容旧 import 路径，从 freeQuota 中重导出 formatTokens（仅服务端用）
@@ -20,7 +20,37 @@ export const TRIAL_QUOTA_LIMIT = 500_000; // 未绑定手机号的新用户试�
 export const LEGACY_BIND_BONUS = 500_000; // 存量未绑定用户绑定后一次性追加额度
 
 export function getSystemApiKey(): string | null {
-  return process.env.SYSTEM_DEEPSEEK_API_KEY?.trim() || null;
+  // 新配置优先；未单独保存 SYSTEM_AI_API_KEY 时复用百炼 Key。
+  // 最后保留旧 SYSTEM_DEEPSEEK_API_KEY，确保历史部署向后兼容。
+  return (
+    process.env.SYSTEM_AI_API_KEY?.trim() ||
+    process.env.BAILIAN_API_KEY?.trim() ||
+    process.env.SYSTEM_DEEPSEEK_API_KEY?.trim() ||
+    null
+  );
+}
+
+export function getSystemAIProvider(): string {
+  const configured = process.env.SYSTEM_AI_PROVIDER?.trim().toLowerCase();
+  if (configured) return configured;
+
+  // 已配置百炼时默认使用通义千问；只有旧 DeepSeek Key 时保持旧行为。
+  if (
+    process.env.SYSTEM_AI_API_KEY?.trim() ||
+    process.env.BAILIAN_API_KEY?.trim()
+  ) {
+    return "qwen";
+  }
+  return "deepseek";
+}
+
+export function getSystemAIBaseURL(): string | undefined {
+  const configured = process.env.SYSTEM_AI_BASE_URL?.trim();
+  if (configured) return configured;
+
+  return getSystemAIProvider() === "qwen"
+    ? "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    : "https://api.deepseek.com/v1";
 }
 
 export function isSystemKeyAvailable(): boolean {
