@@ -1,7 +1,12 @@
 import { type AIProvider, type ChatMessage, isValidProvider } from "@/lib/ai";
 import { decrypt } from "@/lib/crypto";
 import { query } from "@/lib/db";
-import { getSystemApiKey, getFreeQuotaStatus } from "@/lib/freeQuota";
+import {
+  getSystemApiKey,
+  getSystemAIProvider,
+  getSystemAIBaseURL,
+  getFreeQuotaStatus,
+} from "@/lib/freeQuota";
 import {
   aiErrorLogDetails,
   type AIErrorContext,
@@ -324,10 +329,15 @@ export async function loadUserAICredentials(
   if (systemKey) {
     const quota = await getFreeQuotaStatus(userId);
     if (quota?.available) {
+      const configuredProvider = getSystemAIProvider();
+      const provider: AIProvider = isValidProvider(configuredProvider)
+        ? configuredProvider
+        : "qwen";
+
       return {
-        provider: "deepseek",
+        provider,
         apiKey: systemKey,
-        baseURL: "https://api.deepseek.com/v1",
+        baseURL: getSystemAIBaseURL(),
         usingFreeQuota: true,
         tokensRemaining: quota.tokensRemaining,
       };
