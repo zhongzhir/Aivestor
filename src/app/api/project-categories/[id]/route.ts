@@ -2,14 +2,21 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { projectScope, scopeColumns, validateProjectLabel } from "@/lib/projectManagement";
-import { assertProjectAccess, buildAccessScope } from "@/lib/resourceAccess";
+import { accessErrorResponse, assertProjectAccess, buildAccessScope } from "@/lib/resourceAccess";
 
 async function getScope(req: Request) {
   const session = await getSession();
   if (!session?.user) return { response: NextResponse.json({ error: "未登录" }, { status: 401 }) };
   const scope = await buildAccessScope(session.user.id);
   const projectId = new URL(req.url).searchParams.get("projectId");
-  const effectiveScope = projectId ? projectScope(scope, await assertProjectAccess(scope, projectId, "write")) : scope;
+  let effectiveScope = scope;
+  if (projectId) {
+    try {
+      effectiveScope = projectScope(scope, await assertProjectAccess(scope, projectId, "write"));
+    } catch (error) {
+      return { response: accessErrorResponse(error) };
+    }
+  }
   return { scope: effectiveScope, scoped: scopeColumns(effectiveScope) };
 }
 

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { existsSync } from "node:fs";
 import pptxgen from "pptxgenjs";
 import { parseFormalReportMarkdown } from "@/lib/formal-report/markdown";
 import type { FormalReportBlock } from "@/lib/formal-report/types";
@@ -81,6 +82,16 @@ function splitTableCell(text: string, maxChars: number): string {
   return lines.join("\n");
 }
 
+function tableCellLines(text: string): number {
+  return plain(text)
+    .split("\n")
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 24)), 0);
+}
+
+function tableRowLines(row: string[]): number {
+  return Math.max(1, ...row.map(tableCellLines));
+}
+
 function estimateLines(block: FormalReportBlock): number {
   switch (block.type) {
     case "heading":
@@ -91,10 +102,7 @@ function estimateLines(block: FormalReportBlock): number {
         block.rows.reduce(
           (sum, row) =>
             sum +
-            Math.max(
-              1,
-              ...row.map((cell) => Math.ceil(plain(cell).length / 30))
-            ),
+            Math.max(2, Math.ceil(tableRowLines(row) * 0.22 / 0.24)),
           0
         ) + 1
       );
@@ -128,20 +136,25 @@ function expandBlocks(blocks: FormalReportBlock[]): FormalReportBlock[] {
       const [header, ...body] = block.rows;
       const groups: string[][][] = [];
       let group: string[][] = [];
+      let groupLines = 0;
       for (const row of body) {
-        group.push(row);
-        if (group.length >= 5) {
+        const prepared = row.map((cell) =>
+          splitTableCell(cell, block.rows[0]?.length >= 5 ? 16 : 24)
+        );
+        const rowLines = tableRowLines(prepared);
+        if (group.length && groupLines + rowLines > 10) {
           groups.push(group);
           group = [];
+          groupLines = 0;
         }
+        group.push(prepared);
+        groupLines += rowLines;
       }
       if (group.length || groups.length === 0) groups.push(group);
       for (const rows of groups) {
         result.push({
           type: "table",
-          rows: [header, ...rows].map((row) =>
-            row.map((cell) => splitTableCell(cell, block.rows[0]?.length >= 5 ? 16 : 24))
-          ),
+          rows: [header, ...rows],
         });
       }
       continue;
@@ -200,9 +213,24 @@ function addBrandLogo(
   brand: BrandConfig,
   reverse = false
 ) {
+  const logo = assetPath(reverse ? brand.assets.logoReverse : brand.assets.logo);
+  if (!existsSync(logo)) {
+    slide.addText(brand.englishName, {
+      x: CONTENT_X,
+      y: 0.48,
+      w: 4.8,
+      h: 0.3,
+      fontSize: 14,
+      bold: true,
+      color: reverse ? brand.colors.accent.replace("#", "") : brand.colors.deep.replace("#", ""),
+      charSpacing: 1.5,
+      margin: 0,
+    });
+    return;
+  }
   try {
     slide.addImage({
-      path: assetPath(reverse ? brand.assets.logoReverse : brand.assets.logo),
+      path: logo,
       x: CONTENT_X,
       y: 0.38,
       w: 2.4,
@@ -350,10 +378,12 @@ function addTableBlock(
       },
     }))
   );
-  const rowHeight = columns >= 4 || rows.some((row) => row.some((cell) => cell.text.includes("\n")))
-    ? 0.58
-    : 0.46;
-  const estimated = Math.max(0.75, rows.length * rowHeight);
+  const rowHeights = block.rows.map((row, rowIndex) => {
+    const lines = tableRowLines(row);
+    const base = columns >= 4 || rowIndex === 0 ? 0.58 : 0.46;
+    return Math.max(base, Math.min(2.4, lines * 0.22));
+  });
+  const estimated = Math.max(0.75, rowHeights.reduce((sum, height) => sum + height, 0));
   slide.addTable(rows, {
     x: CONTENT_X,
     y,
@@ -365,7 +395,7 @@ function addTableBlock(
     fontSize,
     margin: 0.08,
     valign: "middle",
-    rowH: rowHeight,
+    rowH: rowHeights,
   });
   return y + estimated + 0.16;
 }

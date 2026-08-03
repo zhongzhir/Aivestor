@@ -114,7 +114,6 @@ function contextTerms(context: ProfilePromptContext): string[] {
     context.companyName,
     context.industry,
     context.stage,
-    ...(context.projectJudgments ?? []),
   ]
     .filter((value): value is string => !!value?.trim())
     .map(normalizePromptText);

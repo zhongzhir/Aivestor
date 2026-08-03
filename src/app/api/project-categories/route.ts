@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { projectScope, scopeColumns, validateProjectLabel } from "@/lib/projectManagement";
-import { assertProjectAccess, buildAccessScope } from "@/lib/resourceAccess";
+import { accessErrorResponse, assertProjectAccess, buildAccessScope } from "@/lib/resourceAccess";
 
 export async function POST(req: Request) {
   const session = await getSession();
@@ -10,7 +10,14 @@ export async function POST(req: Request) {
   const scope = await buildAccessScope(session.user.id);
   const url = new URL(req.url);
   const projectId = url.searchParams.get("projectId");
-  const effectiveScope = projectId ? projectScope(scope, await assertProjectAccess(scope, projectId, "write")) : scope;
+  let effectiveScope = scope;
+  if (projectId) {
+    try {
+      effectiveScope = projectScope(scope, await assertProjectAccess(scope, projectId, "write"));
+    } catch (error) {
+      return accessErrorResponse(error);
+    }
+  }
   if (effectiveScope.org && !["admin", "partner"].includes(effectiveScope.org.role)) {
     return NextResponse.json({ error: "仅机构管理员或合伙人可维护机构分类" }, { status: 403 });
   }

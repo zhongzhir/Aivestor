@@ -24,9 +24,14 @@ assert.match(archivePage, /project_tag_links/);
 assert.match(managementRoute, /assertProjectAccess\(scope, id, action\)/);
 assert.match(managementRoute, /ON CONFLICT \(project_id, tag_id\) DO NOTHING/);
 assert.match(categoryRoute, /assertProjectAccess/);
+assert.match(categoryRoute, /accessErrorResponse/);
 assert.match(projectPanel, /仅看重点|重点项目/);
 assert.match(projectPanel, /输入标签，回车添加/);
 assert.doesNotMatch(projectPanel, /window\.prompt|window\.confirm/);
+assert.match(managementRoute, /withTransaction/);
+assert.match(managementRoute, /ON CONFLICT DO NOTHING/);
+assert.match(migration, /BEGIN;/);
+assert.match(migration, /COMMIT;/);
 
 assert.equal(normalizeProjectLabel("  AI　 "), "ai");
 assert.equal(normalizeProjectLabel("北京"), normalizeProjectLabel("北京"));

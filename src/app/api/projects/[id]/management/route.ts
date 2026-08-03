@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import {
   getProjectManagementOptions,
   projectScope,
@@ -88,65 +88,75 @@ export async function PATCH(
     const scoped = scopeColumns(projectScopeValue);
     const categoryId = body.categoryId === undefined ? project.category_id : body.categoryId;
 
-    if (categoryId) {
-      const category = await query<{ id: string }>(
-        `SELECT id FROM project_categories WHERE id = $1 AND ${scoped.column} = $2`,
-        [categoryId, scoped.value]
-      );
-      if (!category[0]) return NextResponse.json({ error: "分类不存在或不属于当前项目范围" }, { status: 422 });
-    }
-
-    await query(
-      `UPDATE projects SET category_id = $1, is_priority = $2, updated_at = NOW()
-        WHERE id = $3 AND deleted_at IS NULL`,
-      [categoryId, body.isPriority ?? project.is_priority, params.id]
-    );
-
     if (body.tags !== undefined) {
       const labels = (body.tags as unknown[]).map((v) => validateProjectLabel(v, "标签"));
       const errors = labels.filter((v): v is { error: string } => "error" in v);
       if (errors[0]) return NextResponse.json({ error: errors[0].error }, { status: 422 });
-      const unique = new Map<string, { value: string; normalized: string }>();
-      for (const label of labels as { value: string; normalized: string }[]) unique.set(label.normalized, label);
-      const validNames = [...unique.values()];
-      const tagIds: string[] = [];
-      for (const tag of validNames) {
-        const found = await query<{ id: string }>(
-          `SELECT id FROM project_tags WHERE ${scoped.column} = $1 AND normalized_name = $2`,
-          [scoped.value, tag.normalized]
+    }
+
+    await withTransaction(async (client) => {
+      if (categoryId) {
+        const category = await client.query<{ id: string }>(
+          `SELECT id FROM project_categories WHERE id = $1 AND ${scoped.column} = $2`,
+          [categoryId, scoped.value]
         );
-        if (found[0]) {
-          tagIds.push(found[0].id);
-          continue;
-        }
-        try {
-          const created = await query<{ id: string }>(
-            `INSERT INTO project_tags (${scoped.column}, name, normalized_name)
-             VALUES ($1, $2, $3) RETURNING id`,
-            [scoped.value, tag.value, tag.normalized]
-          );
-          tagIds.push(created[0].id);
-        } catch (error) {
-          if ((error as { code?: string }).code !== "23505") throw error;
-          const concurrent = await query<{ id: string }>(
+        if (!category.rows[0]) throw new Error("分类不存在或不属于当前项目范围");
+      }
+
+      await client.query(
+        `UPDATE projects SET category_id = $1, is_priority = $2, updated_at = NOW()
+          WHERE id = $3 AND deleted_at IS NULL`,
+        [categoryId, body.isPriority ?? project.is_priority, params.id]
+      );
+
+      if (body.tags !== undefined) {
+        const labels = (body.tags as unknown[]).map((v) => validateProjectLabel(v, "标签"));
+        const unique = new Map<string, { value: string; normalized: string }>();
+        for (const label of labels as { value: string; normalized: string }[]) unique.set(label.normalized, label);
+        const tagIds: string[] = [];
+        for (const tag of unique.values()) {
+          const found = await client.query<{ id: string }>(
             `SELECT id FROM project_tags WHERE ${scoped.column} = $1 AND normalized_name = $2`,
             [scoped.value, tag.normalized]
           );
-          if (concurrent[0]) tagIds.push(concurrent[0].id);
+          if (found.rows[0]) {
+            tagIds.push(found.rows[0].id);
+            continue;
+          }
+          const created = await client.query<{ id: string }>(
+            `INSERT INTO project_tags (${scoped.column}, name, normalized_name)
+             VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING
+             RETURNING id`,
+            [scoped.value, tag.value, tag.normalized]
+          );
+          if (created.rows[0]) {
+            tagIds.push(created.rows[0].id);
+          } else {
+            const concurrent = await client.query<{ id: string }>(
+              `SELECT id FROM project_tags WHERE ${scoped.column} = $1 AND normalized_name = $2`,
+              [scoped.value, tag.normalized]
+            );
+            if (!concurrent.rows[0]) throw new Error("标签创建失败");
+            tagIds.push(concurrent.rows[0].id);
+          }
         }
+        await client.query("DELETE FROM project_tag_links WHERE project_id = $1", [params.id]);
+        for (const tagId of tagIds) {
+          await client.query(
+            `INSERT INTO project_tag_links (project_id, tag_id) VALUES ($1, $2)
+             ON CONFLICT (project_id, tag_id) DO NOTHING`,
+            [params.id, tagId]
+          );
+        }
+        await client.query("UPDATE projects SET updated_at = NOW() WHERE id = $1", [params.id]);
       }
-      await query("DELETE FROM project_tag_links WHERE project_id = $1", [params.id]);
-      for (const tagId of tagIds) {
-        await query(
-          `INSERT INTO project_tag_links (project_id, tag_id) VALUES ($1, $2)
-           ON CONFLICT (project_id, tag_id) DO NOTHING`,
-          [params.id, tagId]
-        );
-      }
-      await query("UPDATE projects SET updated_at = NOW() WHERE id = $1", [params.id]);
-    }
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
+    if (e instanceof Error && e.message === "分类不存在或不属于当前项目范围") {
+      return NextResponse.json({ error: e.message }, { status: 422 });
+    }
     return accessErrorResponse(e);
   }
 }

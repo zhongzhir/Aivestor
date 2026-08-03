@@ -53,6 +53,21 @@ assert.deepEqual(
   getRelevantHardPassItems(profile, { industry: "农业科技" }),
   ["排除农业项目", "存在重大合规风险"]
 );
+assert.deepEqual(
+  getRelevantHardPassItems(profile, {
+    projectName: "文化内容平台",
+    industry: "文化",
+    projectJudgments: ["市场材料偶然提到农业消费趋势，但项目本身不是农业"],
+  }),
+  ["存在重大合规风险"]
+);
+assert.deepEqual(
+  getRelevantHardPassItems(profile, {
+    projectName: "农业供应链服务平台",
+    industry: "农业科技供应链",
+  }),
+  ["排除农业项目", "存在重大合规风险"]
+);
 
 const financing = formatRelevantProfileForPrompt(profile, {
   projectName: "文化科技平台",

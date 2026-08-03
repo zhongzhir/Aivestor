@@ -1,6 +1,8 @@
 -- 迁移 043：轻量项目管理工具（分类、多标签、重点标记）
 -- 个人项目使用 user_id；机构项目使用 org_id。存量项目默认未分类、无标签、非重点。
 
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS project_categories (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -55,3 +57,5 @@ CREATE OR REPLACE TRIGGER trg_project_categories_updated
 CREATE OR REPLACE TRIGGER trg_project_tags_updated
   BEFORE UPDATE ON project_tags
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+COMMIT;
