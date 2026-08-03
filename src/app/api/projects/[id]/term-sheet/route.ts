@@ -247,7 +247,14 @@ export async function POST(
       : ""
   }`;
 
-  const systemPrompt = await injectProfile(userId, baseSystem);
+  const systemPrompt = await injectProfile(userId, baseSystem, {
+    projectName: project.name,
+    companyName: project.company_name,
+    industry: project.industry,
+    stage: project.stage,
+    projectJudgments: judgmentsText ? [judgmentsText] : [],
+    taskText: "Term Sheet 条款、融资、估值、持股比例、投资金额和资金匹配分析",
+  });
 
   const projectInfo = [
     `项目名称：${project.name}`,

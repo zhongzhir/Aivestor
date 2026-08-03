@@ -180,6 +180,18 @@ export async function POST(
   } catch (e) {
     return accessErrorResponse(e);
   }
+  const projectContextRows = await query<{
+    name: string;
+    company_name: string | null;
+    industry: string | null;
+    process_stage: string | null;
+  }>(
+    `SELECT name, company_name, industry, process_stage
+       FROM projects
+      WHERE id = $1 AND deleted_at IS NULL`,
+    [params.id]
+  );
+  const projectContext = projectContextRows[0];
   // 组织项目：analyst 不可生成投委会总报告。
   const isOrgCommittee = !!projectOrgId && !!scope.org;
   if (isOrgCommittee && scope.org!.role === "analyst") {
@@ -252,7 +264,13 @@ export async function POST(
   const mergeSystem = hasMemberJudgments
     ? MERGE_SYSTEM + PARTNER_COMPARISON_RULE
     : MERGE_SYSTEM;
-  let system = await injectProfile(session.user.id, mergeSystem);
+  let system = await injectProfile(session.user.id, mergeSystem, {
+    projectName: projectContext?.name,
+    companyName: projectContext?.company_name,
+    industry: projectContext?.industry,
+    stage: projectContext?.process_stage,
+    taskText: "合并项目分析和投委会报告，比较判断与风险，不涉及融资配置或退出期限",
+  });
   // 机构知识注入（无 org / 无能力位时返回原文）
   const mergeRetrievalQuery = ordered.map((r) => r.title).join(" ");
   system = await injectOrgKnowledge(scope, mergeRetrievalQuery, system);

@@ -5,6 +5,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { sleepDays } from "@/lib/projectSleep";
 import { ProjectFilters } from "./ProjectFilters";
 import { ALL_STAGES, STAGE_LABELS } from "@/lib/stages";
+import { buildAccessScope, scopedProjectWhere } from "@/lib/resourceAccess";
+import { getProjectManagementOptions } from "@/lib/projectManagement";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,10 @@ interface ProjectRow {
   updated_at: string;
   latest_report_id: string | null;
   latest_report_status: string | null;
+  category_id: string | null;
+  category_name: string | null;
+  is_priority: boolean;
+  tags: { id: string; name: string }[];
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -84,6 +90,9 @@ export default async function ProjectsPage({
   const stage = pickStr(searchParams?.stage);
   const processStageRaw = pickStr(searchParams?.process_stage);
   const outcomeRaw = pickStr(searchParams?.outcome);
+  const category = pickStr(searchParams?.category);
+  const tag = pickStr(searchParams?.tag);
+  const priority = pickStr(searchParams?.priority) === "1";
   const sort = pickStr(searchParams?.sort) || "created_desc";
 
   const processStage =
@@ -93,8 +102,10 @@ export default async function ProjectsPage({
       : "";
   const outcome = outcomeRaw && ALLOWED_OUTCOMES.has(outcomeRaw) ? outcomeRaw : "";
 
-  const where: string[] = ["p.user_id = $1", "p.deleted_at IS NULL"];
-  const params: unknown[] = [session.user.id];
+  const scope = await buildAccessScope(session.user.id);
+  const scoped = scopedProjectWhere(scope, 1, { alias: "p" });
+  const where: string[] = [scoped.sql];
+  const params: unknown[] = [...scoped.params];
 
   if (search) {
     params.push(`%${search}%`);
@@ -114,16 +125,32 @@ export default async function ProjectsPage({
     params.push(outcome);
     where.push(`p.outcome = $${params.length}`);
   }
+  if (category) {
+    params.push(category);
+    where.push(`p.category_id = $${params.length}`);
+  }
+  if (tag) {
+    params.push(tag);
+    where.push(`EXISTS (SELECT 1 FROM project_tag_links fl WHERE fl.project_id = p.id AND fl.tag_id = $${params.length})`);
+  }
+  if (priority) where.push("p.is_priority = true");
 
   const orderBy =
-    sort === "updated_desc" ? "p.updated_at DESC" : "p.created_at DESC";
+    sort === "priority_desc"
+      ? "p.is_priority DESC, p.updated_at DESC"
+      : sort === "updated_desc" ? "p.updated_at DESC" : "p.created_at DESC";
 
   const projects = await query<ProjectRow>(
     `SELECT p.id, p.name, p.company_name, p.industry, p.status,
             p.stage, p.process_stage, p.outcome,
             p.created_at, p.updated_at,
+            p.category_id, c.name AS category_name, p.is_priority,
+            COALESCE((SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name)
+                        FROM project_tag_links l JOIN project_tags t ON t.id = l.tag_id
+                       WHERE l.project_id = p.id), '[]'::json) AS tags,
             r.id AS latest_report_id, r.status AS latest_report_status
        FROM projects p
+       LEFT JOIN project_categories c ON c.id = p.category_id
        LEFT JOIN LATERAL (
          SELECT id, status FROM reports
           WHERE project_id = p.id
@@ -135,12 +162,13 @@ export default async function ProjectsPage({
   );
 
   const stageRows = await query<{ stage: string }>(
-    `SELECT DISTINCT stage FROM projects
-      WHERE user_id = $1 AND deleted_at IS NULL AND stage IS NOT NULL AND stage <> ''
-      ORDER BY stage`,
-    [session.user.id]
+    `SELECT DISTINCT p.stage FROM projects p WHERE ${scopedProjectWhere(scope, 1, { alias: "p" }).sql}
+       AND p.stage IS NOT NULL AND p.stage <> ''
+      ORDER BY p.stage`,
+    scopedProjectWhere(scope, 1, { alias: "p" }).params
   );
   const stageOptions = stageRows.map((r) => r.stage);
+  const options = await getProjectManagementOptions(scope);
 
   const activeCount = projects.filter((p) =>
     ["evaluating", "invested"].includes(p.status)
@@ -150,7 +178,7 @@ export default async function ProjectsPage({
   ).length;
 
   const hasFilters = Boolean(
-    search || stage || processStage || outcome || sort !== "created_desc"
+    search || stage || processStage || outcome || category || tag || priority || sort !== "created_desc"
   );
 
   return (
@@ -181,7 +209,7 @@ export default async function ProjectsPage({
         </div>
       </div>
 
-      <ProjectFilters stageOptions={stageOptions} />
+      <ProjectFilters stageOptions={stageOptions} categories={options.categories} tags={options.tags} />
 
       {projects.length === 0 ? (
         <div className="mt-6">
@@ -223,6 +251,7 @@ export default async function ProjectsPage({
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
+                      <span className={`text-base ${project.is_priority ? "text-amber-500" : "text-slate-300"}`} aria-label={project.is_priority ? "重点项目" : "非重点项目"}>★</span>
                       <span className="truncate text-sm font-medium text-ink">
                         {project.name}
                       </span>
@@ -233,6 +262,11 @@ export default async function ProjectsPage({
                     <p className="mt-1 truncate text-xs text-ink-soft">
                       {projectMeta(project) || "等待补充公司、赛道或融资阶段"}
                     </p>
+                    <div className="mt-2 flex flex-wrap items-center gap-1">
+                      {project.category_name && <span className="rounded bg-[#eef5ef] px-1.5 py-0.5 text-[11px] text-[#2f6f4f]">{project.category_name}</span>}
+                      {project.tags.slice(0, 3).map((t) => <span key={t.id} className="rounded bg-surface px-1.5 py-0.5 text-[11px] text-ink-soft">{t.name}</span>)}
+                      {project.tags.length > 3 && <span className="text-[11px] text-ink-faint">+{project.tags.length - 3}</span>}
+                    </div>
                   </div>
 
                   <div className="text-xs text-ink-soft">

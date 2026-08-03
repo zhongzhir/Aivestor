@@ -8,6 +8,8 @@ import { OrgArchiveFilters } from "../org/archive/OrgArchiveFilters";
 import { ArchiveViewSwitch } from "@/components/archive/ArchiveViewSwitch";
 import { ArchiveProjectActions } from "@/components/archive/ArchiveProjectActions";
 import { ALL_STAGES } from "@/lib/stages";
+import { buildAccessScope, scopedProjectWhere } from "@/lib/resourceAccess";
+import { getProjectManagementOptions } from "@/lib/projectManagement";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,9 @@ interface ProjectRow {
   report_count: number;
   user_id: string;
   org_id: string | null;
+  category_name: string | null;
+  is_priority: boolean;
+  tags: { id: string; name: string }[];
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -50,6 +55,7 @@ export default async function ArchivePage({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const session = await requireAuth();
+  const scope = await buildAccessScope(session.user.id);
 
   // 机构档案视图（与 P4 /org/archive 同口径）的可见性：org 管理层 + 统计能力位。
   // 个人版/analyst/未开通能力位：无视图切换，行为与现状完全一致。
@@ -68,6 +74,9 @@ export default async function ArchivePage({
     const ownerRaw = pickStr(searchParams?.owner);
     const stageRaw = pickStr(searchParams?.process_stage);
     const statusRaw = pickStr(searchParams?.status);
+    const category = pickStr(searchParams?.category);
+    const tag = pickStr(searchParams?.tag);
+    const priority = pickStr(searchParams?.priority) === "1";
     const processStage =
       stageRaw && (ALL_STAGES as readonly string[]).includes(stageRaw)
         ? stageRaw
@@ -92,6 +101,11 @@ export default async function ArchivePage({
       params.push(status);
       where.push(`p.status = $${params.length}`);
     }
+    if (category) { params.push(category); where.push(`p.category_id = $${params.length}`); }
+    if (tag) { params.push(tag); where.push(`EXISTS (SELECT 1 FROM project_tag_links fl WHERE fl.project_id = p.id AND fl.tag_id = $${params.length})`); }
+    if (priority) where.push("p.is_priority = true");
+    const sort = pickStr(searchParams?.sort) || "updated_desc";
+    const orderBy = sort === "created_desc" ? "p.created_at DESC" : sort === "priority_desc" ? "p.is_priority DESC, p.updated_at DESC" : "p.updated_at DESC";
 
     let projects: ProjectRow[] = [];
     let owners: { id: string; name: string }[] = [];
@@ -99,14 +113,18 @@ export default async function ArchivePage({
       [projects, owners] = await Promise.all([
         query<ProjectRow>(
           `SELECT p.id, p.name, p.industry, p.stage, p.status, p.updated_at,
-                  p.user_id, p.org_id,
+                  p.user_id, p.org_id, c.name AS category_name, p.is_priority,
+                  COALESCE((SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name)
+                              FROM project_tag_links l JOIN project_tags t ON t.id = l.tag_id
+                             WHERE l.project_id = p.id), '[]'::json) AS tags,
                   u.name AS owner_name,
                   (SELECT COUNT(*)::int FROM documents d WHERE d.project_id = p.id) AS file_count,
                   (SELECT COUNT(*)::int FROM reports r WHERE r.project_id = p.id) AS report_count
              FROM projects p
              LEFT JOIN users u ON u.id = p.owner_id
+            LEFT JOIN project_categories c ON c.id = p.category_id
             WHERE ${where.join(" AND ")}
-            ORDER BY p.updated_at DESC`,
+            ORDER BY ${orderBy}`,
           params
         ),
         query<{ id: string; name: string }>(
@@ -121,7 +139,8 @@ export default async function ArchivePage({
       console.error("[archive][org] 数据读取失败:", e);
     }
 
-    const hasFilters = Boolean(search || ownerRaw || processStage || status);
+    const options = await getProjectManagementOptions(scope);
+    const hasFilters = Boolean(search || ownerRaw || processStage || status || category || tag || priority || sort !== "updated_desc");
 
     return (
       <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
@@ -131,7 +150,7 @@ export default async function ArchivePage({
         </p>
 
         <ArchiveViewSwitch view={view} />
-        <OrgArchiveFilters owners={owners} />
+        <OrgArchiveFilters owners={owners} categories={options.categories} tags={options.tags} />
 
         {projects.length === 0 ? (
           <div className="mt-6">
@@ -166,6 +185,9 @@ export default async function ArchivePage({
   const processStageRaw = pickStr(searchParams?.process_stage);
   const outcomeRaw = pickStr(searchParams?.outcome);
   const sort = pickStr(searchParams?.sort) || "updated_desc";
+  const category = pickStr(searchParams?.category);
+  const tag = pickStr(searchParams?.tag);
+  const priority = pickStr(searchParams?.priority) === "1";
 
   const processStage =
     processStageRaw && (ALL_STAGES as readonly string[]).includes(processStageRaw)
@@ -173,8 +195,9 @@ export default async function ArchivePage({
       : "";
   const outcome = outcomeRaw && ALLOWED_OUTCOMES.has(outcomeRaw) ? outcomeRaw : "";
 
-  const where: string[] = ["p.user_id = $1", "p.deleted_at IS NULL"];
-  const params: unknown[] = [session.user.id];
+  const scoped = scopedProjectWhere(scope, 1, { alias: "p" });
+  const where: string[] = [scoped.sql];
+  const params: unknown[] = [...scoped.params];
 
   if (search) {
     params.push(`%${search}%`);
@@ -190,18 +213,24 @@ export default async function ArchivePage({
     params.push(outcome);
     where.push(`p.outcome = $${params.length}`);
   }
+  if (category) { params.push(category); where.push(`p.category_id = $${params.length}`); }
+  if (tag) { params.push(tag); where.push(`EXISTS (SELECT 1 FROM project_tag_links fl WHERE fl.project_id = p.id AND fl.tag_id = $${params.length})`); }
+  if (priority) where.push("p.is_priority = true");
 
   const orderBy =
-    sort === "created_desc" ? "p.created_at DESC" : "p.updated_at DESC";
+    sort === "created_desc" ? "p.created_at DESC" : sort === "priority_desc" ? "p.is_priority DESC, p.updated_at DESC" : "p.updated_at DESC";
 
   let projects: ProjectRow[] = [];
   try {
     projects = await query<ProjectRow>(
-      `SELECT p.id, p.name, p.industry, p.stage, p.status, p.updated_at,
-              p.user_id, p.org_id,
+    `SELECT p.id, p.name, p.industry, p.stage, p.status, p.updated_at,
+              p.user_id, p.org_id, c.name AS category_name, p.is_priority,
+              COALESCE((SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name)
+                          FROM project_tag_links l JOIN project_tags t ON t.id = l.tag_id
+                         WHERE l.project_id = p.id), '[]'::json) AS tags,
               (SELECT COUNT(*)::int FROM documents d WHERE d.project_id = p.id) AS file_count,
               (SELECT COUNT(*)::int FROM reports r WHERE r.project_id = p.id) AS report_count
-         FROM projects p
+       FROM projects p LEFT JOIN project_categories c ON c.id = p.category_id
         WHERE ${where.join(" AND ")}
         ORDER BY ${orderBy}`,
       params
@@ -211,8 +240,9 @@ export default async function ArchivePage({
   }
 
   const hasFilters = Boolean(
-    search || processStage || outcome || sort !== "updated_desc"
+    search || processStage || outcome || category || tag || priority || sort !== "updated_desc"
   );
+  const options = await getProjectManagementOptions(scope);
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
@@ -220,7 +250,7 @@ export default async function ArchivePage({
       <p className="mt-1 text-sm text-ink-soft">每个项目的完整生命周期记录</p>
 
       {canOrgView && <ArchiveViewSwitch view={view} />}
-      <ArchiveFilters />
+      <ArchiveFilters categories={options.categories} tags={options.tags} />
 
       {projects.length === 0 ? (
         <div className="mt-6">
@@ -270,6 +300,7 @@ function ArchiveCard({
     <div className="card-base card-hover flex items-start gap-2 p-4">
       <Link href={`/archive/${p.id}`} className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
+          <span className={`text-base ${p.is_priority ? "text-amber-500" : "text-slate-300"}`} aria-label={p.is_priority ? "重点项目" : "非重点项目"}>★</span>
           <span className="line-clamp-1 flex-1 text-sm font-medium text-slate-800">
             {p.name}
           </span>
@@ -282,6 +313,7 @@ function ArchiveCard({
           {p.stage && ` · ${p.stage}`}
           {showOwner && p.owner_name && ` · 负责人 ${p.owner_name}`}
         </p>
+        <div className="mt-2 flex flex-wrap gap-1">{p.category_name && <span className="rounded bg-[#eef5ef] px-1.5 py-0.5 text-[11px] text-[#2f6f4f]">{p.category_name}</span>}{p.tags.slice(0, 3).map((tag) => <span key={tag.id} className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500">{tag.name}</span>)}{p.tags.length > 3 && <span className="text-[11px] text-slate-400">+{p.tags.length - 3}</span>}</div>
         <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
           <span>📎 {p.file_count} 个文件</span>
           <span>📄 {p.report_count} 份报告</span>

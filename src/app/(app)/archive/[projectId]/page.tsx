@@ -14,6 +14,7 @@ import {
   type ArchiveJudgment,
   type ArchiveOutcome,
 } from "@/components/archive/ArchiveTabs";
+import { ProjectManagementPanel } from "@/components/project/ProjectManagementPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -133,6 +134,8 @@ export default async function ProjectArchivePage({
           打开项目分析 →
         </Link>
       </div>
+
+      <ProjectManagementPanel projectId={project.id} compact />
 
       <ArchiveTabs
         projectId={project.id}

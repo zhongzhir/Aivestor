@@ -25,6 +25,9 @@ export async function GET(req: NextRequest) {
   const stage = (sp.get("stage") ?? "").trim();
   const processStageRaw = (sp.get("process_stage") ?? "").trim();
   const outcomeRaw = (sp.get("outcome") ?? "").trim();
+  const category = (sp.get("category") ?? "").trim();
+  const tag = (sp.get("tag") ?? "").trim();
+  const priority = sp.get("priority") === "1";
   const sort = (sp.get("sort") ?? "created_desc").trim();
 
   const processStage = (ALL_STAGES as readonly string[]).includes(processStageRaw)
@@ -41,7 +44,7 @@ export async function GET(req: NextRequest) {
   if (search) {
     params.push(`%${search}%`);
     where.push(
-      `(p.name ILIKE $${params.length} OR p.judgment_points::text ILIKE $${params.length})`
+      `(p.name ILIKE $${params.length} OR p.company_name ILIKE $${params.length} OR p.industry ILIKE $${params.length} OR p.judgment_points::text ILIKE $${params.length})`
     );
   }
   if (stage) {
@@ -56,18 +59,25 @@ export async function GET(req: NextRequest) {
     params.push(outcome);
     where.push(`p.outcome = $${params.length}`);
   }
+  if (category) { params.push(category); where.push(`p.category_id = $${params.length}`); }
+  if (tag) { params.push(tag); where.push(`EXISTS (SELECT 1 FROM project_tag_links fl WHERE fl.project_id = p.id AND fl.tag_id = $${params.length})`); }
+  if (priority) where.push("p.is_priority = true");
 
   const orderBy =
-    sort === "updated_desc" ? "p.updated_at DESC" : "p.created_at DESC";
+    sort === "priority_desc" ? "p.is_priority DESC, p.updated_at DESC" : sort === "updated_desc" ? "p.updated_at DESC" : "p.created_at DESC";
 
   const rows = await query(
     `SELECT p.id, p.name, p.company_name, p.industry, p.stage, p.status,
-            p.created_at, p.updated_at,
+            p.created_at, p.updated_at, p.category_id, c.name AS category_name, p.is_priority,
+            COALESCE((SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name)
+                        FROM project_tag_links l JOIN project_tags t ON t.id = l.tag_id
+                       WHERE l.project_id = p.id), '[]'::json) AS tags,
             r.id   AS latest_report_id,
             r.status AS latest_report_status,
             (SELECT COUNT(*)::int FROM documents d WHERE d.project_id = p.id) AS file_count,
             (SELECT COUNT(*)::int FROM reports rr WHERE rr.project_id = p.id) AS report_count
        FROM projects p
+       LEFT JOIN project_categories c ON c.id = p.category_id
        LEFT JOIN LATERAL (
          SELECT id, status FROM reports
           WHERE project_id = p.id

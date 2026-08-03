@@ -276,7 +276,14 @@ export async function POST(
     freeQuotaMeta: freeQuotaMetaFor(creds, session.user.id, "decision"),
     system: await injectProfile(
       session.user.id,
-      "你是一位资深的一级股权投资专家，输出使用简体中文与 Markdown 格式。"
+      "你是一位资深的一级股权投资专家，输出使用简体中文与 Markdown 格式。",
+      {
+        projectName: project.name,
+        industry,
+        stage: project.process_stage,
+        projectJudgments: judgmentText !== "（暂无判断记录）" ? [judgmentText] : [],
+        taskText: prompt,
+      }
     ),
     messages: [{ role: "user", content: prompt }],
   });

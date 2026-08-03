@@ -1,6 +1,6 @@
 export type BrandProfile = "aivestor" | "zhongjian-zhitou";
 
-type BrandConfig = {
+export type BrandConfig = {
   profile: BrandProfile;
   name: string;
   englishName: string;
@@ -30,7 +30,7 @@ const profile = (process.env.NEXT_PUBLIC_BRAND_PROFILE || "aivestor") as BrandPr
 const isZhongjian = profile === "zhongjian-zhitou";
 const publicAppUrl = process.env.NEXT_PUBLIC_APP_URL || (isZhongjian ? "https://aivestor.com.cn" : "https://aivestor.cn");
 
-const configs: Record<BrandProfile, BrandConfig> = {
+export const BRAND_CONFIGS: Record<BrandProfile, BrandConfig> = {
   aivestor: {
     profile: "aivestor",
     name: "Aivestor",
@@ -83,6 +83,11 @@ const configs: Record<BrandProfile, BrandConfig> = {
   },
 };
 
-export const BRAND = configs[profile] ?? configs.aivestor;
+export function getBrandConfig(profileName?: string | null): BrandConfig {
+  const requested = profileName || process.env.NEXT_PUBLIC_BRAND_PROFILE || "aivestor";
+  return BRAND_CONFIGS[requested as BrandProfile] ?? BRAND_CONFIGS.aivestor;
+}
+
+export const BRAND = getBrandConfig(profile);
 
 export const brandAsset = (path: string) => path;
