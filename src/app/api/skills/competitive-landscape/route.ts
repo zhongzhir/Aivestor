@@ -219,7 +219,14 @@ export async function POST(req: Request) {
 请严格基于下方提供的中鉴结构化数据进行分析，不得编造未出现在数据中的企业或机构名称。
 信息不足时如实说明，而非泛泛而谈。`;
 
-  let systemPrompt = await injectProfile(userId, baseSystem);
+  let systemPrompt = await injectProfile(userId, baseSystem, {
+    projectName: project?.name,
+    companyName: project?.company_name,
+    industry: project?.industry || industry,
+    stage: project?.stage,
+    projectJudgments: project?.judgment_points ?? [],
+    taskText: "竞争格局和行业市场分析，不涉及融资配置或退出期限",
+  });
   const retrievalQuery = [project?.name, industry].filter(Boolean).join(" ");
   systemPrompt = await injectOrgKnowledge(scope, retrievalQuery, systemPrompt);
 

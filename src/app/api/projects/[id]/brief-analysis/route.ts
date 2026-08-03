@@ -7,7 +7,11 @@ import {
   streamTextResponse,
   freeQuotaMetaFor,
 } from "@/lib/report";
-import { getUserProfile, injectProfile } from "@/lib/user-profile";
+import {
+  getRelevantHardPassItems,
+  getUserProfile,
+  injectProfile,
+} from "@/lib/user-profile";
 import {
   buildAccessScope,
   assertProjectAccess,
@@ -153,7 +157,14 @@ ${
     : ""
 }`;
 
-  let systemPrompt = await injectProfile(userId, baseSystem);
+  let systemPrompt = await injectProfile(userId, baseSystem, {
+    projectName: project.name,
+    companyName: project.company_name,
+    industry: project.industry,
+    stage: project.stage,
+    projectJudgments: judgmentSummary ? [judgmentSummary] : [],
+    taskText: "简要项目筛选：行业、团队、技术和初步风险判断，不涉及融资配置或退出期限",
+  });
   // 机构知识注入（个人版 / 无能力位时返回原文）
   const orgRetrievalQuery = [project.name, project.industry, project.stage]
     .filter(Boolean)
@@ -164,7 +175,15 @@ ${
 
   // 加载画像，构造硬性否决项核查区块
   const profile = await getUserProfile(userId).catch(() => null);
-  const hardPass = profile?.screening_criteria?.hard_pass ?? [];
+  const hardPass = profile
+    ? getRelevantHardPassItems(profile, {
+        projectName: project.name,
+        companyName: project.company_name,
+        industry: project.industry,
+        stage: project.stage,
+        projectJudgments: judgmentSummary ? [judgmentSummary] : [],
+      })
+    : [];
   const hardPassBlock =
     hardPass.length > 0
       ? `## ⚠️ 第零步：硬性否决项核查（必须最先执行）

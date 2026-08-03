@@ -219,7 +219,9 @@ export async function POST(
       apiKey: creds.apiKey,
       baseURL: creds.baseURL,
       freeQuotaMeta: freeQuotaMetaFor(creds, session.user.id, "financials"),
-      system: await injectProfile(session.user.id, SYSTEM_PROMPT),
+      system: await injectProfile(session.user.id, SYSTEM_PROMPT, {
+        taskText: "从项目材料提取结构化财务数据，不涉及融资配置或退出期限",
+      }),
       messages: [{ role: "user", content: bpText }],
     })) {
       raw += chunk;

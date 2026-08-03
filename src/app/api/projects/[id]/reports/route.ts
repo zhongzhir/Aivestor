@@ -135,7 +135,14 @@ export async function POST(
   const retrievalQuery = [project.name, project.industry, ...judgmentPoints]
     .filter(Boolean)
     .join(" ");
-  let injectedSystem = await injectProfile(session.user.id, system);
+  let injectedSystem = await injectProfile(session.user.id, system, {
+    projectName: project.name,
+    companyName: project.company_name,
+    industry: project.industry,
+    stage: project.stage,
+    projectJudgments: judgmentPoints,
+    taskText: "项目分析报告：行业、商业模式、团队、风险和投资结论",
+  });
   injectedSystem = await injectOrgKnowledge(scope, retrievalQuery, injectedSystem);
   // 中鉴市场上下文注入（无 org / 无 zjjr_data 能力位 / 无命中时返回原文）
   injectedSystem = await injectMarketContext(scope, retrievalQuery, injectedSystem);
