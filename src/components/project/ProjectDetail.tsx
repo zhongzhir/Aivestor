@@ -21,6 +21,7 @@ import { stashJudgmentPoints, readError } from "@/lib/clientAI";
 import { OUTCOMES, outcomeDef } from "@/lib/outcome";
 import { FLOW_STAGES, TERMINAL_STAGES, STAGE_LABELS } from "@/lib/stages";
 import type { FinancialData } from "@/lib/types";
+import { ProjectManagementPanel } from "./ProjectManagementPanel";
 
 type Tab = "analysis" | "decision" | "post";
 
@@ -441,6 +442,8 @@ export function ProjectDetail({
           </div>
         </div>
       </div>
+
+      <ProjectManagementPanel projectId={projectId} />
 
       <ActivityTimeline items={activityItems} />
 

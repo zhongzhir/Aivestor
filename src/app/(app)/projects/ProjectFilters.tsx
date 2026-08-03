@@ -15,13 +15,16 @@ const OUTCOME_OPTIONS: { value: string; label: string }[] = [
 const SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "created_desc", label: "最新创建" },
   { value: "updated_desc", label: "最近更新" },
+  { value: "priority_desc", label: "重点优先" },
 ];
 
 interface Props {
   stageOptions: string[];
+  categories: { id: string; name: string }[];
+  tags: { id: string; name: string }[];
 }
 
-export function ProjectFilters({ stageOptions }: Props) {
+export function ProjectFilters({ stageOptions, categories, tags }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -32,6 +35,9 @@ export function ProjectFilters({ stageOptions }: Props) {
   const stage = searchParams.get("stage") ?? "";
   const processStage = searchParams.get("process_stage") ?? "";
   const outcome = searchParams.get("outcome") ?? "";
+  const category = searchParams.get("category") ?? "";
+  const tag = searchParams.get("tag") ?? "";
+  const priority = searchParams.get("priority") === "1";
   const sort = searchParams.get("sort") ?? "created_desc";
 
   function pushParams(next: Record<string, string>) {
@@ -106,6 +112,26 @@ export function ProjectFilters({ stageOptions }: Props) {
           ))}
         </select>
         <select
+          value={category}
+          onChange={(event) => pushParams({ category: event.target.value })}
+          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+        >
+          <option value="">分类：全部</option>
+          {categories.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+        </select>
+        <select
+          value={tag}
+          onChange={(event) => pushParams({ tag: event.target.value })}
+          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+        >
+          <option value="">标签：全部</option>
+          {tags.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+        </select>
+        <label className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-2 py-1.5 text-ink">
+          <input type="checkbox" checked={priority} onChange={(event) => pushParams({ priority: event.target.checked ? "1" : "" })} />
+          仅看重点
+        </label>
+        <select
           value={sort}
           onChange={(event) => pushParams({ sort: event.target.value })}
           className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
@@ -116,7 +142,7 @@ export function ProjectFilters({ stageOptions }: Props) {
             </option>
           ))}
         </select>
-        {(search || stage || processStage || outcome || sort !== "created_desc") && (
+        {(search || stage || processStage || outcome || category || tag || priority || sort !== "created_desc") && (
           <button
             type="button"
             onClick={() => {

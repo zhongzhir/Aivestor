@@ -14,8 +14,12 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 // 机构档案筛选条：在归档筛选基础上增加 owner 下拉（管理层视角按成员浏览）。
 export function OrgArchiveFilters({
   owners,
+  categories,
+  tags,
 }: {
   owners: { id: string; name: string }[];
+  categories: { id: string; name: string }[];
+  tags: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -27,6 +31,10 @@ export function OrgArchiveFilters({
   const owner = searchParams.get("owner") ?? "";
   const processStage = searchParams.get("process_stage") ?? "";
   const status = searchParams.get("status") ?? "";
+  const category = searchParams.get("category") ?? "";
+  const tag = searchParams.get("tag") ?? "";
+  const priority = searchParams.get("priority") === "1";
+  const sort = searchParams.get("sort") ?? "updated_desc";
 
   function pushParams(next: Record<string, string>) {
     const params = new URLSearchParams(searchParams.toString());
@@ -53,7 +61,7 @@ export function OrgArchiveFilters({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search]);
 
-  const hasFilters = search || owner || processStage || status;
+  const hasFilters = search || owner || processStage || status || category || tag || priority || sort !== "updated_desc";
 
   return (
     <div className="mt-6 space-y-3">
@@ -101,6 +109,10 @@ export function OrgArchiveFilters({
             </option>
           ))}
         </select>
+        <select value={category} onChange={(e) => pushParams({ category: e.target.value })} className="rounded border border-line px-2 py-1 text-ink"><option value="">分类（全部）</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <select value={tag} onChange={(e) => pushParams({ tag: e.target.value })} className="rounded border border-line px-2 py-1 text-ink"><option value="">标签（全部）</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <label className="inline-flex items-center gap-1 rounded border border-line px-2 py-1 text-ink"><input type="checkbox" checked={priority} onChange={(e) => pushParams({ priority: e.target.checked ? "1" : "" })} />仅看重点</label>
+        <select value={sort} onChange={(e) => pushParams({ sort: e.target.value })} className="rounded border border-line px-2 py-1 text-ink"><option value="updated_desc">最近更新</option><option value="created_desc">最新创建</option><option value="priority_desc">重点优先</option></select>
         {hasFilters && (
           <button
             type="button"
