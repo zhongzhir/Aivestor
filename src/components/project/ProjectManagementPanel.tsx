@@ -20,6 +20,8 @@ export function ProjectManagementPanel({ projectId, compact = false }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState("");
 
   async function load() {
     try {
@@ -86,15 +88,15 @@ export function ProjectManagementPanel({ projectId, compact = false }: Props) {
   }
 
   async function editCategory(category: Option) {
-    const name = window.prompt("修改分类名称", category.name);
-    if (!name || name.trim() === category.name) return;
+    const name = editingCategoryName.trim();
+    if (!name || name === category.name) { setEditingCategoryId(null); return; }
     const res = await fetch(`/api/project-categories/${category.id}?projectId=${projectId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
     if (!res.ok) { setMessage((await res.json()).error || "修改失败"); return; }
-    setCategories((prev) => prev.map((item) => item.id === category.id ? { ...item, name: name.trim() } : item));
+    setCategories((prev) => prev.map((item) => item.id === category.id ? { ...item, name } : item));
+    setEditingCategoryId(null);
   }
 
   async function deleteCategory(category: Option) {
-    if (!window.confirm(`删除分类“${category.name}”？项目不会被删除。`)) return;
     const res = await fetch(`/api/project-categories/${category.id}?projectId=${projectId}`, { method: "DELETE" });
     if (!res.ok) { setMessage((await res.json()).error || "删除失败"); return; }
     setCategories((prev) => prev.filter((item) => item.id !== category.id));
@@ -114,7 +116,7 @@ export function ProjectManagementPanel({ projectId, compact = false }: Props) {
         <div>
           <label className="text-xs text-ink-soft">自定义分类</label>
           <div className="mt-1 flex gap-2"><select value={categoryId} onChange={(e) => void save({ categoryId: e.target.value })} className="min-w-0 flex-1 rounded-md border border-line px-2 py-1.5 text-sm"><option value="">未分类</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input value={categoryInput} onChange={(e) => setCategoryInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void createCategory(); } }} placeholder="新分类" className="w-24 rounded-md border border-line px-2 py-1.5 text-xs" /></div>
-          <div className="mt-2 flex flex-wrap gap-2">{categories.map((item) => <span key={item.id} className="text-[11px] text-ink-faint"><button type="button" onClick={() => void editCategory(item)} className="hover:text-ink">编辑 {item.name}</button><button type="button" onClick={() => void deleteCategory(item)} className="ml-1 text-red-500 hover:text-red-700">删除</button></span>)}</div>
+          <div className="mt-2 flex flex-wrap gap-2">{categories.map((item) => editingCategoryId === item.id ? <span key={item.id} className="flex items-center gap-1"><input autoFocus value={editingCategoryName} onChange={(e) => setEditingCategoryName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void editCategory(item); if (e.key === "Escape") setEditingCategoryId(null); }} className="w-24 rounded border border-line px-1.5 py-0.5 text-[11px]" /><button type="button" onClick={() => void editCategory(item)} className="text-[11px] text-[#2f6f4f]">保存</button><button type="button" onClick={() => setEditingCategoryId(null)} className="text-[11px] text-ink-faint">取消</button></span> : <span key={item.id} className="text-[11px] text-ink-faint"><button type="button" onClick={() => { setEditingCategoryId(item.id); setEditingCategoryName(item.name); }} className="hover:text-ink">编辑 {item.name}</button><button type="button" onClick={() => void deleteCategory(item)} className="ml-1 text-red-500 hover:text-red-700">删除</button></span>)}</div>
         </div>
         <div>
           <label className="text-xs text-ink-soft">标签</label>

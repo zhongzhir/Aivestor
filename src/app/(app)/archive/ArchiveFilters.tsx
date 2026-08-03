@@ -21,6 +21,7 @@ const SORT_OPTIONS: { value: string; label: string }[] = [
 export function ArchiveFilters({ categories, tags }: { categories: { id: string; name: string }[]; tags: { id: string; name: string }[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const paramsRef = useRef(new URLSearchParams(searchParams.toString()));
 
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -33,12 +34,17 @@ export function ArchiveFilters({ categories, tags }: { categories: { id: string;
   const tag = searchParams.get("tag") ?? "";
   const priority = searchParams.get("priority") === "1";
 
+  useEffect(() => {
+    paramsRef.current = new URLSearchParams(searchParams.toString());
+  }, [searchParams]);
+
   function pushParams(next: Record<string, string>) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(paramsRef.current.toString());
     for (const [k, v] of Object.entries(next)) {
       if (v) params.set(k, v);
       else params.delete(k);
     }
+    paramsRef.current = params;
     const qs = params.toString();
     router.replace(qs ? `/archive?${qs}` : "/archive");
   }
@@ -111,6 +117,7 @@ export function ArchiveFilters({ categories, tags }: { categories: { id: string;
             type="button"
             onClick={() => {
               setSearch("");
+              paramsRef.current = new URLSearchParams();
               router.replace("/archive");
             }}
             className="rounded border border-line px-2 py-1 text-ink-soft hover:bg-surface"

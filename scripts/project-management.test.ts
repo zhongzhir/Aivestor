@@ -26,6 +26,7 @@ assert.match(managementRoute, /ON CONFLICT \(project_id, tag_id\) DO NOTHING/);
 assert.match(categoryRoute, /assertProjectAccess/);
 assert.match(projectPanel, /仅看重点|重点项目/);
 assert.match(projectPanel, /输入标签，回车添加/);
+assert.doesNotMatch(projectPanel, /window\.prompt|window\.confirm/);
 
 assert.equal(normalizeProjectLabel("  AI　 "), "ai");
 assert.equal(normalizeProjectLabel("北京"), normalizeProjectLabel("北京"));

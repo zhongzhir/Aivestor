@@ -27,6 +27,7 @@ interface Props {
 export function ProjectFilters({ stageOptions, categories, tags }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const paramsRef = useRef(new URLSearchParams(searchParams.toString()));
 
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -40,12 +41,17 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
   const priority = searchParams.get("priority") === "1";
   const sort = searchParams.get("sort") ?? "created_desc";
 
+  useEffect(() => {
+    paramsRef.current = new URLSearchParams(searchParams.toString());
+  }, [searchParams]);
+
   function pushParams(next: Record<string, string>) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(paramsRef.current.toString());
     for (const [key, value] of Object.entries(next)) {
       if (value) params.set(key, value);
       else params.delete(key);
     }
+    paramsRef.current = params;
     const qs = params.toString();
     router.replace(qs ? `/projects?${qs}` : "/projects");
   }
@@ -147,6 +153,7 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
             type="button"
             onClick={() => {
               setSearch("");
+              paramsRef.current = new URLSearchParams();
               router.replace("/projects");
             }}
             className="rounded-md border border-line px-2 py-1.5 text-ink-soft hover:bg-surface"

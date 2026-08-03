@@ -23,6 +23,7 @@ export function OrgArchiveFilters({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const paramsRef = useRef(new URLSearchParams(searchParams.toString()));
 
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,13 +37,18 @@ export function OrgArchiveFilters({
   const priority = searchParams.get("priority") === "1";
   const sort = searchParams.get("sort") ?? "updated_desc";
 
+  useEffect(() => {
+    paramsRef.current = new URLSearchParams(searchParams.toString());
+  }, [searchParams]);
+
   function pushParams(next: Record<string, string>) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(paramsRef.current.toString());
     params.set("view", "org"); // 始终保留机构档案视图标识
     for (const [k, v] of Object.entries(next)) {
       if (v) params.set(k, v);
       else params.delete(k);
     }
+    paramsRef.current = params;
     router.replace(`/archive?${params.toString()}`);
   }
 
@@ -118,6 +124,7 @@ export function OrgArchiveFilters({
             type="button"
             onClick={() => {
               setSearch("");
+              paramsRef.current = new URLSearchParams("view=org");
               router.replace("/archive?view=org");
             }}
             className="rounded border border-line px-2 py-1 text-ink-soft hover:bg-surface"
