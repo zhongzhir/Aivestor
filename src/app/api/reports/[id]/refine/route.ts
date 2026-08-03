@@ -78,7 +78,9 @@ export async function POST(
     apiKey: creds.apiKey,
     baseURL: creds.baseURL,
     freeQuotaMeta: freeQuotaMetaFor(creds, session.user.id, "report-refine"),
-    system: await injectProfile(session.user.id, system),
+    system: await injectProfile(session.user.id, system, {
+      explicitInstruction: instruction,
+    }),
     messages,
   });
 

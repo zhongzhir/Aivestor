@@ -28,6 +28,7 @@ import type {
   FormalReportMetadata,
   FormalReportProfile,
 } from "@/lib/formal-report/types";
+import { BRAND, type BrandConfig } from "@/lib/brand";
 
 const FONT_BODY = "宋体";
 const FONT_HEADING = "微软雅黑";
@@ -402,8 +403,12 @@ function renderContent(
   return children;
 }
 
-function header(profile: FormalReportProfile, metadata: FormalReportMetadata): Header {
-  const name = metadata.projectName || metadata.organizationName || "Aivestor";
+function header(
+  profile: FormalReportProfile,
+  metadata: FormalReportMetadata,
+  brand: BrandConfig
+): Header {
+  const name = metadata.projectName || metadata.organizationName || brand.name;
   return new Header({
     children: [
       new Paragraph({
@@ -424,10 +429,10 @@ function header(profile: FormalReportProfile, metadata: FormalReportMetadata): H
   });
 }
 
-function footer(profile: FormalReportProfile): Footer {
+function footer(profile: FormalReportProfile, brand: BrandConfig): Footer {
   const pageChildren: ParagraphChild[] = [
     new TextRun({
-      text: `Aivestor  ·  ${profile.confidentiality}    第 `,
+      text: `${brand.name}  ·  ${profile.confidentiality}    第 `,
       color: COLOR_MUTED,
       size: 16,
       font: FONT_BODY,
@@ -457,7 +462,8 @@ function footer(profile: FormalReportProfile): Footer {
 
 function coverChildren(
   profile: FormalReportProfile,
-  metadata: FormalReportMetadata
+  metadata: FormalReportMetadata,
+  brand: BrandConfig
 ): FileChild[] {
   const date = new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
@@ -488,7 +494,7 @@ function coverChildren(
                 new Paragraph({
                   children: [
                     new TextRun({
-                      text: "AIVESTOR  /  INVESTMENT DESK",
+                      text: `${brand.englishName}  /  INVESTMENT DESK`,
                       bold: true,
                       color: profile.accent,
                       size: 19,
@@ -646,10 +652,12 @@ export async function buildFormalDocxBuffer(input: {
   profile: FormalReportProfile;
   metadata: FormalReportMetadata;
   markdown: string;
+  brand?: BrandConfig;
 }): Promise<Buffer> {
   const { profile, metadata, markdown } = input;
-  const mainHeader = header(profile, metadata);
-  const mainFooter = footer(profile);
+  const brand = input.brand ?? BRAND;
+  const mainHeader = header(profile, metadata, brand);
+  const mainFooter = footer(profile, brand);
   const tocEntries = parseFormalReportMarkdown(markdown)
     .filter(
       (block): block is Extract<typeof block, { type: "heading" }> =>
@@ -658,11 +666,11 @@ export async function buildFormalDocxBuffer(input: {
     .map((block) => ({ title: plainMarkdown(block.text), level: block.level }));
 
   const doc = new Document({
-    creator: "Aivestor",
+    creator: brand.name,
     title: metadata.title,
     subject: profile.label,
     description: profile.subtitle,
-    keywords: `Aivestor,${profile.label},投资报告`,
+    keywords: `${brand.name},${profile.label},投资报告`,
     features: { updateFields: true },
     styles: {
       default: {
@@ -699,7 +707,7 @@ export async function buildFormalDocxBuffer(input: {
             margin: { top: 720, right: 1180, bottom: 900, left: 1180 },
           },
         },
-        children: coverChildren(profile, metadata),
+        children: coverChildren(profile, metadata, brand),
       },
       {
         properties: {
@@ -750,7 +758,7 @@ export async function buildFormalDocxBuffer(input: {
             }),
           }),
           callout(
-            "本报告由 Aivestor 基于用户提供的材料、结构化数据及投资判断整理生成。报告中的事实、预测、估值和投资建议应在正式提交前完成独立复核；本报告不构成对任何主体的公开投资建议或承诺。",
+            `本报告由 ${brand.name} 基于用户提供的材料、结构化数据及投资判断整理生成。报告中的事实、预测、估值和投资建议应在正式提交前完成独立复核；本报告不构成对任何主体的公开投资建议或承诺。`,
             profile,
             "note"
           ),

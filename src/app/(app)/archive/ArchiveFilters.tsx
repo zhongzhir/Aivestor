@@ -15,11 +15,13 @@ const OUTCOME_OPTIONS: { value: string; label: string }[] = [
 const SORT_OPTIONS: { value: string; label: string }[] = [
   { value: "created_desc", label: "最新创建" },
   { value: "updated_desc", label: "最近更新" },
+  { value: "priority_desc", label: "重点优先" },
 ];
 
-export function ArchiveFilters() {
+export function ArchiveFilters({ categories, tags }: { categories: { id: string; name: string }[]; tags: { id: string; name: string }[] }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const paramsRef = useRef(new URLSearchParams(searchParams.toString()));
 
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -28,13 +30,21 @@ export function ArchiveFilters() {
   const processStage = searchParams.get("process_stage") ?? "";
   const outcome = searchParams.get("outcome") ?? "";
   const sort = searchParams.get("sort") ?? "updated_desc";
+  const category = searchParams.get("category") ?? "";
+  const tag = searchParams.get("tag") ?? "";
+  const priority = searchParams.get("priority") === "1";
+
+  useEffect(() => {
+    paramsRef.current = new URLSearchParams(searchParams.toString());
+  }, [searchParams]);
 
   function pushParams(next: Record<string, string>) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(paramsRef.current.toString());
     for (const [k, v] of Object.entries(next)) {
       if (v) params.set(k, v);
       else params.delete(k);
     }
+    paramsRef.current = params;
     const qs = params.toString();
     router.replace(qs ? `/archive?${qs}` : "/archive");
   }
@@ -99,11 +109,15 @@ export function ArchiveFilters() {
             </option>
           ))}
         </select>
-        {(search || processStage || outcome || sort !== "updated_desc") && (
+        <select value={category} onChange={(e) => pushParams({ category: e.target.value })} className="rounded border border-line px-2 py-1 text-ink"><option value="">分类（全部）</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <select value={tag} onChange={(e) => pushParams({ tag: e.target.value })} className="rounded border border-line px-2 py-1 text-ink"><option value="">标签（全部）</option>{tags.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+        <label className="inline-flex items-center gap-1 rounded border border-line px-2 py-1 text-ink"><input type="checkbox" checked={priority} onChange={(e) => pushParams({ priority: e.target.checked ? "1" : "" })} />仅看重点</label>
+        {(search || processStage || outcome || category || tag || priority || sort !== "updated_desc") && (
           <button
             type="button"
             onClick={() => {
               setSearch("");
+              paramsRef.current = new URLSearchParams();
               router.replace("/archive");
             }}
             className="rounded border border-line px-2 py-1 text-ink-soft hover:bg-surface"

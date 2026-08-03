@@ -175,7 +175,9 @@ export async function POST(req: Request) {
     apiKey: creds.apiKey,
     baseURL: creds.baseURL,
     freeQuotaMeta: freeQuotaMetaFor(creds, ctx.userId, "lp-report"),
-    system: await injectProfile(ctx.userId, LP_SYSTEM),
+    system: await injectProfile(ctx.userId, LP_SYSTEM, {
+      taskText: "生成 LP 期间报告，汇总组合项目、投后跟踪、风险和回报表现",
+    }),
     messages: [{ role: "user", content: dataBlock }],
   });
 

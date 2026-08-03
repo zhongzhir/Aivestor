@@ -276,7 +276,15 @@ export async function POST(req: Request) {
   // 4. 注入链：个人画像 → 机构知识沉淀（个人版 / 无能力位时返回原文）
   let system = await injectProfile(
     session.user.id,
-    "你是一位资深的一级股权投资专家，输出使用简体中文与 Markdown 格式，专业、具体、有洞察力。"
+    "你是一位资深的一级股权投资专家，输出使用简体中文与 Markdown 格式，专业、具体、有洞察力。",
+    {
+      projectName: project?.name,
+      industry: project?.industry,
+      explicitInstruction: extra_input,
+      projectJudgments:
+        project && vars.judgments !== EMPTY ? [vars.judgments] : [],
+      taskText: [promptTemplate, extra_input].filter(Boolean).join("\n"),
+    }
   );
   const retrievalQuery = [project?.name, project?.industry, extra_input]
     .filter(Boolean)

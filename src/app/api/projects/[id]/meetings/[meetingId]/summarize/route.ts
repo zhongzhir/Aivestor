@@ -91,7 +91,8 @@ ${meeting.content}
       freeQuotaMeta: freeQuotaMetaFor(creds, session.user.id, "meeting-summarize"),
       system: await injectProfile(
         session.user.id,
-        "你是投后管理专家，只输出合法 JSON，不输出任何其他内容。"
+        "你是投后管理专家，只输出合法 JSON，不输出任何其他内容。",
+        { taskText: prompt }
       ),
       messages: [{ role: "user", content: prompt }],
     })) {

@@ -5,6 +5,7 @@ import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
 import { buildDocxBuffer } from "@/lib/docx";
 import { buildFormalDocxBuffer } from "@/lib/formal-report/docx";
+import { BRAND } from "@/lib/brand";
 import { composeFormalReport } from "@/lib/formal-report/composer";
 import { inferFormalReportProfile } from "@/lib/formal-report/profiles";
 import {
@@ -96,6 +97,7 @@ export async function GET(
   const buffer = formal
     ? await buildFormalDocxBuffer({
         profile,
+        brand: BRAND,
         metadata: formalMetadata,
         markdown: composed!.markdown,
       })
