@@ -13,7 +13,8 @@ export interface DataAppConfig {
   name: string; // 导航显示名
   icon: string; // emoji（与 SKILL_CATEGORIES 同风格）
   description: string;
-  requiredCapability: string; // 守门能力位
+  requiredCapability: string; // 增强能力位；availableToPersonal 可覆盖个人版入口
+  availableToPersonal?: boolean;
   // 动态 import，按需加载（路径静态可分析，便于代码分割）
   component: () => Promise<{ default: ComponentType }>;
 }
@@ -41,6 +42,7 @@ export const DATA_APPS: DataAppConfig[] = [
     icon: "🧭",
     description: "按你的关注范围和时间节奏生成专属情报简报",
     requiredCapability: "zjjr_data",
+    availableToPersonal: true,
     component: () => import("@/components/data-apps/IntelligenceSubscriptions"),
   },
 ];

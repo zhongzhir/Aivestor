@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { requireOrg } from "@/lib/orgAuth";
+import { getSession } from "@/lib/auth";
+import { getOrgContext } from "@/lib/orgAuth";
 import { getDataApp } from "@/lib/dataApps";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +16,11 @@ export default async function DataAppPage({
   const app = getDataApp(params.appId);
   if (!app) notFound();
 
-  // 服务端守门：未开通该应用所需能力位 → 回 /dashboard（与 requireCapabilityAPI 同款）。
-  const ctx = await requireOrg();
-  if (ctx.capabilities[app.requiredCapability] !== true) redirect("/dashboard");
+  const session = await getSession();
+  if (!session?.user?.id) redirect("/login");
+  const ctx = await getOrgContext(session.user.id);
+  const enabled = app.availableToPersonal === true || !!ctx?.capabilities[app.requiredCapability ?? ""];
+  if (!enabled) redirect("/dashboard");
 
   // 动态加载客户端组件（路径静态可分析；mod.default 为 "use client" 组件）。
   const mod = await app.component();
