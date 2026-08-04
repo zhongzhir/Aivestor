@@ -16,6 +16,7 @@
     "test:intelligence": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence.test.ts",
     "test:intelligence-natural-language": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-natural-language.test.ts",
     "test:intelligence-personal-access": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-personal-access.test.ts",
+    "test:intelligence-navigation": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-navigation.test.ts",
     "test:db-permissions": "node scripts/db-permissions.test.mjs",
     "db:schema": "node --env-file=.env.local scripts/apply-schema.mjs",
     "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
