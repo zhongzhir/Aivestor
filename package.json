@@ -18,6 +18,7 @@
     "test:intelligence-personal-access": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-personal-access.test.ts",
     "test:intelligence-navigation": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-navigation.test.ts",
     "test:db-permissions": "node scripts/db-permissions.test.mjs",
+    "test:e2e:intelligence": "playwright test --config=playwright.intelligence.config.mjs",
     "db:schema": "node --env-file=.env.local scripts/apply-schema.mjs",
     "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
     "db:migrate-chunks": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/migrate-chunks.ts",
@@ -50,6 +51,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/ali-oss": "^6.23.3",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.17.6",
