@@ -39,7 +39,7 @@ export const DATA_APPS: DataAppConfig[] = [
     id: "intelligence-subscriptions",
     name: "情报订制",
     icon: "🧭",
-    description: "主动定义主题、范围与频率，生成并留存专属情报简报",
+    description: "按你的关注范围和时间节奏生成专属情报简报",
     requiredCapability: "zjjr_data",
     component: () => import("@/components/data-apps/IntelligenceSubscriptions"),
   },
