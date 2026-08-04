@@ -1,7 +1,8 @@
 import { DemoReportPage, type DemoMeta } from "@/components/demo/DemoReportPage";
+import { BRAND } from "@/lib/brand";
 
 export const metadata = {
-  title: "示例项目 · DataSync Pro · Aivestor",
+  title: `示例项目 · DataSync Pro · ${BRAND.shortProductName}`,
 };
 
 const meta: DemoMeta = {

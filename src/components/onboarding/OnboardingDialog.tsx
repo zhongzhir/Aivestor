@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { BRAND } from "@/lib/brand";
 
 interface Props {
   // 由父组件决定是否渲染（基于 DB 中 onboarding_completed 标记）
@@ -97,7 +98,7 @@ function StepOne({ onNext }: { onNext: () => void }) {
   return (
     <>
       <h2 className="text-xl font-semibold tracking-tight text-slate-800">
-        欢迎使用 Aivestor
+        欢迎使用 {BRAND.productName}
       </h2>
       <p className="mt-2 text-sm text-slate-500">
         以投资人为中心，AI 赋能投资人持续进化

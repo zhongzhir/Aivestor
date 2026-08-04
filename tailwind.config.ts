@@ -5,8 +5,8 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        canvas: "#fbfaf7",
-        surface: "#f4f1ea",
+        canvas: "var(--brand-surface, #fbfaf7)",
+        surface: "var(--brand-surface-strong, #f4f1ea)",
         ink: {
           DEFAULT: "#37352f",
           soft: "#6f6a61",
@@ -14,8 +14,8 @@ const config: Config = {
         },
         line: "#e5ded2",
         accent: {
-          DEFAULT: "#2f6f4f",
-          soft: "#edf4ef",
+          DEFAULT: "var(--brand-primary, #2f6f4f)",
+          soft: "var(--brand-primary-soft, #edf4ef)",
         },
       },
       fontFamily: {

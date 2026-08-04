@@ -2,8 +2,10 @@
 // 常量与格式化工具。所有导出产物末尾统一附上品牌署名行。
 
 // 文件 / prompt 末尾统一署名行
+import { BRAND } from "@/lib/brand";
+
 export const EXPORT_FOOTER =
-  "本档案由 Aivestor 生成 · aivestor.cn · 你的判断，永远属于你";
+  `本档案由 ${BRAND.productName} 生成 · ${BRAND.website.replace(/^https?:\/\//, "")} · 你的判断，永远属于你`;
 
 // 知识库条目（导出场景需要的字段子集）
 export interface ExportKnowledgeEntry {

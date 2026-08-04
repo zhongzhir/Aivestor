@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import Footer from "@/components/Footer";
+import { BRAND } from "@/lib/brand";
 
 export default function LandingPage() {
   return (
@@ -12,8 +13,8 @@ export default function LandingPage() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "SoftwareApplication",
-            "name": "Aivestor",
-            "url": "https://aivestor.cn",
+            "name": BRAND.productName,
+            "url": BRAND.website,
             "description": "面向一级股权投资人的全周期AI工作台。连接项目管线、材料分析、投资决策、IC Memo、投后管理与知识沉淀。",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web",
@@ -29,8 +30,8 @@ export default function LandingPage() {
             },
             "creator": {
               "@type": "Organization",
-              "name": "北京链上文投信息技术有限公司",
-              "email": "Aivestor@qq.com"
+              "name": BRAND.legalName,
+              "email": BRAND.supportEmail
             },
             "featureList": [
               "BP智能分析与报告生成",
@@ -54,10 +55,10 @@ export default function LandingPage() {
         {/* Hero */}
         <section style={{ textAlign: "center", marginBottom: "80px" }}>
           <div style={{ fontSize: "42px", fontWeight: "800", marginBottom: "12px" }}>
-            <span style={{ fontWeight: "300" }}>Ai</span>vestor
+            {BRAND.productName}
           </div>
           <p style={{ fontSize: "13px", color: "#1B6FE8", fontWeight: "700", letterSpacing: "0.12em", marginBottom: "12px" }}>
-            AIVESTOR 2.0
+            {BRAND.englishName}
           </p>
           <p style={{ fontSize: "22px", color: "#0D1B3E", fontWeight: "600", marginBottom: "16px" }}>
             股权投资全周期 AI 工作台
@@ -131,7 +132,7 @@ export default function LandingPage() {
                 <tr style={{ background: "#0D1B3E", color: "#fff" }}>
                   <th style={{ padding: "12px 16px", textAlign: "left" }}>对比维度</th>
                   <th style={{ padding: "12px 16px", textAlign: "left" }}>ChatGPT / 通用 AI</th>
-                  <th style={{ padding: "12px 16px", textAlign: "left", color: "#4A9EFF" }}>Aivestor</th>
+                  <th style={{ padding: "12px 16px", textAlign: "left", color: "#4A9EFF" }}>{BRAND.shortProductName}</th>
                 </tr>
               </thead>
               <tbody>
@@ -163,16 +164,16 @@ export default function LandingPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
             {[
               {
-                q: "Aivestor 和直接用 ChatGPT 分析BP有什么本质区别？",
-                a: "最核心的区别是“沉淀”。用ChatGPT分析完一个项目，对话结束数据就消失了。Aivestor会把每次判断存入你的私有知识库，半年后再看新项目时，AI能自动关联你历史上看过的类似案例，告诉你上次在哪里判断对了、哪里踩坑了。"
+                q: `${BRAND.shortProductName} 和直接用 ChatGPT 分析BP有什么本质区别？`,
+                a: `最核心的区别是“沉淀”。用ChatGPT分析完一个项目，对话结束数据就消失了。${BRAND.shortProductName}会把每次判断存入你的私有知识库，半年后再看新项目时，AI能自动关联你历史上看过的类似案例，告诉你上次在哪里判断对了、哪里踩坑了。`
               },
               {
                 q: "需要下载安装吗？",
-                a: "普通用户不需要下载安装，直接打开 aivestor.cn 注册即可使用。想固定到桌面时，可在 Chrome 或 Edge 中选择“安装 Aivestor”或“将此站点作为应用安装”。如果你需要数据完全留在自控环境，也可以使用 Docker 私有化部署。"
+                a: `用户不需要下载安装，直接打开 ${BRAND.website.replace(/^https?:\/\//, "")} 即可使用。想固定到桌面时，可在 Chrome 或 Edge 中选择“安装${BRAND.shortProductName}”。`
               },
               {
                 q: "我的投资分析数据安全吗？会被平台看到吗？",
-                a: "Aivestor支持用户自带API Key，密钥使用AES-256-GCM加密；项目与组织资源按权限隔离，并提供数据导出和Docker私有部署。使用SaaS版本时，项目材料与工作记录会按产品功能存储和处理；对数据边界要求更高的团队可选择私有部署。"
+                a: `${BRAND.shortProductName}支持用户自带API Key，密钥使用AES-256-GCM加密；项目与组织资源按权限隔离，并提供数据导出和私有部署。`
               },
               {
                 q: "支持哪些 AI 模型？必须用某个特定模型吗？",
@@ -192,7 +193,7 @@ export default function LandingPage() {
               },
               {
                 q: "现在可以使用吗？",
-                a: "可以。个人用户可直接访问 aivestor.cn 注册使用，并获得平台试用额度；也可以配置自己的模型API Key。机构版采用联系开通方式，可通过 Aivestor@qq.com 沟通团队协作、数据接入与私有化部署需求。"
+                a: `可以。团队可通过 ${BRAND.supportEmail || "企业管理员"} 沟通团队协作、数据接入与私有化部署需求。`
               },
             ].map((item) => (
               <div key={item.q} style={{ border: "1px solid #E8F0FD", borderRadius: "12px", padding: "20px 24px" }}>
@@ -238,7 +239,7 @@ export default function LandingPage() {
         {/* CTA */}
         <section style={{ textAlign: "center", background: "#0D1B3E", borderRadius: "16px", padding: "48px 32px", color: "#fff" }}>
           <h2 style={{ fontSize: "24px", fontWeight: "700", marginBottom: "12px" }}>
-            把下一个项目放进 Aivestor
+            把下一个项目放进 {BRAND.shortProductName}
           </h2>
           <p style={{ color: "#9BB8E8", marginBottom: "28px", fontSize: "16px" }}>
             个人用户可直接注册并使用平台试用额度；机构团队可联系开通协作与数据能力。
@@ -247,9 +248,9 @@ export default function LandingPage() {
             <Link href="/login" style={{ background: "#1B6FE8", color: "#fff", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600" }}>
               立即注册
             </Link>
-            <a href="mailto:Aivestor@qq.com" style={{ border: "2px solid #4A9EFF", color: "#4A9EFF", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600" }}>
+            {BRAND.supportEmail ? <a href={`mailto:${BRAND.supportEmail}`} style={{ border: "2px solid #4A9EFF", color: "#4A9EFF", padding: "12px 28px", borderRadius: "8px", textDecoration: "none", fontWeight: "600" }}>
               咨询机构版
-            </a>
+            </a> : null}
           </div>
         </section>
 

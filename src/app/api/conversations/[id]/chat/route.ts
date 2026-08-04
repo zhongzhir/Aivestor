@@ -6,6 +6,7 @@ import { loadUserAICredentials, freeQuotaMetaFor } from "@/lib/report";
 import { buildMemoryContext } from "@/lib/memoryContext";
 import { runAutoDigest, shouldAutoDigest } from "@/lib/autoDigest";
 import { STAGE_LABELS } from "@/lib/stages";
+import { BRAND } from "@/lib/brand";
 
 export const maxDuration = 120;
 
@@ -35,7 +36,7 @@ interface JudgmentRow {
   created_at: string;
 }
 
-const BASE_SYSTEM = `你是 Aivestor 的 AI 助手，专为一级股权投资人设计。
+const BASE_SYSTEM = `你是 ${BRAND.productName} 的 AI 助手，专为一级股权投资人设计。
 
 你的角色：
 - 帮助投资人深度思考项目、复盘判断、提炼经验

@@ -7,7 +7,7 @@
 // 会拿到旧 payload 导致 PATCH 后前端数据不更新。
 
 const CACHE_VERSION = "iw-cache-v2";
-const APP_SHELL = ["/", "/manifest.json", "/icons/icon.svg"];
+const APP_SHELL = ["/", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

@@ -11,6 +11,7 @@ import { query } from "@/lib/db";
 import { getUserProfile, type UserProfile } from "@/lib/user-profile";
 import { STAGE_LABELS } from "@/lib/stages";
 import { EXPORT_FOOTER, exportDateStr } from "@/lib/export";
+import { BRAND } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -253,7 +254,7 @@ export async function GET() {
 
   const doc = new Document({ sections: [{ children }] });
   const buffer = await Packer.toBuffer(doc);
-  const filename = `aivestor-archive-${exportDateStr()}.docx`;
+    const filename = `${BRAND.shortProductName}-archive-${exportDateStr()}.docx`;
 
   return new NextResponse(new Uint8Array(buffer), {
     headers: {

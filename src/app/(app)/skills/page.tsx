@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { BRAND } from "@/lib/brand";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { query } from "@/lib/db";
@@ -9,7 +10,7 @@ import { hasCapability } from "@/lib/orgAuth";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "SKILL 广场 — 投资分析框架库 | Aivestor",
+  title: `SKILL 广场 — 投资分析框架库 | ${BRAND.shortProductName}`,
   description:
     "面向一级股权投资人的AI分析框架库，覆盖BP分析、尽调、行业研究、财务评估等20个核心工作场景，帮助投资人结构化分析决策。",
 };

@@ -2,11 +2,12 @@ import type {
   FormalReportProfile,
   FormalReportProfileKey,
 } from "@/lib/formal-report/types";
+import { BRAND } from "@/lib/brand";
 
 const BASE_THEME = {
-  accent: "D46A32",
-  accentDark: "0D1B3E",
-  accentSoft: "F6EEE9",
+  accent: BRAND.profile === "zhongjian-zhitou" ? "FF6B35" : "D46A32",
+  accentDark: BRAND.colors.deep.slice(1),
+  accentSoft: BRAND.profile === "zhongjian-zhitou" ? "FFF0EA" : "F6EEE9",
 };
 
 export const FORMAL_REPORT_PROFILES: Record<

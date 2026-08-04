@@ -63,3 +63,4 @@ aivestor-*.zip
 docs/node_modules
 docs/.vitepress/cache
 docs/.vitepress/dist
+.env.local.before-*

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/adminAuth";
+import { BRAND } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ export default async function AdminLayout({
       <aside className="flex w-56 flex-col border-r border-gray-200 bg-white">
         <div className="border-b border-gray-200 px-5 py-4">
           <div className="text-sm font-semibold text-gray-900">
-            Aivestor Admin
+            {BRAND.shortProductName} Admin
           </div>
           <div className="mt-0.5 text-[11px] text-gray-500">管理后台</div>
         </div>

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
+import Image from "next/image";
+import { BRAND } from "@/lib/brand";
 
 const NAV = [
   { href: "/dashboard", label: "工作台", desc: "今日关注" },
@@ -46,59 +48,7 @@ export function Sidebar({
     <aside className="flex h-full w-64 shrink-0 flex-col border-r border-[#e5ded2] bg-[#f4f1ea]">
       <div className="px-5 py-5">
         <Link href="/" className="flex items-center gap-2.5">
-          <svg
-            viewBox="0 0 512 512"
-            className="h-8 w-8 shrink-0"
-            aria-hidden="true"
-          >
-            <rect width="512" height="512" rx="114" fill="#15372A" />
-            <g transform="translate(256, 280)">
-              <line
-                x1="-130"
-                y1="-154"
-                x2="-24"
-                y2="58"
-                stroke="#7CB7A0"
-                strokeWidth="28"
-                strokeLinecap="round"
-              />
-              <line
-                x1="130"
-                y1="-154"
-                x2="24"
-                y2="58"
-                stroke="#7CB7A0"
-                strokeWidth="28"
-                strokeLinecap="round"
-              />
-              <line
-                x1="-84"
-                y1="-154"
-                x2="-15"
-                y2="12"
-                stroke="#D59A5A"
-                strokeWidth="13"
-                strokeLinecap="round"
-              />
-              <line
-                x1="84"
-                y1="-154"
-                x2="15"
-                y2="12"
-                stroke="#D59A5A"
-                strokeWidth="13"
-                strokeLinecap="round"
-              />
-              <circle cx="-130" cy="-154" r="22" fill="#7CB7A0" />
-              <circle cx="130" cy="-154" r="22" fill="#7CB7A0" />
-              <circle cx="-84" cy="-154" r="14" fill="#D59A5A" opacity="0.85" />
-              <circle cx="84" cy="-154" r="14" fill="#D59A5A" opacity="0.85" />
-            </g>
-          </svg>
-          <span className="text-base text-[#15372A]" style={{ letterSpacing: 3 }}>
-            <span style={{ fontWeight: 300 }}>Ai</span>
-            <span style={{ fontWeight: 700 }}>vestor</span>
-          </span>
+          <Image src={BRAND.assets.logo} alt={BRAND.productName} width={220} height={64} className="h-10 w-auto max-w-[190px] object-contain object-left" priority />
         </Link>
       </div>
 
@@ -115,14 +65,14 @@ export function Sidebar({
               href={item.href}
               className={`mb-1 flex flex-col gap-0.5 rounded-lg px-3 py-2.5 transition-colors duration-150 ${
                 active
-                  ? "bg-white text-[#15372A] shadow-[0_1px_2px_rgba(55,53,47,0.06)]"
+                  ? "bg-white text-ink shadow-[0_1px_2px_rgba(55,53,47,0.06)]"
                   : "text-ink-soft hover:bg-white/60 hover:text-ink"
               }`}
             >
               <span className="text-sm font-medium">{item.label}</span>
               <span
                 className={`text-xs ${
-                  active ? "text-[#2f6f4f]" : "text-ink-faint"
+                  active ? "text-accent" : "text-ink-faint"
                 }`}
               >
                 {item.desc}
@@ -153,7 +103,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/login"
-            className="block rounded-lg bg-[#2f6f4f] px-3 py-2 text-center text-sm font-medium text-white hover:bg-[#265b42]"
+            className="block rounded-lg bg-accent px-3 py-2 text-center text-sm font-medium text-white hover:opacity-90"
           >
             登录
           </Link>

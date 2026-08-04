@@ -3,9 +3,10 @@ import crypto from "crypto";
 import { query } from "@/lib/db";
 import { sendEmail } from "@/lib/aliyun";
 import { isValidEmail } from "@/lib/authUtils";
+import { BRAND } from "@/lib/brand";
 
 const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || "https://aivestor.cn";
+  process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || BRAND.website;
 
 // 无论邮箱是否存在都返回此提示，防止邮箱枚举。
 const GENERIC = {
@@ -57,10 +58,10 @@ export async function POST(req: Request) {
         const link = `${APP_URL}/reset-password?token=${token}`;
         await sendEmail(
           email,
-          "重置你的 Aivestor 账号密码",
+          `重置你的 ${BRAND.productName} 账号密码`,
           `<div style="font-family:-apple-system,sans-serif;line-height:1.7;color:#37352f">
              <p>你好，</p>
-             <p>我们收到了重置你 Aivestor 投资工作台账号密码的请求。请点击下方链接设置新密码，链接 15 分钟内有效：</p>
+             <p>我们收到了重置你 ${BRAND.productName} 账号密码的请求。请点击下方链接设置新密码，链接 15 分钟内有效：</p>
              <p><a href="${link}" style="color:#1B6FE8">${link}</a></p>
              <p style="color:#787774;font-size:13px">如果你没有发起此请求，请忽略本邮件，你的密码不会被更改。</p>
            </div>`

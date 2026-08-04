@@ -2,6 +2,7 @@
 // 采用阿里云 RPC 风格 API 的 HMAC-SHA1 手动签名，无需额外 SDK 依赖。
 
 import crypto from "crypto";
+import { BRAND } from "@/lib/brand";
 
 const ACCESS_KEY_ID = process.env.ALIYUN_ACCESS_KEY_ID ?? "";
 const ACCESS_KEY_SECRET = process.env.ALIYUN_ACCESS_KEY_SECRET ?? "";
@@ -90,7 +91,7 @@ export async function sendEmail(
     ToAddress: to,
     Subject: subject,
     HtmlBody: html,
-    FromAlias: "Aivestor 投资工作台（由 muhub.cn 代发）",
+    FromAlias: BRAND.productName,
   });
 }
 

@@ -62,7 +62,7 @@ export function TopBar() {
         </Link>
         <Link
           href="/projects/new"
-          className="rounded-lg bg-[#2f6f4f] px-3.5 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:bg-[#265b42]"
+          className="rounded-lg bg-accent px-3.5 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90"
         >
           新建项目
         </Link>

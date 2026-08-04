@@ -1,4 +1,6 @@
-// 使用说明页：分模块讲解 Aivestor 的功能，未登录也可访问（middleware 未保护）。
+import { BRAND } from "@/lib/brand";
+
+// 使用说明页：分模块讲解产品功能，未登录也可访问（middleware 未保护）。
 
 interface Section {
   title: string;
@@ -12,8 +14,8 @@ const SECTIONS: Section[] = [
     title: "使用与安装",
     positioning: "普通用户打开网页即可使用；需要自控数据边界时可私有化部署",
     bullets: [
-      "个人用户直接访问 aivestor.cn 注册使用，无需下载安装客户端",
-      "Chrome/Edge 可将 Aivestor 安装到桌面，之后像独立应用一样打开",
+      `直接访问 ${BRAND.website.replace(/^https?:\/\//, "")} 使用，无需下载安装客户端`,
+      `Chrome/Edge 可将 ${BRAND.shortProductName} 安装到桌面，之后像独立应用一样打开`,
       "机构或个人服务器可使用 Docker 私有化部署，数据库、上传文件和项目记录留在自控环境",
     ],
     tip: "如果你只是试用产品，优先使用云端版本；如果你有内网、合规或数据边界要求，再选择私有化部署",
@@ -80,7 +82,7 @@ const SECTIONS: Section[] = [
       "AI 问答时自动检索相关知识，给出有依据的回答",
       "认知模式分析：基于历史判断识别你的投资偏好与盲区",
     ],
-    tip: "知识库是 Aivestor 的核心资产，建议定期将重要对话沉淀入库",
+    tip: `知识库是 ${BRAND.shortProductName} 的核心资产，建议定期将重要对话沉淀入库`,
   },
   {
     title: "SKILL 广场",
@@ -110,7 +112,7 @@ export default function HelpPage() {
         使用说明
       </h1>
       <p className="mt-2 text-sm text-slate-500">
-        了解 Aivestor 的各项功能，快速上手
+        了解 {BRAND.productName} 的各项功能，快速上手
       </p>
 
       <div className="mt-8 space-y-4">
@@ -141,16 +143,16 @@ export default function HelpPage() {
 
       {/* 联系方式 */}
       <div className="mt-8 rounded-r-lg border-l-4 border-[#1B6FE8] bg-blue-50 p-4">
-        <p className="mb-1 text-sm font-medium text-[#1B6FE8]">Aivestor 2.0</p>
+        <p className="mb-1 text-sm font-medium text-[#1B6FE8]">{BRAND.productName}</p>
         <p className="text-sm text-slate-600">
-          Aivestor 2.0 已完成项目工作区、投资决策与投后管理的主要升级，产品仍在持续迭代中。
+          {BRAND.productName} 已完成项目工作区、投资决策与投后管理的主要升级，产品仍在持续迭代中。
           如果你在使用过程中遇到任何问题，或有功能建议、合作意向，欢迎随时联系我们：
         </p>
         <a
-          href="mailto:Aivestor@qq.com"
+          href={BRAND.supportEmail ? `mailto:${BRAND.supportEmail}` : undefined}
           className="mt-1 inline-block text-sm font-medium text-[#1B6FE8] hover:underline"
         >
-          Aivestor@qq.com
+          {BRAND.supportEmail || "请联系企业管理员"}
         </a>
         <p className="mt-1 text-xs text-slate-400">
           你的每一条反馈都会被认真阅读。
@@ -161,7 +163,7 @@ export default function HelpPage() {
       <section className="prose text-sm text-gray-500 mt-8">
         <h2 className="text-base font-semibold text-slate-700">免责声明</h2>
         <p>
-          Aivestor 生成的分析报告、数据提取结果及 Term Sheet 草稿均由 AI 辅助生成，
+          {BRAND.productName} 生成的分析报告、数据提取结果及 Term Sheet 草稿均由 AI 辅助生成，
           仅供参考，不构成投资建议或法律意见。AI 输出存在误判和遗漏风险，
           报告中标注 [src:ai] 的内容尤其需要人工核实。
           用户应对最终投资决策承担完全责任。

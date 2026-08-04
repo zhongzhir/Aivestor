@@ -196,7 +196,7 @@ export default async function ProjectsPage({
           </div>
           <Link
             href="/projects/new"
-            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-[#2f6f4f] px-4 text-sm font-medium text-white transition-colors hover:bg-[#265b42]"
+            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:opacity-90"
           >
             新建项目
           </Link>
@@ -296,7 +296,7 @@ export default async function ProjectsPage({
                     </p>
                   </div>
 
-                  <div className="text-right text-xs font-medium text-[#2f6f4f]">
+                  <div className="text-right text-xs font-medium text-accent">
                     打开工作区
                   </div>
                 </Link>
@@ -347,7 +347,7 @@ function DemoCards() {
         示例项目 · 只读
       </p>
       <p className="mt-1 text-xs text-ink-soft">
-        无需登录即可浏览，了解 Aivestor 生成的项目报告形态。
+        无需登录即可浏览，了解系统生成的项目报告形态。
       </p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         {demos.map((demo) => (
