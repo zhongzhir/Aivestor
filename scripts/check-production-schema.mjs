@@ -14,7 +14,8 @@ export const REQUIRED_COLUMNS = [
   { table: "user_profiles", column: "screening_criteria" },
 ];
 
-export const REQUIRED_TABLE_PRIVILEGES = ["SELECT", "INSERT", "UPDATE", "DELETE"];
+// node-postgres 将未加引号的 SQL 别名返回为小写键。
+export const REQUIRED_TABLE_PRIVILEGES = ["select", "insert", "update", "delete"];
 
 export function validateSchemaSnapshot(snapshot) {
   const errors = [];
@@ -26,7 +27,7 @@ export function validateSchemaSnapshot(snapshot) {
     }
     const privileges = snapshot.tablePrivileges[table] ?? {};
     for (const privilege of REQUIRED_TABLE_PRIVILEGES) {
-      if (privileges[privilege] !== true) errors.push(`表 public.${table}: ${privilege} 权限缺失`);
+      if (privileges[privilege] !== true) errors.push(`表 public.${table}: ${privilege.toUpperCase()} 权限缺失`);
     }
   }
   for (const required of REQUIRED_COLUMNS) {
