@@ -15,9 +15,13 @@ export default withAuth(
     // 对 /org/* 与 /data-apps/*：JWT token.orgId 存在性做快路径拦截
     // （无组织 → 302 /dashboard）。能力位（data_apps / zjjr_data）不在 Edge 判
     // （拿不到可靠数据），由服务端页面 / API 用 orgAuth.ts 从 DB 现取校验。
+    const isIntelligenceSubscriptionRoute =
+      req.nextUrl.pathname === "/data-apps/intelligence-subscriptions" ||
+      req.nextUrl.pathname.startsWith("/data-apps/intelligence-subscriptions/");
     if (
       req.nextUrl.pathname.startsWith("/org") ||
-      req.nextUrl.pathname.startsWith("/data-apps")
+      (req.nextUrl.pathname.startsWith("/data-apps") &&
+        !isIntelligenceSubscriptionRoute)
     ) {
       const orgId = (req.nextauth.token as { orgId?: string } | null)?.orgId;
       if (!orgId) {
