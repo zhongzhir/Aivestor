@@ -35,6 +35,14 @@ export const DATA_APPS: DataAppConfig[] = [
     requiredCapability: "zjjr_data",
     component: () => import("@/components/data-apps/InstitutionLookup"),
   },
+  {
+    id: "intelligence-subscriptions",
+    name: "情报订制",
+    icon: "🧭",
+    description: "主动定义主题、范围与频率，生成并留存专属情报简报",
+    requiredCapability: "zjjr_data",
+    component: () => import("@/components/data-apps/IntelligenceSubscriptions"),
+  },
 ];
 
 export function getDataApp(id: string): DataAppConfig | undefined {
