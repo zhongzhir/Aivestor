@@ -30,10 +30,11 @@ export default function IntelligenceSubscriptions() {
     const form = new FormData(event.currentTarget);
     const csv = (key: string) => String(form.get(key) ?? "").split(",").map((x) => x.trim()).filter(Boolean);
     const executionMode = String(form.get("executionMode") ?? "manual") as "manual" | "scheduled";
+    const customDate = (key: string) => { const value = String(form.get(key) ?? ""); return value ? new Date(value).toISOString() : ""; };
     const payload = {
       name: String(form.get("name") ?? ""), topics: csv("topics"), entities: csv("entities"), keywords: csv("keywords"), regions: csv("regions"),
       includeRequirements: csv("includeRequirements"), excludeRequirements: csv("excludeRequirements"), maxItems: Number(form.get("maxItems") ?? 10),
-      lookbackPeriod: String(form.get("lookbackKind") ?? "days") === "custom" ? { kind: "custom", start: String(form.get("lookbackStart") ?? ""), end: String(form.get("lookbackEnd") ?? "") } : { kind: "days", value: Number(form.get("lookback") ?? 3) }, outputInstructions: String(form.get("outputInstructions") ?? ""),
+      lookbackPeriod: String(form.get("lookbackKind") ?? "days") === "custom" ? { kind: "custom", start: customDate("lookbackStart"), end: customDate("lookbackEnd") } : { kind: "days", value: Number(form.get("lookbackKind") ?? 3) }, outputInstructions: String(form.get("outputInstructions") ?? ""),
       executionMode, isActive: form.get("isActive") === "on",
       scheduleConfig: executionMode === "scheduled" ? { frequency: String(form.get("frequency") ?? "daily"), time: String(form.get("time") ?? "09:00"), timezone: String(form.get("timezone") ?? "Asia/Shanghai"), weekdays: [Number(form.get("weekday") ?? 1)] } : null,
     };

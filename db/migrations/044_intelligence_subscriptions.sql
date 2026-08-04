@@ -33,7 +33,7 @@ CREATE OR REPLACE TRIGGER trg_intelligence_tasks_updated
 
 CREATE TABLE IF NOT EXISTS intelligence_briefs (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  task_id         UUID NOT NULL REFERENCES intelligence_tasks(id) ON DELETE CASCADE,
+  task_id         UUID REFERENCES intelligence_tasks(id) ON DELETE SET NULL,
   user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   task_name       TEXT NOT NULL,
   coverage_start  TIMESTAMPTZ NOT NULL,
@@ -43,23 +43,27 @@ CREATE TABLE IF NOT EXISTS intelligence_briefs (
   important_facts JSONB NOT NULL DEFAULT '[]'::jsonb,
   trend_signals   JSONB NOT NULL DEFAULT '[]'::jsonb,
   other_items     JSONB NOT NULL DEFAULT '[]'::jsonb,
-  source_list     JSONB NOT NULL DEFAULT '[]'::jsonb
+  source_list     JSONB NOT NULL DEFAULT '[]'::jsonb,
+  scheduled_slot  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_intelligence_briefs_user_time
   ON intelligence_briefs(user_id, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_intelligence_briefs_task_time
   ON intelligence_briefs(task_id, generated_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_intelligence_briefs_scheduled_slot
+  ON intelligence_briefs(task_id, scheduled_slot)
+  WHERE scheduled_slot IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS intelligence_feedback (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  task_id     UUID NOT NULL REFERENCES intelligence_tasks(id) ON DELETE CASCADE,
+  task_id     UUID REFERENCES intelligence_tasks(id) ON DELETE SET NULL,
   brief_id    UUID NOT NULL REFERENCES intelligence_briefs(id) ON DELETE CASCADE,
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   item_key    TEXT NOT NULL,
   feedback    TEXT NOT NULL CHECK (feedback IN ('valuable', 'irrelevant')),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (user_id, task_id, brief_id, item_key)
+  UNIQUE (user_id, brief_id, item_key)
 );
 
 CREATE INDEX IF NOT EXISTS idx_intelligence_feedback_task
