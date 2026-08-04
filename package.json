@@ -15,6 +15,7 @@
     "test:project-soft-delete": "node -r ts-node/register -r tsconfig-paths/register scripts/project-soft-delete.test.ts",
     "test:intelligence": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence.test.ts",
     "test:intelligence-natural-language": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-natural-language.test.ts",
+    "test:intelligence-personal-access": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-personal-access.test.ts",
     "db:schema": "node --env-file=.env.local scripts/apply-schema.mjs",
     "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
     "db:migrate-chunks": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/migrate-chunks.ts",

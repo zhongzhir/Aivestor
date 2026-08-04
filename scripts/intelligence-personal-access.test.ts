@@ -1,0 +1,25 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+const root = process.cwd();
+const access = readFileSync(join(root, "src/lib/intelligenceAccess.ts"), "utf8");
+const config = readFileSync(join(root, "src/lib/intelligenceConfig.ts"), "utf8");
+const route = readFileSync(join(root, "src/app/api/data-apps/intelligence-subscriptions/route.ts"), "utf8");
+const generate = readFileSync(join(root, "src/app/api/data-apps/intelligence-subscriptions/[id]/generate/route.ts"), "utf8");
+const scheduler = readFileSync(join(root, "src/lib/intelligence.ts"), "utf8");
+const page = readFileSync(join(root, "src/app/(app)/data-apps/page.tsx"), "utf8");
+
+assert.match(config, /maxActiveTasks: 3/);
+assert.match(config, /maxItems: 20/);
+assert.match(config, /maxScheduleFrequency: "daily"/);
+assert.match(config, /maxActiveTasks: 20/);
+assert.match(config, /INTELLIGENCE_GENERATION_ESTIMATED_TOKENS = 2_000/);
+assert.equal(route.includes('requireCapabilityAPI("zjjr_data")'), false);
+assert.match(route, /activeTaskLimitError/);
+assert.match(route, /intelligenceLimitError/);
+assert.match(generate, /getGenerationAccess/);
+assert.match(generate, /reserveIntelligenceQuota/);
+assert.match(generate, /quota_unavailable/);
+assert.match(scheduler, /SET is_active = false/);
+assert.match(page, /availableToPersonal/);
+console.log("intelligence personal access tests passed");

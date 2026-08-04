@@ -1,4 +1,5 @@
 import { query } from "@/lib/db";
+import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
 
 export type ExecutionMode = "manual" | "scheduled";
 export type Feedback = "valuable" | "irrelevant";
@@ -193,8 +194,18 @@ export async function runScheduledTasks(now = new Date()): Promise<number> {
     const month = parts.find((p) => p.type === "month")?.value ?? "";
     const day = parts.find((p) => p.type === "day")?.value ?? "";
     const scheduledSlot = `${year}-${month}-${day} ${cfg.time}`;
-    await generateBrief(task.user_id, task.id, normalizeTaskInput({ ...task, includeRequirements: task.include_requirements, excludeRequirements: task.exclude_requirements, maxItems: task.max_items, lookbackPeriod: task.lookback_period, outputInstructions: task.output_instructions, executionMode: task.execution_mode, scheduleConfig: cfg, isActive: task.is_active }), now, scheduledSlot);
-    count++;
+    try {
+      const generation = await getGenerationAccess(task.user_id);
+      if (!generation || (generation.source === "platform" && !(await reserveIntelligenceQuota(task.user_id)))) {
+        await query("UPDATE intelligence_tasks SET is_active = false WHERE id = $1 AND user_id = $2", [task.id, task.user_id]);
+        continue;
+      }
+      await generateBrief(task.user_id, task.id, normalizeTaskInput({ ...task, includeRequirements: task.include_requirements, excludeRequirements: task.exclude_requirements, maxItems: task.max_items, lookbackPeriod: task.lookback_period, outputInstructions: task.output_instructions, executionMode: task.execution_mode, scheduleConfig: cfg, isActive: task.is_active }), now, scheduledSlot);
+      count++;
+    } catch {
+      // 额度或上游异常时暂停该任务，避免下一轮调度持续失败。
+      await query("UPDATE intelligence_tasks SET is_active = false WHERE id = $1 AND user_id = $2", [task.id, task.user_id]);
+    }
   }
   return count;
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireCapabilityAPI } from "@/lib/orgAuth";
+import { requireIntelligenceAPI } from "@/lib/intelligenceAccess";
 import { streamChat } from "@/lib/ai";
 import { freeQuotaMetaFor, loadUserAICredentials } from "@/lib/report";
 import { parseNaturalLanguageFallback, planFromAI, INTELLIGENCE_PARSE_SYSTEM } from "@/lib/intelligenceNaturalLanguage";
@@ -8,7 +8,7 @@ import { validateTaskInput } from "@/lib/intelligence";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  const guard = await requireCapabilityAPI("zjjr_data");
+  const guard = await requireIntelligenceAPI();
   if (!guard.ok) return guard.response;
   let body: { description?: string; timezone?: string };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "请重新描述你想关注的内容。" }, { status: 400 }); }
@@ -18,13 +18,13 @@ export async function POST(request: Request) {
 
   const userTimezone = body.timezone?.trim() || "Asia/Shanghai";
   const fallback = parseNaturalLanguageFallback(description, userTimezone);
-  const creds = await loadUserAICredentials(guard.ctx.userId);
+  const creds = await loadUserAICredentials(guard.access.userId);
   if (!creds) return NextResponse.json({ plan: fallback });
   let raw = "";
   try {
     for await (const chunk of streamChat({
       provider: creds.provider, apiKey: creds.apiKey, baseURL: creds.baseURL,
-      freeQuotaMeta: freeQuotaMetaFor(creds, guard.ctx.userId, "intelligence-plan"),
+      freeQuotaMeta: freeQuotaMetaFor(creds, guard.access.userId, "intelligence-plan"),
       system: INTELLIGENCE_PARSE_SYSTEM, messages: [{ role: "user", content: description }],
     })) raw += chunk;
     const plan = planFromAI(description, raw, userTimezone);

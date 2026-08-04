@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { requireOrg } from "@/lib/orgAuth";
+import { getSession } from "@/lib/auth";
+import { getOrgContext } from "@/lib/orgAuth";
 import { DATA_APPS } from "@/lib/dataApps";
 
 export const dynamic = "force-dynamic";
@@ -8,8 +9,11 @@ export const dynamic = "force-dynamic";
 // 数据应用列表页（架构 6.1）：requireOrg + data_apps 能力位守门；
 // 逐个按 requiredCapability 过滤决定可点击/置灰。
 export default async function DataAppsPage() {
-  const ctx = await requireOrg();
-  if (ctx.capabilities["data_apps"] !== true) redirect("/dashboard");
+  const session = await getSession();
+  if (!session?.user?.id) redirect("/login");
+  const ctx = await getOrgContext(session.user.id);
+  if (!ctx && !DATA_APPS.some((app) => app.availableToPersonal)) redirect("/dashboard");
+  if (ctx && ctx.capabilities["data_apps"] !== true && !DATA_APPS.some((app) => app.availableToPersonal)) redirect("/dashboard");
 
   return (
     <div className="mx-auto max-w-doc px-6 py-10">
@@ -20,7 +24,7 @@ export default async function DataAppsPage() {
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
         {DATA_APPS.map((app) => {
-          const enabled = ctx.capabilities[app.requiredCapability] === true;
+          const enabled = app.availableToPersonal === true || !!ctx?.capabilities[app.requiredCapability ?? ""];
           if (!enabled) {
             return (
               <div
@@ -34,7 +38,7 @@ export default async function DataAppsPage() {
                   </span>
                 </div>
                 <p className="mt-1.5 text-xs text-ink-faint">{app.description}</p>
-                <p className="mt-2 text-xs text-ink-faint">组织未开通该能力</p>
+                <p className="mt-2 text-xs text-ink-faint">机构数据能力暂未开通</p>
               </div>
             );
           }
