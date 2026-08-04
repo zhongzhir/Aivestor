@@ -17,8 +17,10 @@ const NAV = [
 ];
 
 export function Sidebar({
-  dataAppsEnabled = false,
+  hasOrganization = false,
 }: {
+  hasOrganization?: boolean;
+  /** @deprecated Kept for archived checkout compatibility; organization state is authoritative. */
   dataAppsEnabled?: boolean;
 }) {
   const pathname = usePathname();
@@ -27,20 +29,26 @@ export function Sidebar({
   const nav = session?.user
     ? [
         ...NAV,
-        {
-          href: "/org/workspace",
-          label: "组织工作台",
-          desc: "团队与报告",
-        },
-        ...(dataAppsEnabled
+        ...(hasOrganization
           ? [
+              {
+                href: "/org/workspace",
+                label: "组织工作台",
+                desc: "团队与报告",
+              },
               {
                 href: "/data-apps",
                 label: "数据应用",
-                desc: "市场与机构",
+                desc: "情报订制与机构数据",
               },
             ]
-          : []),
+          : [
+              {
+                href: "/data-apps/intelligence-subscriptions",
+                label: "情报订制",
+                desc: "按关注持续整理",
+              },
+            ]),
       ]
     : NAV;
 
