@@ -4,6 +4,8 @@ import { query } from "@/lib/db";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { sleepDays } from "@/lib/projectSleep";
 import { BRAND } from "@/lib/brand";
+import { getGenerationAccess } from "@/lib/intelligenceGeneration";
+import { IntelligenceAttention, type DashboardIntelligenceBrief, type DashboardIntelligenceTask } from "@/components/dashboard/IntelligenceAttention";
 
 const QUICK_ACTIONS = [
   {
@@ -51,6 +53,23 @@ interface CountRow {
   count: string;
 }
 
+interface IntelligenceTaskRow {
+  id: string;
+  name: string;
+  is_active: boolean;
+  execution_mode: "manual" | "scheduled";
+  schedule_config: DashboardIntelligenceTask["scheduleConfig"];
+}
+
+interface IntelligenceBriefRow {
+  id: string;
+  task_name: string;
+  generated_at: string;
+  important_facts: unknown;
+  trend_signals: unknown;
+  other_items: unknown;
+}
+
 type AttentionProject = RecentProject & { days: number };
 
 function relativeTime(ts: string): string {
@@ -77,6 +96,13 @@ function projectMeta(project: RecentProject): string {
   return [project.company_name, project.industry, project.process_stage]
     .filter(Boolean)
     .join(" · ");
+}
+
+function briefItems(row: IntelligenceBriefRow): Array<{ title?: string; content?: string }> {
+  return [row.important_facts, row.trend_signals, row.other_items]
+    .flatMap((value) => Array.isArray(value) ? value : [])
+    .filter((item): item is { title?: string; content?: string } => typeof item === "object" && item !== null)
+    .slice(0, 5);
 }
 
 async function safeCount(sql: string, params: unknown[]): Promise<number> {
@@ -148,6 +174,30 @@ export default async function DashboardPage() {
         ),
       ])
     : [0, 0, 0];
+
+  let intelligenceTasks: DashboardIntelligenceTask[] = [];
+  let latestIntelligenceBrief: DashboardIntelligenceBrief | null = null;
+  let intelligenceQuotaUnavailable = false;
+  if (user) {
+    try {
+      const taskRows = await query<IntelligenceTaskRow>(
+        "SELECT id, name, is_active, execution_mode, schedule_config FROM intelligence_tasks WHERE user_id = $1 ORDER BY updated_at DESC",
+        [user.id]
+      );
+      intelligenceTasks = taskRows.map((task) => ({ id: task.id, name: task.name, isActive: task.is_active, executionMode: task.execution_mode, scheduleConfig: task.schedule_config }));
+      if (intelligenceTasks.length > 0) {
+        const briefRows = await query<IntelligenceBriefRow>(
+          "SELECT id, task_name, generated_at, important_facts, trend_signals, other_items FROM intelligence_briefs WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 1",
+          [user.id]
+        );
+        const latest = briefRows[0];
+        if (latest) latestIntelligenceBrief = { id: latest.id, taskName: latest.task_name, generatedAt: latest.generated_at, items: briefItems(latest) };
+        intelligenceQuotaUnavailable = intelligenceTasks.some((task) => task.isActive) && !(await getGenerationAccess(user.id));
+      }
+    } catch {
+      intelligenceTasks = [];
+    }
+  }
 
   let showOnboarding = false;
   if (user) {
@@ -228,6 +278,7 @@ export default async function DashboardPage() {
               ))}
             </div>
           )}
+          {user && <IntelligenceAttention tasks={intelligenceTasks} latestBrief={latestIntelligenceBrief} quotaUnavailable={intelligenceQuotaUnavailable} />}
         </div>
       </section>
 
