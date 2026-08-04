@@ -252,12 +252,26 @@ docker exec -it aivestor-db psql -U aivestor -d aivestor_db
 # 1. 拉新代码
 git pull
 
-# 2. 重建镜像并启动
-docker compose --env-file .env.docker up -d --build
+# 2. 若新版本含数据库迁移（db/migrations/ 新增文件），由 DBA 手动执行
+#    不要让应用启动流程自动执行迁移
+psql "$DATABASE_URL" -f db/migrations/0XX_xxx.sql
 
-# 3. 若新版本含数据库迁移（db/migrations/ 新增文件），需手动跑：
-docker exec -i aivestor-db psql -U aivestor -d aivestor_db < db/migrations/0XX_xxx.sql
+# 3. 授予应用账号最小业务表/序列权限（可重复执行）
+npm run db:grant-app
+
+# 4. 检查关键表、字段和应用账号权限；失败时停止发布
+npm run db:check-production
+
+# 5. 构建应用
+npm run build
+
+# 6. 重启应用（按实际进程管理器选择）
+docker compose --env-file .env.docker up -d --build
+# 或：pm2 restart aivestor
 ```
+
+发布顺序固定为：`migration → grant → schema check → build → restart`。
+`db:grant-app` 只修改授权，不修改对象 owner，也不授予超级权限；`db:check-production` 缺少表、字段或权限时返回非 0。若使用 Docker 内部数据库，请在能访问同一 `DATABASE_URL` 的 app 容器或运维机执行这两个命令。
 
 > ℹ️ 升级前建议先 `pg_dump` 备份一次（见下节）。
 

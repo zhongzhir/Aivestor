@@ -24,7 +24,7 @@ export function Sidebar({
   const pathname = usePathname();
   const { data: session, status } = useSession();
 
-  const nav = session?.user?.orgId
+  const nav = session?.user
     ? [
         ...NAV,
         {

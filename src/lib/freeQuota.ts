@@ -152,3 +152,33 @@ export async function consumeQuota(
   }
 }
 
+// 为不真正调用平台模型的既有生成流程预留一次固定额度；成功后记录为一次功能消耗。
+// 自有 API 不经过此函数。
+export async function reserveQuota(
+  userId: string,
+  tokens: number,
+  feature: string
+): Promise<boolean> {
+  const amount = Math.max(0, Math.floor(tokens));
+  if (amount === 0) return true;
+  try {
+    const rows = await query<{ user_id: string }>(
+      `UPDATE free_quota_usage
+          SET tokens_used = tokens_used + $1, updated_at = NOW()
+        WHERE user_id = $2 AND tokens_used + $1 <= tokens_limit
+        RETURNING user_id`,
+      [amount, userId]
+    );
+    if (!rows[0]) return false;
+    await query(
+      `INSERT INTO free_quota_logs (user_id, tokens_in, tokens_out, feature)
+       VALUES ($1, $2, 0, $3)`,
+      [userId, amount, feature.slice(0, 50)]
+    );
+    return true;
+  } catch (e) {
+    console.error("[freeQuota] reserve 失败:", e);
+    return false;
+  }
+}
+
