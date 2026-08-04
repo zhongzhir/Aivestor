@@ -1,5 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { getOrgContext } from "@/lib/orgAuth";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
@@ -21,11 +22,12 @@ export default async function AppLayout({
     return <>{children}</>;
   }
 
-  const dataAppsEnabled = true;
+  const userId = (session.user as { id?: string }).id;
+  const orgContext = userId ? await getOrgContext(userId) : null;
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar dataAppsEnabled={dataAppsEnabled} />
+      <Sidebar hasOrganization={!!orgContext} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <main className="flex-1 overflow-y-auto bg-canvas">{children}</main>
