@@ -7,6 +7,7 @@ const layout = read(`${root}/src/app/(app)/layout.tsx`);
 const sidebar = read(`${root}/src/components/Sidebar.tsx`);
 const dataApps = read(`${root}/src/app/(app)/data-apps/page.tsx`);
 const appPage = read(`${root}/src/app/(app)/data-apps/[appId]/page.tsx`);
+const middleware = read(`${root}/src/middleware.ts`);
 
 assert.match(layout, /getOrgContext/);
 assert.match(layout, /<Sidebar hasOrganization=\{!!orgContext\} \/>/);
@@ -18,6 +19,8 @@ assert.match(dataApps, /app\.availableToPersonal === true/);
 assert.match(dataApps, /accessibleApps\.length === 0/);
 assert.doesNotMatch(dataApps, /机构数据能力暂未开通/);
 assert.match(appPage, /app\.availableToPersonal === true/);
+assert.match(middleware, /isIntelligenceSubscriptionRoute/);
+assert.match(middleware, /!isIntelligenceSubscriptionRoute/);
 const dashboard = read(`${root}/src/app/(app)/dashboard/page.tsx`);
 const dashboardAttention = read(`${root}/src/components/dashboard/IntelligenceAttention.tsx`);
 assert.match(dashboard, /IntelligenceAttention/);
