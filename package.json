@@ -16,10 +16,13 @@
     "test:intelligence": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence.test.ts",
     "test:intelligence-natural-language": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-natural-language.test.ts",
     "test:intelligence-personal-access": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-personal-access.test.ts",
+    "test:db-permissions": "node scripts/db-permissions.test.mjs",
     "db:schema": "node --env-file=.env.local scripts/apply-schema.mjs",
     "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
     "db:migrate-chunks": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/migrate-chunks.ts",
-    "db:backfill-embeddings": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/backfill-embeddings.ts"
+    "db:backfill-embeddings": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/backfill-embeddings.ts",
+    "db:grant-app": "node --env-file=.env.local scripts/grant-app-db-permissions.mjs",
+    "db:check-production": "node --env-file=.env.local scripts/check-production-schema.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
