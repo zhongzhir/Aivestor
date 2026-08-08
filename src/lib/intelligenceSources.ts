@@ -56,6 +56,33 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
     articlePath: /^https:\/\/blogs\.microsoft\.com\/(ai|blog)\/.+/i,
     aliases: ["Microsoft", "Azure AI", "Copilot", "Phi"],
   },
+  {
+    key: "qwen-blog",
+    name: "Qwen 官方博客",
+    homepage: "https://qwenlm.github.io/blog/",
+    kind: "html",
+    endpoint: "https://qwenlm.github.io/blog/",
+    articlePath: /^https:\/\/qwenlm\.github\.io\/blog\/.+/i,
+    aliases: ["Qwen", "通义千问", "Alibaba", "AI", "大模型"],
+  },
+  {
+    key: "deepseek-official",
+    name: "DeepSeek 官方信息",
+    homepage: "https://www.deepseek.com/",
+    kind: "html",
+    endpoint: "https://www.deepseek.com/",
+    articlePath: /^https:\/\/www\.deepseek\.com\/.+/i,
+    aliases: ["DeepSeek", "深度求索", "AI", "大模型"],
+  },
+  {
+    key: "minimax-news",
+    name: "MiniMax 官方新闻",
+    homepage: "https://www.minimax.io/news",
+    kind: "html",
+    endpoint: "https://www.minimax.io/news",
+    articlePath: /^https:\/\/www\.minimax\.io\/news\/.+/i,
+    aliases: ["MiniMax", "海螺", "AI", "大模型"],
+  },
 ];
 
 export function sourceByKey(key: string): IntelligenceSourceDefinition | undefined {
