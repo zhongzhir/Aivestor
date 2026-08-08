@@ -46,6 +46,18 @@ export interface Candidate {
   kind: "fact" | "trend" | "other";
 }
 
+interface SourceItemRow {
+  id: string;
+  source_key: string;
+  source_name: string;
+  source_homepage: string;
+  canonical_url: string;
+  title: string;
+  summary: string;
+  published_at: string;
+  subjects: string[];
+}
+
 export interface BriefItem extends Candidate {
   feedback?: Feedback;
 }
@@ -142,13 +154,42 @@ export function coverageFor(input: IntelligenceTaskInput, now = new Date()): { s
 }
 
 export async function loadCandidates(start: Date, end: Date): Promise<Candidate[]> {
+  let externalRows: SourceItemRow[] = [];
+  try {
+    externalRows = await query<SourceItemRow>(
+      `SELECT id, source_key, source_name, source_homepage, canonical_url, title, summary, published_at, subjects
+         FROM intelligence_source_items
+        WHERE published_at BETWEEN $1 AND $2
+        ORDER BY published_at DESC
+        LIMIT 300`, [start.toISOString(), end.toISOString()]
+    );
+  } catch (error) {
+    // 迁移尚未执行时保持旧生产版本可用，部署窗口内继续使用内部降级源。
+    console.warn("[intelligence] external source table unavailable; using market_insights fallback", error instanceof Error ? error.message : error);
+  }
+  if (externalRows.length > 0) {
+    return externalRows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      content: `${row.summary || row.title} ${row.subjects?.join(" ") ?? ""}`.trim(),
+      source: row.source_name,
+      sourceUrl: row.canonical_url || row.source_homepage,
+      publishedAt: row.published_at,
+      subject: row.source_name,
+      region: null,
+      kind: /安全|政策|发布|融资|合作|模型|产品|研究|投资/.test(`${row.title}${row.summary}`) ? "trend" : "fact",
+    }));
+  }
+
+  // 外部采集暂时没有数据时保留内部市场洞察的降级能力；结果明确标记来源，
+  // 不再把它当作全网监测结果。
   const rows = await query<{ id: string; title: string; content: string; generated_at: string; data_as_of: string }>(
     `SELECT id, title, content, generated_at, data_as_of::text AS data_as_of
        FROM market_insights
       WHERE generated_at BETWEEN $1 AND $2 OR data_as_of BETWEEN $1::date AND $2::date
       ORDER BY generated_at DESC`, [start.toISOString(), end.toISOString()]
   );
-  return rows.map((row) => ({ id: row.id, title: row.title, content: row.content, source: "market-insights / 中鉴同步数据", sourceUrl: null, publishedAt: row.generated_at || `${row.data_as_of}T00:00:00.000Z`, subject: row.title, region: null, kind: /趋势|增长|变化|融资|政策/.test(`${row.title}${row.content}`) ? "trend" : "fact" }));
+  return rows.map((row) => ({ id: row.id, title: row.title, content: row.content, source: "market-insights / 中鉴内部数据（降级）", sourceUrl: null, publishedAt: row.generated_at || `${row.data_as_of}T00:00:00.000Z`, subject: row.title, region: null, kind: /趋势|增长|变化|融资|政策/.test(`${row.title}${row.content}`) ? "trend" : "fact" }));
 }
 
 export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string): Promise<{ id: string; brief: BriefResult }> {
