@@ -22,14 +22,31 @@ function HelpCircleIcon({ className }: { className?: string }) {
   );
 }
 
-export function TopBar() {
+function MenuIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M4 6h16M4 12h16M4 18h16" />
+    </svg>
+  );
+}
+
+export function TopBar({ onMenuOpen }: { onMenuOpen?: () => void }) {
   const pathname = usePathname();
   const crumbs = getCrumbs(pathname);
   const current = crumbs[crumbs.length - 1];
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#e5ded2] bg-[#fbfaf7] px-6">
-      <div className="min-w-0">
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#e5ded2] bg-[#fbfaf7] px-4 sm:px-6">
+      <div className="flex min-w-0 items-center gap-3">
+        <button
+          type="button"
+          aria-label="打开导航菜单"
+          className="rounded-md p-1.5 text-ink-soft hover:bg-surface hover:text-ink md:hidden"
+          onClick={onMenuOpen}
+        >
+          <MenuIcon />
+        </button>
+        <div className="min-w-0">
         <nav className="flex min-w-0 items-center gap-2 text-sm text-ink-soft">
           {crumbs.slice(0, -1).map((crumb) => (
             <span key={crumb.href ?? crumb.label} className="flex min-w-0 items-center gap-2">
@@ -51,7 +68,8 @@ export function TopBar() {
           </span>
         </nav>
       </div>
-      <div className="flex shrink-0 items-center gap-3">
+      </div>
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <Link
           href="/help"
           title="使用说明"
@@ -62,7 +80,7 @@ export function TopBar() {
         </Link>
         <Link
           href="/projects/new"
-          className="rounded-lg bg-accent px-3.5 py-1.5 text-sm font-medium text-white transition-colors duration-150 hover:opacity-90"
+          className="rounded-lg bg-accent px-2.5 py-1.5 text-xs font-medium text-white transition-colors duration-150 hover:opacity-90 sm:px-3.5 sm:text-sm"
         >
           新建项目
         </Link>

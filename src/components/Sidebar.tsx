@@ -18,8 +18,12 @@ const NAV = [
 
 export function Sidebar({
   hasOrganization = false,
+  mobileOpen = false,
+  onMobileClose,
 }: {
   hasOrganization?: boolean;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
   /** @deprecated Kept for archived checkout compatibility; organization state is authoritative. */
   dataAppsEnabled?: boolean;
 }) {
@@ -47,7 +51,11 @@ export function Sidebar({
     : NAV;
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-[#e5ded2] bg-[#f4f1ea]">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 flex h-full w-64 shrink-0 flex-col border-r border-[#e5ded2] bg-[#f4f1ea] transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+        mobileOpen ? "translate-x-0" : "-translate-x-full"
+      }`}
+    >
       <div className="px-5 py-5">
         <Link href="/" className="flex items-center gap-2.5">
           <Image src={BRAND.assets.logo} alt={BRAND.productName} width={220} height={64} className="h-10 w-auto max-w-[190px] object-contain object-left" priority />
@@ -65,6 +73,7 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
+              onClick={onMobileClose}
               className={`mb-1 flex flex-col gap-0.5 rounded-lg px-3 py-2.5 transition-colors duration-150 ${
                 active
                   ? "bg-white text-ink shadow-[0_1px_2px_rgba(55,53,47,0.06)]"
@@ -105,6 +114,7 @@ export function Sidebar({
         ) : (
           <Link
             href="/login"
+            onClick={onMobileClose}
             className="block rounded-lg bg-accent px-3 py-2 text-center text-sm font-medium text-white hover:opacity-90"
           >
             登录

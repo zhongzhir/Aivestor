@@ -1,8 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOrgContext } from "@/lib/orgAuth";
-import { Sidebar } from "@/components/Sidebar";
-import { TopBar } from "@/components/TopBar";
+import { AppShell } from "@/components/AppShell";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 // 应用主外壳：侧栏 + 顶栏。
@@ -26,13 +25,9 @@ export default async function AppLayout({
   const orgContext = userId ? await getOrgContext(userId) : null;
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar hasOrganization={!!orgContext} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
-        <main className="flex-1 overflow-y-auto bg-canvas">{children}</main>
-      </div>
+    <>
+      <AppShell hasOrganization={!!orgContext}>{children}</AppShell>
       <ServiceWorkerRegister />
-    </div>
+    </>
   );
 }
