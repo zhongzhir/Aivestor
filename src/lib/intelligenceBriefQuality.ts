@@ -4,18 +4,33 @@
  */
 import type { Candidate, IntelligenceTaskInput } from "@/lib/intelligence";
 
-const HYPE_TITLE_PATTERNS = [
+const HYPE_DETECT_PATTERNS = [
   /持续爆发/, /迎来新一轮/, /估值拐点/, /进入新时代/, /全面爆发/, /风口来临/,
   /强势崛起/, /颠覆式/, /史无前例/, /必将/, /有望重塑/, /开启新纪元/,
-  /狂飙/, /爆发式增长/, /迎来春天/, /黄金时代/,
+  /狂飙/, /爆发式增长/, /迎来春天/, /黄金时代/, /暴增\d*%?/, /狂揽/, /杀出/,
+  /海外重围/, /真拐点/, /价值重估/, /绝不错过/, /大热门/, /一触即发/, /万亿市场/,
+  /资本盛宴/, /资本狂热/, /疯狂突破/, /彻底拆解/, /利好共振/, /表现十分亮眼/,
+  /业绩亮眼/, /迎来新时代/, /重塑/, /卡位/, /争夺战/, /成人礼/, /大消息!?/,
+  /迎来窗口/, /亮眼/,
 ];
 
-const FACT_MARKERS = /融资|并购|收购|授权|交易|合作|收购|获批|获批|收购|首付款|轮融资|政策|监管|批准|签约|达成|完成|发布|公告|投资|收购|BD|licensing|收购|管线|适应症|金额|亿元|万美元|亿美元/;
+/** 清洗时可删除的编辑腔后缀；不单独作为 hype 判定依据（避免误伤事实标题）。 */
+const HYPE_STRIP_EXTRA = [/拷问.+$/, /背后[,，].*$/];
+
+const HYPE_TITLE_PATTERNS = [...HYPE_DETECT_PATTERNS, ...HYPE_STRIP_EXTRA];
+
+const OPINION_MARKERS = /如何重估|还是真|吗\?|吗？|背后是|talk秀|周报\s*\|+|发展到哪一步|参与者几何|全梳理|最新动向曝光/;
+
+const FACT_MARKERS = /融资|并购|收购|授权|交易|合作|上市|获批|批准|签约|达成|完成|发布|公告|投资|首付款|轮融资|政策|监管|BD|licensing|管线|适应症|金额|亿元|万美元|亿美元|投保|补贴|立案|协议|一药两授|互诉|诉讼|权益/;
 const CLUE_MARKERS = /或将|有望|据传|消息称|业内人士|知情人士|传闻|可能|预计会|分析认为/;
 const INVESTMENT_SIGNAL = /首付款|总金额|授权|BD|licensing|融资|轮次|估值|监管|政策|管线|权益|区域|共同开发|联合开发|买方|连续|多家/;
 
 export function isHypeTitle(title: string): boolean {
-  return HYPE_TITLE_PATTERNS.some((pattern) => pattern.test(title));
+  return HYPE_DETECT_PATTERNS.some((pattern) => pattern.test(title));
+}
+
+export function isOpinionTitle(title: string): boolean {
+  return OPINION_MARKERS.test(title) || /[？?]$/.test(title.trim());
 }
 
 /** 压缩为事实标题：去掉无法由来源证明的判断性措辞。 */
@@ -23,10 +38,20 @@ export function sanitizeFactTitle(title: string, snippet = ""): string {
   const originalHype = isHypeTitle(title);
   let next = title.trim().replace(/\s+/g, " ");
   for (const pattern of HYPE_TITLE_PATTERNS) next = next.replace(pattern, "");
-  next = next.replace(/[，,、\s]{2,}/g, "，").replace(/^[\s，,、：:]+|[\s，,、：:]+$/g, "").trim();
-  if (originalHype || !next || next.length < 6 || !FACT_MARKERS.test(next)) {
+  next = next
+    .replace(/[“”""]{2,}/g, "")
+    .replace(/[“”""]\s*[“”""]/g, "")
+    .replace(/[，,、\s]{2,}/g, "，")
+    .replace(/^[\s，,、：:!！?？]+|[\s，,、：:!！?？]+$/g, "")
+    .trim();
+  if (originalHype || isOpinionTitle(title) || !next || next.length < 6 || !FACT_MARKERS.test(next)) {
     const fromSnippet = extractLeadFact(snippet);
     if (fromSnippet) return fromSnippet.slice(0, 80);
+  }
+  if (isHypeTitle(next) || isOpinionTitle(next)) {
+    const fromSnippet = extractLeadFact(snippet);
+    if (fromSnippet) return fromSnippet.slice(0, 80);
+    return next.slice(0, 80);
   }
   return (next || title).slice(0, 80);
 }
@@ -34,7 +59,7 @@ export function sanitizeFactTitle(title: string, snippet = ""): string {
 function extractLeadFact(text: string): string | null {
   const cleaned = text.replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
-  const sentence = cleaned.split(/[。！？\n]/).map((part) => part.trim()).find((part) => FACT_MARKERS.test(part) && part.length >= 8);
+  const sentence = cleaned.split(/[。！？\n]/).map((part) => part.trim()).find((part) => FACT_MARKERS.test(part) && !isHypeTitle(part) && part.length >= 8);
   return sentence ? sentence.slice(0, 80) : null;
 }
 
@@ -59,11 +84,32 @@ export function resolvePublishedAt(options: {
 }
 
 export function dateFromUrl(value: string): string | null {
-  const match = value.match(/(?:^|[^0-9])(20\d{2})[-_/](\d{2})[-_/](\d{2})(?:[^0-9]|$)|(?:^|[^0-9])(20\d{2})(\d{2})(\d{2})(?:[^0-9]|$)/);
-  if (!match) return null;
-  const year = Number(match[1] ?? match[4]);
-  const month = Number(match[2] ?? match[5]);
-  const day = Number(match[3] ?? match[6]);
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return value;
+    }
+  })();
+
+  const queryDate = decoded.match(/[?&]date=(20\d{2})[/\-.]?(\d{1,2})[/\-.]?(\d{1,2})/i);
+  if (queryDate) return ymdToIso(Number(queryDate[1]), Number(queryDate[2]), Number(queryDate[3]));
+
+  const dashed = decoded.match(/(?:^|[^0-9])(20\d{2})[-_/](\d{2})[-_/](\d{2})(?:[^0-9]|$)/);
+  if (dashed) return ymdToIso(Number(dashed[1]), Number(dashed[2]), Number(dashed[3]));
+
+  // /2026/0125/ 或 /2025/1231/（月日连写）
+  const ymdCompact = decoded.match(/(?:^|[^0-9])(20\d{2})[/_-](\d{2})(\d{2})(?:[^0-9]|$)/);
+  if (ymdCompact) return ymdToIso(Number(ymdCompact[1]), Number(ymdCompact[2]), Number(ymdCompact[3]));
+
+  // 东方财富等：/a/202601093613245216.html → 取前 8 位日期
+  const compact = decoded.match(/(?:^|[^0-9])(20\d{2})(\d{2})(\d{2})(?=\d{3,}|[./_-]|$)/);
+  if (compact) return ymdToIso(Number(compact[1]), Number(compact[2]), Number(compact[3]));
+
+  return null;
+}
+
+function ymdToIso(year: number, month: number, day: number): string | null {
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
     ? date.toISOString()
@@ -77,13 +123,7 @@ function parseLooseDate(value?: string | null): string | null {
   if (Number.isFinite(asDate.getTime())) return asDate.toISOString();
   const match = raw.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
   if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
-    ? date.toISOString()
-    : null;
+  return ymdToIso(Number(match[1]), Number(match[2]), Number(match[3]));
 }
 
 export function formatPublishedLabel(publishedAt: string | null, timeUnconfirmed?: boolean): string {
@@ -94,12 +134,14 @@ export function formatPublishedLabel(publishedAt: string | null, timeUnconfirmed
 }
 
 /** 仅保留来源可支持的事实摘要；模糊单一来源降级为线索。 */
-export function buildFactSummary(title: string, snippet: string, options?: { sourceCount?: number }): { summary: string; isClue: boolean } {
+export function buildFactSummary(title: string, snippet: string, options?: { sourceCount?: number; forceClue?: boolean; trustedSource?: boolean }): { summary: string; isClue: boolean } {
   const text = (snippet || title || "").replace(/\s+/g, " ").trim();
   const sourceCount = options?.sourceCount ?? 1;
-  const concrete = FACT_MARKERS.test(`${title} ${text}`);
+  const concrete = FACT_MARKERS.test(`${title} ${text}`) && !isHypeTitle(title) && !isOpinionTitle(title);
   const vague = CLUE_MARKERS.test(text) && !/公告|披露|官方/.test(text);
-  const isClue = (!concrete && sourceCount <= 1) || (vague && sourceCount <= 1);
+  const softClaim = isHypeTitle(title) || isOpinionTitle(title) || /亮眼|共振|重围|狂揽|暴增/.test(`${title} ${text}`);
+  const titleOnly = text === title.trim() || text.length < title.trim().length + 20;
+  const isClue = !!options?.forceClue || softClaim || (!concrete && sourceCount <= 1) || (vague && sourceCount <= 1) || (titleOnly && sourceCount <= 1 && !options?.trustedSource);
 
   let summary = "";
   if (text && text !== title) {
@@ -113,23 +155,28 @@ export function buildFactSummary(title: string, snippet: string, options?: { sou
     if (summary && !/[。！？]$/.test(summary)) summary += "。";
   }
   if (!summary) {
-    summary = concrete ? `${sanitizeFactTitle(title, text)}。` : `公开信息提到：${sanitizeFactTitle(title, text)}。`;
+    summary = concrete && !isClue ? `${sanitizeFactTitle(title, text)}。` : `公开信息提到：${sanitizeFactTitle(title, text)}。`;
   }
-  if (isClue) {
-    summary = summary.replace(/^/, "").trim();
-    if (!/线索|待确认|据/.test(summary)) summary = `线索：${summary.replace(/^线索：/, "")}`;
+  if (isClue && !/线索|待确认|据/.test(summary)) {
+    summary = `线索：${summary.replace(/^线索：/, "")}`;
   }
   return { summary: summary.slice(0, 360), isClue };
 }
 
 /**
  * 仅在能从事实推出投资含义时生成“投资观察”。
- * 禁止输出“符合你的关注主题”类空话。
+ * 禁止输出“符合你的关注主题”类空话；必须能挂到具体事实增量。
  */
 export function buildInvestmentNote(candidate: Pick<Candidate, "title" | "content"> & { summary?: string }, _input?: IntelligenceTaskInput): string | null {
   const text = `${candidate.title} ${candidate.summary ?? ""} ${candidate.content}`.replace(/\s+/g, " ");
   if (/符合你的关注主题|直接匹配本次关注主题/.test(text)) return null;
+  if (isHypeTitle(candidate.title) || isOpinionTitle(candidate.title)) return null;
   if (!INVESTMENT_SIGNAL.test(text)) return null;
+
+  const hasConcreteAnchor =
+    /首付款|总金额|亿美元|万美元|亿元|轮融资|A轮|B轮|C轮|Pre-IPO|授权区域|全球权益|美国权益|欧洲|共同开发|联合开发|立案|投保|补贴/.test(text)
+    || (/授权|BD|licensing/.test(text) && /海外|全球|美国|欧洲|日本|区域/.test(text));
+  if (!hasConcreteAnchor) return null;
 
   const notes: string[] = [];
   if (/首付款|总金额|美元|亿元|万美元|亿美元/.test(text) && /授权|BD|licensing|交易|合作/.test(text)) {
@@ -141,25 +188,38 @@ export function buildInvestmentNote(candidate: Pick<Candidate, "title" | "conten
   if (/共同开发|联合开发|联营/.test(text)) {
     notes.push("若由单纯 licensing-out 转向共同开发，通常意味着能力边界与风险分担方式变化");
   }
-  if (/融资|轮|估值/.test(text) && /航天|商业航天|生物|创新药|AI|半导体|机器人/.test(text)) {
+  if (/融资|轮|估值/.test(text) && /航天|商业航天|生物|创新药|AI|半导体|机器人/.test(text) && /亿元|万美元|亿美元|A轮|B轮|C轮|Pre-IPO/.test(text)) {
     notes.push("关注融资轮次与投资方构成，判断该赛道资金是否仍在集中下注");
   }
-  if (/政策|监管|获批|批准|集采|医保/.test(text)) {
+  if (/政策|监管|获批|批准|集采|医保|投保|补贴/.test(text)) {
     notes.push("监管/政策动作可能改变融资与商业化预期，需对照落地细则");
   }
   if (/连续|多家|再次|又一家/.test(text) && /买方|药企|基金|投资/.test(text)) {
     notes.push("同一买方或同类买方连续出手时，更值得跟踪其选型偏好是否固化");
   }
+  if (/立案|互诉|协议碰撞|一药两授/.test(text)) {
+    notes.push("授权权属争议会直接影响 BD 交易的可执行性与买方尽调标准");
+  }
   if (!notes.length) return null;
   return notes[0]!;
 }
 
+/** 抽取主体，用于转载合并与趋势独立性判断。 */
+export function extractEventEntity(title: string, content = ""): string | null {
+  const text = `${title} ${content}`;
+  const company = text.match(/([\u4e00-\u9fffA-Za-z0-9·\-]{2,20}(?:医药|制药|药业|生物|科技|航天|火箭|卫星|股份))/);
+  if (company?.[1]) return company[1].replace(/\s+/g, "").toLocaleLowerCase();
+  const asset = text.match(/([A-Z]{1,5}[-\s]?\d{3,5}|TY[‑\-]?\d{3,5})/i);
+  if (asset?.[1]) return asset[1].replace(/\s+/g, "").toLocaleLowerCase();
+  return null;
+}
+
 export function eventThemeKey(title: string, content = ""): string {
   const text = `${title} ${content}`;
-  if (/BD|授权|licensing|引进|对外授权/.test(text)) return "bd-licensing";
-  if (/融资|轮|估值|投资额/.test(text)) return "financing";
+  if (/政策|监管|获批|批准|补贴|投保|征求意见|通知|试点/.test(text) && !/BD|授权|licensing/.test(text)) return "policy";
+  if (/BD|授权|licensing|引进|对外授权|一药两授|权益协议/.test(text)) return "bd-licensing";
+  if (/融资|轮融资|估值|投资额|亿元融资/.test(text) && !/投融资便利化|外汇管理/.test(text)) return "financing";
   if (/并购|收购|收购/.test(text)) return "mna";
-  if (/政策|监管|获批|批准/.test(text)) return "policy";
   if (/发布|产品|型号|发射/.test(text)) return "product";
   const tokens = title.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter((token) => token.length > 1).slice(0, 4);
   return tokens.join("|") || compactTitle(title).slice(0, 24);
@@ -173,26 +233,35 @@ function titleTokens(title: string): Set<string> {
   return new Set(title.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter((token) => token.length > 1));
 }
 
+function sameUnderlyingEvent(a: Candidate, b: Candidate): boolean {
+  const entityA = extractEventEntity(a.title, a.content);
+  const entityB = extractEventEntity(b.title, b.content);
+  const themeA = eventThemeKey(a.title, a.content);
+  const themeB = eventThemeKey(b.title, b.content);
+  if (entityA && entityB && entityA === entityB && themeA === themeB) return true;
+  if (entityA && entityB && entityA === entityB && /同源康|TY.?9591/i.test(`${a.title}${b.title}`)) return true;
+  const compactA = compactTitle(a.title);
+  const compactB = compactTitle(b.title);
+  if (compactA === compactB || (compactA.length > 8 && compactB.length > 8 && (compactA.includes(compactB) || compactB.includes(compactA)))) return true;
+  const tokens = titleTokens(a.title);
+  const other = titleTokens(b.title);
+  const overlap = [...tokens].filter((token) => other.has(token)).length;
+  const ratio = overlap / Math.max(2, Math.min(tokens.size, other.size));
+  if (themeA === themeB && entityA && entityB && entityA === entityB && overlap >= 1) return true;
+  if (themeA === themeB && overlap >= 3 && ratio >= 0.45) return true;
+  return overlap >= 2 && ratio >= 0.55;
+}
+
 /** 转载合并：同底层事件只保留一张卡片，聚合来源。 */
 export function mergeEventCandidates(candidates: Candidate[]): Candidate[] {
   const merged: Candidate[] = [];
   for (const candidate of candidates) {
-    const tokens = titleTokens(candidate.title);
     const existing = merged.find((item) => {
       const aTime = item.timeUnconfirmed ? null : Date.parse(item.publishedAt);
       const bTime = candidate.timeUnconfirmed ? null : Date.parse(candidate.publishedAt);
       if (aTime && bTime && Math.abs(aTime - bTime) / 86400000 > 14) return false;
       if (item.sourceUrl && candidate.sourceUrl && item.sourceUrl === candidate.sourceUrl) return true;
-      const compactA = compactTitle(item.title);
-      const compactB = compactTitle(candidate.title);
-      if (compactA === compactB || (compactA.length > 8 && compactB.length > 8 && (compactA.includes(compactB) || compactB.includes(compactA)))) return true;
-      const themeA = eventThemeKey(item.title, item.content);
-      const themeB = eventThemeKey(candidate.title, candidate.content);
-      const other = titleTokens(item.title);
-      const overlap = [...tokens].filter((token) => other.has(token)).length;
-      const ratio = overlap / Math.max(2, Math.min(tokens.size, other.size));
-      if (themeA === themeB && themeA !== compactTitle(item.title).slice(0, 24) && overlap >= 2 && ratio >= 0.4) return true;
-      return overlap >= 2 && ratio >= 0.55;
+      return sameUnderlyingEvent(item, candidate);
     });
     if (!existing) {
       merged.push({
@@ -220,14 +289,14 @@ export function mergeEventCandidates(candidates: Candidate[]): Candidate[] {
     }
     if ((candidate.sourceUrls?.length ?? 0) + 1 > 1 || urls.length > 1) {
       existing.confidence = existing.confidence === "low" ? "medium" : existing.confidence;
-      if (existing.isClue && urls.length > 1 && FACT_MARKERS.test(existing.title)) existing.isClue = false;
+      if (existing.isClue && urls.length > 1 && FACT_MARKERS.test(existing.title) && !isHypeTitle(existing.title)) existing.isClue = false;
     }
     if (candidate.kind === "fact" && existing.kind !== "fact") existing.kind = "fact";
   }
   return merged;
 }
 
-/** 单篇新闻不得单独成为趋势；至少 2 个独立事件指向同一变化。 */
+/** 单篇新闻不得单独成为趋势；至少 2 个独立主体事件指向同一变化。 */
 export function partitionBriefItems(candidates: Candidate[]): {
   importantFacts: Candidate[];
   trendSignals: Candidate[];
@@ -236,8 +305,11 @@ export function partitionBriefItems(candidates: Candidate[]): {
   const facts: Candidate[] = [];
   const others: Candidate[] = [];
   for (const item of candidates) {
-    if (item.isClue || item.importance === "low" || item.kind === "other") others.push(item);
-    else facts.push(item);
+    if (item.isClue || item.importance === "low" || item.kind === "other" || isHypeTitle(item.title) || isOpinionTitle(item.title)) {
+      others.push({ ...item, kind: item.kind === "trend" ? "other" : item.kind, isClue: item.isClue || isHypeTitle(item.title) || isOpinionTitle(item.title) });
+    } else {
+      facts.push(item);
+    }
   }
 
   const groups = new Map<string, Candidate[]>();
@@ -251,37 +323,52 @@ export function partitionBriefItems(candidates: Candidate[]): {
   const trendSignals: Candidate[] = [];
   const used = new Set<string>();
   for (const [theme, group] of groups) {
-    if (group.length < 2) continue;
     if (theme.length < 3) continue;
-    const urls = [...new Set(group.flatMap((item) => item.sourceUrls?.length ? item.sourceUrls : item.sourceUrl ? [item.sourceUrl] : []))];
-    const domains = new Set(group.map((item) => item.domain || item.source).filter(Boolean));
+    // 独立事件：不同主体；转载/同主体不算两个
+    const byEntity = new Map<string, Candidate>();
+    for (const item of group) {
+      const entity =
+        extractEventEntity(String(item.subject || ""), "")
+        || extractEventEntity(item.title, item.summary ?? item.content)
+        || `title:${compactTitle(item.title).slice(0, 16)}`;
+      const previous = byEntity.get(entity);
+      if (!previous) byEntity.set(entity, item);
+      else if ((item.sourceUrls?.length ?? 0) > (previous.sourceUrls?.length ?? 0)) byEntity.set(entity, item);
+    }
+    const independent = [...byEntity.values()];
+    if (independent.length < 2) continue;
+
+    const urls = [...new Set(independent.flatMap((item) => (item.sourceUrls?.length ? item.sourceUrls : item.sourceUrl ? [item.sourceUrl] : [])))];
+    const domains = new Set(independent.map((item) => item.domain || item.source).filter(Boolean));
     if (domains.size < 2 && urls.length < 2) continue;
-    const titles = group.slice(0, 3).map((item) => item.title).join("；");
+
+    const titles = independent.slice(0, 3).map((item) => item.title).join("；");
     const trend: Candidate = {
-      id: `trend:${theme}:${group[0]!.id}`,
-      title: trendTitleFor(theme, group),
-      content: `本期至少有 ${group.length} 条独立动态共同指向相关变化：${titles}。`,
-      summary: `本期至少有 ${group.length} 条独立动态共同指向相关变化：${titles}。`,
-      source: group.map((item) => item.source).join("; "),
-      sourceUrl: group[0]!.sourceUrl,
+      id: `trend:${theme}:${independent[0]!.id}`,
+      title: trendTitleFor(theme, independent),
+      content: `本期至少有 ${independent.length} 条独立动态共同指向相关变化：${titles}。`,
+      summary: `本期至少有 ${independent.length} 条独立动态共同指向相关变化：${titles}。`,
+      source: independent.map((item) => item.source).join("; "),
+      sourceUrl: independent[0]!.sourceUrl,
       sourceUrls: urls,
-      publishedAt: group.find((item) => !item.timeUnconfirmed)?.publishedAt || group[0]!.publishedAt,
-      timeUnconfirmed: group.every((item) => item.timeUnconfirmed),
+      publishedAt: independent.find((item) => !item.timeUnconfirmed)?.publishedAt || independent[0]!.publishedAt,
+      timeUnconfirmed: independent.every((item) => item.timeUnconfirmed),
       subject: theme,
       region: null,
       kind: "trend",
       importance: "medium",
       relevance: "high",
       confidence: urls.length > 1 ? "high" : "medium",
-      origin: group[0]!.origin,
-      investmentNote: buildInvestmentNote({ title: trendTitleFor(theme, group), content: titles, summary: titles }) || undefined,
+      origin: independent[0]!.origin,
+      investmentNote: buildInvestmentNote({ title: trendTitleFor(theme, independent), content: titles, summary: titles }) || undefined,
     };
     trendSignals.push(trend);
-    for (const item of group) used.add(item.id);
+    // 趋势不吞掉原始事实卡：独立事件仍保留在重点/其他中供核对
+    void used;
   }
 
-  const importantFacts = facts.filter((item) => !used.has(item.id) && item.importance !== "low");
-  const leftover = facts.filter((item) => used.has(item.id) ? false : item.importance === "low");
+  const importantFacts = facts.filter((item) => item.importance !== "low");
+  const leftover = facts.filter((item) => item.importance === "low");
   return {
     importantFacts,
     trendSignals,
@@ -300,8 +387,10 @@ function trendTitleFor(theme: string, group: Candidate[]): string {
 
 export function buildEditorialOverview(candidates: Candidate[], input: IntelligenceTaskInput): string {
   if (!candidates.length) return "本期未发现符合条件、且可核验的新增事实。";
-  const top = candidates.filter((item) => !item.isClue).slice(0, 3);
-  const names = top.map((item) => sanitizeFactTitle(item.title, item.summary ?? item.content));
+  const top = candidates
+    .filter((item) => item.kind !== "trend" && !item.isClue && !isHypeTitle(item.title) && !isOpinionTitle(item.title))
+    .slice(0, 3);
+  const names = top.map((item) => sanitizeFactTitle(item.title, item.summary ?? item.content)).filter((name) => !isHypeTitle(name));
   const themes = [...new Set(top.map((item) => eventThemeKey(item.title, item.summary ?? item.content)))];
   const topic = [...input.topics, ...input.entities].filter(Boolean).slice(0, 2).join("、") || input.name;
   const parts: string[] = [];
@@ -327,8 +416,19 @@ export function enrichCandidate(
   input: IntelligenceTaskInput,
 ): Candidate {
   const sourceCount = Math.max(1, candidate.sourceUrls?.length ?? (candidate.sourceUrl ? 1 : 1));
+  const entity = extractEventEntity(candidate.title, candidate.content);
   const title = sanitizeFactTitle(candidate.title, candidate.content);
-  const { summary, isClue } = buildFactSummary(title, candidate.content, { sourceCount });
+  const cleanedEntity = extractEventEntity(title, candidate.content);
+  // 清洗后仍含炒作词/评论词 → 线索；原文炒作且清洗后无主体 → 线索
+  const forceClue =
+    isHypeTitle(title)
+    || isOpinionTitle(title)
+    || (isHypeTitle(candidate.title) && !cleanedEntity);
+  const { summary, isClue } = buildFactSummary(title, candidate.content, {
+    sourceCount,
+    forceClue,
+    trustedSource: candidate.sourceTier === "A" || candidate.sourceTier === "B",
+  });
   const investmentNote = isClue ? null : buildInvestmentNote({ title, content: candidate.content, summary }, input);
   const confidence: Candidate["confidence"] =
     sourceCount > 1 || candidate.sourceTier === "A"
@@ -343,6 +443,7 @@ export function enrichCandidate(
     title,
     summary,
     content: summary,
+    subject: entity || candidate.subject,
     investmentNote: investmentNote || undefined,
     isClue,
     kind: isClue ? "other" : "fact",

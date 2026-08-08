@@ -33,7 +33,38 @@ export function planIntelligenceQueries(input: IntelligenceTaskInput): string[] 
 function freshness(input: IntelligenceTaskInput): number { return input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 1 ? 7 : input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 7 ? 30 : 365; }
 function domainOf(value: string): string { try { return new URL(value).hostname.replace(/^www\./, ""); } catch { return ""; } }
 function normalizeUrl(value: string): string | null { try { const url = new URL(value); if (url.protocol !== "http:" && url.protocol !== "https:") return null; ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "gclid"].forEach((key) => url.searchParams.delete(key)); url.hash = ""; return url.toString().replace(/\/$/, ""); } catch { return null; } }
-function dateFromUrl(value: string): string | null { const match = value.match(/(?:^|[^0-9])(20\d{2})[-_/](\d{2})[-_/](\d{2})(?:[^0-9]|$)|(?:^|[^0-9])(20\d{2})(\d{2})(\d{2})(?:[^0-9]|$)/); if (!match) return null; const year = Number(match[1] ?? match[4]); const month = Number(match[2] ?? match[5]); const day = Number(match[3] ?? match[6]); const date = new Date(Date.UTC(year, month - 1, day)); return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? date.toISOString() : null; }
+function sourceName(value: unknown, domain: string): string {
+  const name = String(value ?? "").trim();
+  return !name || /^(无|未知|unknown|n\/a)$/i.test(name) ? domain : name;
+}
+function dateFromUrl(value: string): string | null {
+  let decoded = value;
+  try { decoded = decodeURIComponent(value); } catch { /* keep raw */ }
+  const queryDate = decoded.match(/[?&]date=(20\d{2})[/\-.]?(\d{1,2})[/\-.]?(\d{1,2})/i);
+  if (queryDate) {
+    const year = Number(queryDate[1]); const month = Number(queryDate[2]); const day = Number(queryDate[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return date.toISOString();
+  }
+  const dashed = decoded.match(/(?:^|[^0-9])(20\d{2})[-_/](\d{2})[-_/](\d{2})(?:[^0-9]|$)/);
+  if (dashed) {
+    const year = Number(dashed[1]); const month = Number(dashed[2]); const day = Number(dashed[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return date.toISOString();
+  }
+  const ymdCompact = decoded.match(/(?:^|[^0-9])(20\d{2})[/_-](\d{2})(\d{2})(?:[^0-9]|$)/);
+  if (ymdCompact) {
+    const year = Number(ymdCompact[1]); const month = Number(ymdCompact[2]); const day = Number(ymdCompact[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return date.toISOString();
+  }
+  // 东方财富等紧凑 ID：/a/202601093613245216.html
+  const compact = decoded.match(/(?:^|[^0-9])(20\d{2})(\d{2})(\d{2})(?=\d{3,}|[./_-]|$)/);
+  if (!compact) return null;
+  const year = Number(compact[1]); const month = Number(compact[2]); const day = Number(compact[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? date.toISOString() : null;
+}
 function tierFor(domain: string): "A" | "B" | "C" | "D" { if (!domain) return "D"; const source = TRUSTED_INTELLIGENCE_SOURCES.find((item) => domainOf(item.homepage) === domain); if (source) return source.trustLevel === "official" || source.trustLevel === "regulatory" ? "A" : "B"; return "C"; }
 function matchingSources(input: IntelligenceTaskInput): string[] { const haystack = terms(input).join(" ").toLocaleLowerCase(); return TRUSTED_INTELLIGENCE_SOURCES.filter((source) => source.aliases.some((alias) => haystack.includes(alias.toLocaleLowerCase()))).map((source) => domainOf(source.homepage)).filter(Boolean).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxAssignedSites); }
 
@@ -52,7 +83,7 @@ export function normalizeWebResults(raw: unknown, query: string): WebSearchItem[
     const title = String(row.title ?? "").trim();
     if (!url || !title) return null;
     const domain = domainOf(url);
-    return { title, url, siteName: String(row.site_name ?? row.siteName ?? row.source ?? domain).trim() || domain, snippet: String(row.snippet ?? row.content ?? row.description ?? "").trim().slice(0, 4000), publishedAt: row.published_at || row.publishedAt || row.date ? String(row.published_at ?? row.publishedAt ?? row.date) : dateFromUrl(url), sourceTier: tierFor(domain), domain, query };
+    return { title, url, siteName: sourceName(row.site_name ?? row.siteName ?? row.source, domain), snippet: String(row.snippet ?? row.content ?? row.description ?? "").trim().slice(0, 4000), publishedAt: row.published_at || row.publishedAt || row.date ? String(row.published_at ?? row.publishedAt ?? row.date) : dateFromUrl(url), sourceTier: tierFor(domain), domain, query };
   }).filter((item): item is WebSearchItem => !!item).filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxCandidates);
 }
 

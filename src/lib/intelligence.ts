@@ -134,7 +134,10 @@ function textMatches(text: string, terms: string[]): boolean {
 }
 
 export function filterCandidates(candidates: Candidate[], input: IntelligenceTaskInput, start: Date, end: Date): Candidate[] {
-  const include = [...input.topics, ...input.entities, ...input.keywords, ...input.regions, ...input.includeRequirements];
+  const topics = input.topics;
+  const regions = input.regions;
+  const entities = input.entities;
+  const soft = [...input.keywords, ...input.includeRequirements];
   const exclude = input.excludeRequirements;
   const result = candidates.filter((candidate) => {
     if (!candidate.timeUnconfirmed) {
@@ -142,8 +145,18 @@ export function filterCandidates(candidates: Candidate[], input: IntelligenceTas
       if (!Number.isFinite(publishedAt.getTime()) || publishedAt < start || publishedAt > end) return false;
     }
     const text = [candidate.title, candidate.content, candidate.subject, candidate.region ?? ""].join(" ");
-    if (!textMatches(text, include)) return false;
     if (exclude.some((term) => text.toLocaleLowerCase().includes(term.toLocaleLowerCase()))) return false;
+    // 主题词存在时必须命中主题，避免仅因“融资/政策”等泛关键词误入
+    if (topics.length && !textMatches(text, topics)) return false;
+    if (regions.length && !textMatches(text, regions) && !textMatches(text, topics)) return false;
+    if (!topics.length && !regions.length) {
+      const include = [...entities, ...soft];
+      if (!textMatches(text, include)) return false;
+    } else if (entities.length && soft.length) {
+      // 已通过主题/地域；实体为加分项，不强制
+    } else if (!topics.length && regions.length && soft.length && !textMatches(text, soft) && !textMatches(text, entities)) {
+      return false;
+    }
     return true;
   });
 
