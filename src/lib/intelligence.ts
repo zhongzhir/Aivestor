@@ -81,6 +81,7 @@ export interface BriefResult {
   trendSignals: BriefItem[];
   otherItems: BriefItem[];
   sourceList: Array<{ source: string; url: string | null; publishedAt: string; sourceTier?: "A" | "B" | "C" | "D"; origin?: string }>;
+  metadata: { overview: string; origins: string[] };
 }
 
 function titleTokens(title: string): Set<string> { return new Set(title.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter((token) => token.length > 1)); }
@@ -255,18 +256,23 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const coverage = coverageFor(input, now);
   const webCandidates: Candidate[] = (await searchWebForIntelligence(input, coverage.start, credentials)).map((item) => ({ id: `web:${item.url}`, title: item.title, content: item.snippet, source: item.siteName, sourceUrl: item.url, publishedAt: item.publishedAt || now.toISOString(), subject: item.title, region: null, kind: /融资|并购|发布|政策|合作|交易|投资|产品|模型|研究/.test(item.title) ? "fact" : "trend", sourceTier: item.sourceTier, origin: "web-search", domain: item.domain }));
   const candidates = scoreCandidates(mergeCandidates(filterCandidates([...webCandidates, ...(await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end)), input).slice(0, Math.max(1, Math.min(50, input.maxItems))).map((candidate) => ({ ...candidate, content: candidateMarkdown(candidate, input) }));
+  const origins = [...new Set(candidates.map((candidate) => candidate.origin ?? "trusted-source"))];
+  const overview = candidates.length
+    ? `本期共发现 ${candidates.length} 条符合条件的信息，主要来自${origins.includes("web-search") ? "百炼实时联网搜索" : "已采集可信来源"}${origins.includes("market-insights") ? "，并使用了内部市场数据作为补充" : ""}。重点事件按相关度、来源等级和时效性排序。`
+    : "本期未发现符合条件的可信新增信息。";
   const brief: BriefResult = {
     taskName: input.name, coverageStart: coverage.start.toISOString(), coverageEnd: coverage.end.toISOString(), generatedAt: now.toISOString(), itemCount: candidates.length,
     importantFacts: candidates.filter((x) => x.kind === "fact"), trendSignals: candidates.filter((x) => x.kind === "trend"), otherItems: candidates.filter((x) => x.kind === "other"),
     sourceList: candidates.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
+    metadata: { overview, origins },
   };
   const rows = await query<{ id: string }>(
-    `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, scheduled_slot)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12
+    `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, metadata, scheduled_slot)
+     SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13
        FROM intelligence_tasks
       WHERE id = $1 AND user_id = $2 AND is_active = true
      ON CONFLICT (task_id, scheduled_slot) WHERE scheduled_slot IS NOT NULL DO NOTHING RETURNING id`,
-    [taskId, userId, brief.taskName, brief.coverageStart, brief.coverageEnd, brief.generatedAt, brief.itemCount, JSON.stringify(brief.importantFacts), JSON.stringify(brief.trendSignals), JSON.stringify(brief.otherItems), JSON.stringify(brief.sourceList), scheduledSlot]
+    [taskId, userId, brief.taskName, brief.coverageStart, brief.coverageEnd, brief.generatedAt, brief.itemCount, JSON.stringify(brief.importantFacts), JSON.stringify(brief.trendSignals), JSON.stringify(brief.otherItems), JSON.stringify(brief.sourceList), JSON.stringify(brief.metadata), scheduledSlot]
   );
   if (!rows[0] && scheduledSlot) {
     const existing = await query<{ id: string }>("SELECT id FROM intelligence_briefs WHERE task_id = $1 AND scheduled_slot = $2", [taskId, scheduledSlot]);

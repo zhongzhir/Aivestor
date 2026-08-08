@@ -11,7 +11,7 @@ export async function GET() {
   if (!guard.ok) return guard.response;
   const tasks = await query(`SELECT t.*, (SELECT MAX(generated_at) FROM intelligence_briefs b WHERE b.task_id = t.id) AS last_generated_at FROM intelligence_tasks t WHERE t.user_id = $1 ORDER BY t.updated_at DESC`, [guard.access.userId]);
   const generation = await getGenerationAccess(guard.access.userId);
-  const briefs = await query(`SELECT id, task_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list FROM intelligence_briefs WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 10`, [guard.access.userId]);
+  const briefs = await query(`SELECT id, task_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, metadata FROM intelligence_briefs WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 10`, [guard.access.userId]);
   return NextResponse.json({ tasks, briefs, aiSource: generation?.source ?? null, quotaAvailable: !!generation });
 }
 
