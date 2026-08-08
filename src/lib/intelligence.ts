@@ -70,6 +70,8 @@ export interface Candidate {
   timeUnconfirmed?: boolean;
   /** 单一模糊来源，降级为线索 */
   isClue?: boolean;
+  /** 面向用户的具体后续核查理由；仅在线索中展示。 */
+  followUpReason?: string;
   /** 搜索结果正文取证状态；仅标题/snippet 的单源不得升级为事实。 */
   evidenceStatus?: EvidenceStatus;
   evidencePublishedAt?: string;

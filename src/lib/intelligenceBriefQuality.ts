@@ -11,11 +11,11 @@ const HYPE_DETECT_PATTERNS = [
   /海外重围/, /真拐点/, /价值重估/, /绝不错过/, /大热门/, /一触即发/, /万亿市场/,
   /资本盛宴/, /资本狂热/, /疯狂突破/, /彻底拆解/, /利好共振/, /表现十分亮眼/,
   /业绩亮眼/, /迎来新时代/, /重塑/, /卡位/, /争夺战/, /成人礼/, /大消息!?/,
-  /迎来窗口/, /亮眼/,
+  /迎来窗口/, /亮眼/, /爆发/, /前所未有/, /抢滩/,
 ];
 
 /** 清洗时可删除的编辑腔后缀；不单独作为 hype 判定依据（避免误伤事实标题）。 */
-const HYPE_STRIP_EXTRA = [/拷问.+$/, /背后[,，].*$/];
+const HYPE_STRIP_EXTRA = [/拷问.+$/, /背后[,，].*$/, /陷[^:：，,。]*罗生门/];
 
 const HYPE_TITLE_PATTERNS = [...HYPE_DETECT_PATTERNS, ...HYPE_STRIP_EXTRA];
 
@@ -54,6 +54,10 @@ export function sanitizeFactTitle(title: string, snippet = ""): string {
     .replace(/[，,、\s]{2,}/g, "，")
     .replace(/^[\s，,、：:!！?？]+|[\s，,、：:!！?？]+$/g, "")
     .trim();
+  next = next
+    .replace(/^\d+[.。)、]\s*/, "")
+    .replace(/正经历(?:的)?(?:涨价与)?融资双重/, "融资")
+    .replace(/加速资本/, "资本动向");
   if (EXTERNAL_INSTRUCTION.test(title) || originalHype || isOpinionTitle(title) || !next || next.length < 6 || !FACT_MARKERS.test(next)) {
     const fromSnippet = extractLeadFact(snippet);
     if (fromSnippet) return fromSnippet.slice(0, 80);
@@ -418,7 +422,9 @@ export function buildEditorialOverview(candidates: Candidate[], input: Intellige
   } else if (names.length === 1) {
     parts.push(`本期「${topic}」较明确的新增事实是：${names[0]}。`);
   } else {
-    parts.push(`本期「${topic}」多为待确认线索，尚不足以形成可靠判断。`);
+    const clues = candidates.filter((item) => item.isClue).slice(0, 2).map((item) => sanitizeFactTitle(item.title, item.summary ?? item.content));
+    parts.push(`本期「${topic}」未发现证据充分、可确认的新重大事件。`);
+    if (clues.length) parts.push(`值得继续核实：${clues.join("；")}。`);
   }
   if (themes.includes("bd-licensing") && top.length >= 2) {
     parts.push("相比单纯标题热度，更值得看交易结构、管线资产与授权区域是否出现新的组合方式。");
@@ -428,6 +434,16 @@ export function buildEditorialOverview(candidates: Candidate[], input: Intellige
     parts.push("目前事件样本量有限，先核对事实本身，不强行外推趋势。");
   }
   return parts.join("");
+}
+
+function buildFollowUpReason(candidate: Candidate): string {
+  const text = `${candidate.title} ${candidate.content}`;
+  if (/融资|估值|金额|募资|上市|IPO|并购|收购|投资/.test(text)) return "涉及融资、估值或交易金额，需核对原始公告与交易细节";
+  if (/政策|监管|许可|补贴|发改|工信|航天局|卫星互联网|条例|规划/.test(text)) return "可能涉及政策或监管变化，需核对发布主体与落地文件";
+  if ((candidate.sourceUrls?.length ?? 0) > 1) return "多个来源正在跟进，但仍需找到原始公告或当事方确认";
+  if (/商业航天|产业|论坛|推进会|火箭|卫星/.test(text)) return "涉及商业航天产业活动，需核对会议或发布主体及具体项目、融资是否落地";
+  if (/公司|项目|产品|管线|火箭|卫星|模型|平台|药/.test(text)) return "涉及具体公司或项目进展，需补充原始来源确认事实";
+  return "标题指向具体事件，但当前证据不足，需补充原始来源";
 }
 
 export function enrichCandidate(
@@ -466,6 +482,7 @@ export function enrichCandidate(
     subject: entity || candidate.subject,
     investmentNote: investmentNote || undefined,
     isClue,
+    followUpReason: isClue ? buildFollowUpReason({ ...candidate, title, content: summary }) : undefined,
     kind: isClue ? "other" : "fact",
     confidence,
   };

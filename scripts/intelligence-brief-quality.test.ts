@@ -120,6 +120,13 @@ const titleOnlyClue = enrichCandidate({
   domain: "example.com",
 }, input);
 assert.equal(titleOnlyClue.isClue, true, "单一非可信来源只有标题时应降级为线索");
+assert.match(titleOnlyClue.followUpReason || "", /原始来源|公司或项目/);
+
+const noFactOverview = buildEditorialOverview([
+  { ...titleOnlyClue, isClue: true, kind: "other" },
+], input);
+assert.match(noFactOverview, /未发现证据充分、可确认的新重大事件/);
+assert.match(noFactOverview, /值得继续核实/);
 
 // 4. 多个转载聚成一个事件
 const merged = mergeEventCandidates([
