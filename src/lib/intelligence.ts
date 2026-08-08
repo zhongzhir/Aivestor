@@ -1,6 +1,14 @@
 import { query } from "@/lib/db";
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
 import { searchWebForIntelligence, type WebSearchCredentials } from "@/lib/intelligenceWebSearch";
+import {
+  buildEditorialOverview,
+  enrichCandidate,
+  mergeEventCandidates,
+  partitionBriefItems,
+  resolvePublishedAt,
+  scoreAndSortCandidates,
+} from "@/lib/intelligenceBriefQuality";
 
 export type ExecutionMode = "manual" | "scheduled";
 export type Feedback = "valuable" | "irrelevant";
@@ -53,6 +61,14 @@ export interface Candidate {
   importance?: "high" | "medium" | "low";
   relevance?: "high" | "medium" | "low";
   confidence?: "high" | "medium" | "low";
+  /** 1～2 句事实摘要（不含模板话术） */
+  summary?: string;
+  /** 有证据时的投资观察；无则不展示 */
+  investmentNote?: string;
+  /** 发布时间无法从来源/URL 确认 */
+  timeUnconfirmed?: boolean;
+  /** 单一模糊来源，降级为线索 */
+  isClue?: boolean;
 }
 
 interface SourceItemRow {
@@ -84,35 +100,9 @@ export interface BriefResult {
   metadata: { overview: string; origins: string[] };
 }
 
-function titleTokens(title: string): Set<string> { return new Set(title.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter((token) => token.length > 1)); }
-function compactTitle(title: string): string { return title.toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ""); }
+/** @deprecated 使用 mergeEventCandidates；保留导出名兼容既有测试 */
 export function mergeCandidates(candidates: Candidate[]): Candidate[] {
-  const merged: Candidate[] = [];
-  for (const candidate of candidates) {
-    const tokens = titleTokens(candidate.title);
-    const existing = merged.find((item) => {
-      const days = Math.abs(new Date(item.publishedAt).getTime() - new Date(candidate.publishedAt).getTime()) / 86400000;
-      if (days > 14) return false;
-      if (item.sourceUrl && candidate.sourceUrl && item.sourceUrl === candidate.sourceUrl) return true;
-      const compactA = compactTitle(item.title); const compactB = compactTitle(candidate.title);
-      if (compactA === compactB || compactA.includes(compactB) || compactB.includes(compactA)) return true;
-      const other = titleTokens(item.title); const overlap = [...tokens].filter((token) => other.has(token)).length;
-      return overlap >= 2 && overlap / Math.max(2, Math.min(tokens.size, other.size)) >= 0.55;
-    });
-    if (!existing) { merged.push({ ...candidate, sourceUrls: candidate.sourceUrl ? [candidate.sourceUrl] : [] }); continue; }
-    const urls = [...new Set([...(existing.sourceUrls ?? []), ...(candidate.sourceUrls ?? []), candidate.sourceUrl].filter((url): url is string => !!url))];
-    existing.sourceUrls = urls;
-    existing.source = [...new Set(`${existing.source}; ${candidate.source}`.split(/;\s*/).filter(Boolean))].join("; ");
-    existing.sourceTier = existing.sourceTier === "A" || candidate.sourceTier !== "A" ? existing.sourceTier : candidate.sourceTier;
-    if (candidate.kind === "fact" && existing.kind !== "fact") existing.kind = candidate.kind;
-  }
-  return merged;
-}
-
-function candidateMarkdown(candidate: Candidate, input: IntelligenceTaskInput): string {
-  const confidence = candidate.confidence === "high" ? "高" : candidate.confidence === "medium" ? "中" : "低";
-  const corroboration = (candidate.sourceUrls?.length ?? 1) > 1 ? "，已有多来源交叉印证" : "，当前为单一来源，建议结合其他来源核验";
-  return `**发生了什么**\n\n${candidate.content || candidate.title}\n\n**为什么值得关注**\n\n该信息直接匹配本次关注主题（${[...input.topics, ...input.entities, ...input.keywords].filter(Boolean).slice(0, 4).join("、") || "用户订制主题"}）。\n\n**可信度**\n\n${confidence}（来源等级 ${candidate.sourceTier ?? "C"}${corroboration}）。\n\n**时间**\n\n${new Date(candidate.publishedAt).toLocaleString("zh-CN")}`;
+  return mergeEventCandidates(candidates);
 }
 
 export function validateTaskInput(input: IntelligenceTaskInput, now = new Date()): string | null {
@@ -147,8 +137,10 @@ export function filterCandidates(candidates: Candidate[], input: IntelligenceTas
   const include = [...input.topics, ...input.entities, ...input.keywords, ...input.regions, ...input.includeRequirements];
   const exclude = input.excludeRequirements;
   const result = candidates.filter((candidate) => {
-    const publishedAt = new Date(candidate.publishedAt);
-    if (publishedAt < start || publishedAt > end) return false;
+    if (!candidate.timeUnconfirmed) {
+      const publishedAt = new Date(candidate.publishedAt);
+      if (!Number.isFinite(publishedAt.getTime()) || publishedAt < start || publishedAt > end) return false;
+    }
     const text = [candidate.title, candidate.content, candidate.subject, candidate.region ?? ""].join(" ");
     if (!textMatches(text, include)) return false;
     if (exclude.some((term) => text.toLocaleLowerCase().includes(term.toLocaleLowerCase()))) return false;
@@ -164,7 +156,7 @@ export function filterCandidates(candidates: Candidate[], input: IntelligenceTas
   return [...bySubject.values()].sort((a, b) => {
     const rank = { fact: 3, trend: 2, other: 1 };
     return rank[b.kind] - rank[a.kind] || new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
-  }).slice(0, Math.max(1, Math.min(50, input.maxItems)));
+  }).slice(0, Math.max(1, Math.min(50, input.maxItems * 3)));
 }
 
 export function normalizeTaskInput(body: Record<string, unknown>): IntelligenceTaskInput {
@@ -194,6 +186,11 @@ export function coverageFor(input: IntelligenceTaskInput, now = new Date()): { s
   return { start: new Date(now.getTime() - days * 86400000), end: now };
 }
 
+function coveragePlaceholder(value?: string | null): string {
+  const parsed = value ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(0).toISOString();
+}
+
 export async function loadCandidates(start: Date, end: Date): Promise<Candidate[]> {
   let externalRows: SourceItemRow[] = [];
   try {
@@ -209,18 +206,24 @@ export async function loadCandidates(start: Date, end: Date): Promise<Candidate[
     console.warn("[intelligence] external source table unavailable; using market_insights fallback", error instanceof Error ? error.message : error);
   }
   if (externalRows.length > 0) {
-    return externalRows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      content: `${row.summary || row.title} ${row.subjects?.join(" ") ?? ""}`.trim(),
-      source: row.source_name,
-      sourceUrl: row.canonical_url || row.source_homepage,
-      publishedAt: row.published_at,
-      subject: row.source_name,
-      region: null,
-      kind: /安全|政策|发布|融资|合作|模型|产品|研究|投资/.test(`${row.title}${row.summary}`) ? "trend" : "fact",
-      sourceTier: "A", origin: "trusted-source", domain: (() => { try { return new URL(row.canonical_url || row.source_homepage).hostname.replace(/^www\./, ""); } catch { return ""; } })(),
-    }));
+    return externalRows.map((row) => {
+      const resolved = resolvePublishedAt({ sourcePublishedAt: row.published_at, url: row.canonical_url });
+      return {
+        id: row.id,
+        title: row.title,
+        content: `${row.summary || row.title}`.trim(),
+        source: row.source_name,
+        sourceUrl: row.canonical_url || row.source_homepage,
+        publishedAt: resolved.publishedAt || coveragePlaceholder(row.published_at),
+        timeUnconfirmed: resolved.timeUnconfirmed,
+        subject: row.source_name,
+        region: null,
+        kind: "fact" as const,
+        sourceTier: "A" as const,
+        origin: "trusted-source" as const,
+        domain: (() => { try { return new URL(row.canonical_url || row.source_homepage).hostname.replace(/^www\./, ""); } catch { return ""; } })(),
+      };
+    });
   }
 
   // 外部采集暂时没有数据时保留内部市场洞察的降级能力；结果明确标记来源，
@@ -231,22 +234,28 @@ export async function loadCandidates(start: Date, end: Date): Promise<Candidate[
       WHERE generated_at BETWEEN $1 AND $2 OR data_as_of BETWEEN $1::date AND $2::date
       ORDER BY generated_at DESC`, [start.toISOString(), end.toISOString()]
   );
-  return rows.map((row) => ({ id: row.id, title: row.title, content: row.content, source: "market-insights / 中鉴内部数据（降级）", sourceUrl: null, publishedAt: row.generated_at || `${row.data_as_of}T00:00:00.000Z`, subject: row.title, region: null, kind: /趋势|增长|变化|融资|政策/.test(`${row.title}${row.content}`) ? "trend" : "fact", sourceTier: "D", origin: "market-insights" }));
+  return rows.map((row) => {
+    const resolved = resolvePublishedAt({ sourcePublishedAt: row.data_as_of ? `${row.data_as_of}T00:00:00.000Z` : null });
+    return {
+      id: row.id,
+      title: row.title,
+      content: row.content,
+      source: "market-insights / 中鉴内部数据（降级）",
+      sourceUrl: null,
+      publishedAt: resolved.publishedAt || coveragePlaceholder(row.generated_at),
+      timeUnconfirmed: true,
+      subject: row.title,
+      region: null,
+      kind: "other" as const,
+      sourceTier: "D" as const,
+      origin: "market-insights" as const,
+      isClue: true,
+    };
+  });
 }
 
 function scoreCandidates(candidates: Candidate[], input: IntelligenceTaskInput): Candidate[] {
-  const terms = [...input.topics, ...input.entities, ...input.keywords, ...input.includeRequirements].filter(Boolean);
-  return candidates.map((candidate) => {
-    const text = `${candidate.title} ${candidate.content}`.toLocaleLowerCase();
-    const hits = terms.filter((term) => text.includes(term.toLocaleLowerCase())).length;
-    const relevance: Candidate["relevance"] = hits >= 2 ? "high" : hits === 1 ? "medium" : "low";
-    const importance: Candidate["importance"] = /融资|并购|收购|授权|交易|监管|政策|发布|重大|合作/.test(candidate.title) ? "high" : candidate.kind === "fact" ? "medium" : "low";
-    const confidence: Candidate["confidence"] = candidate.sourceTier === "A" || (candidate.sourceUrls?.length ?? 0) > 1 ? "high" : candidate.sourceTier === "B" || candidate.sourceTier === "C" ? "medium" : "low";
-    return { ...candidate, relevance, importance, confidence };
-  }).sort((a, b) => {
-    const rank = (value: Candidate["importance"] | Candidate["relevance"]): number => value === "high" ? 3 : value === "medium" ? 2 : 1;
-    return rank(b.importance) + rank(b.relevance) - rank(a.importance) - rank(a.relevance);
-  });
+  return scoreAndSortCandidates(candidates, input);
 }
 
 export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: WebSearchCredentials): Promise<{ id: string; brief: BriefResult }> {
@@ -254,16 +263,50 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const validationError = validateTaskInput(input, now);
   if (validationError) throw new Error(validationError);
   const coverage = coverageFor(input, now);
-  const webCandidates: Candidate[] = (await searchWebForIntelligence(input, coverage.start, credentials)).map((item) => ({ id: `web:${item.url}`, title: item.title, content: item.snippet, source: item.siteName, sourceUrl: item.url, publishedAt: item.publishedAt || now.toISOString(), subject: item.title, region: null, kind: /融资|并购|发布|政策|合作|交易|投资|产品|模型|研究/.test(item.title) ? "fact" : "trend", sourceTier: item.sourceTier, origin: "web-search", domain: item.domain }));
-  const candidates = scoreCandidates(mergeCandidates(filterCandidates([...webCandidates, ...(await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end)), input).slice(0, Math.max(1, Math.min(50, input.maxItems))).map((candidate) => ({ ...candidate, content: candidateMarkdown(candidate, input) }));
-  const origins = [...new Set(candidates.map((candidate) => candidate.origin ?? "trusted-source"))];
-  const overview = candidates.length
-    ? `本期共发现 ${candidates.length} 条符合条件的信息，主要来自${origins.includes("web-search") ? "百炼实时联网搜索" : "已采集可信来源"}${origins.includes("market-insights") ? "，并使用了内部市场数据作为补充" : ""}。重点事件按相关度、来源等级和时效性排序。`
-    : "本期未发现符合条件的可信新增信息。";
+  const webCandidates: Candidate[] = (await searchWebForIntelligence(input, coverage.start, credentials)).map((item) => {
+    const resolved = resolvePublishedAt({
+      sourcePublishedAt: item.publishedAt,
+      url: item.url,
+      collectedAt: now.toISOString(),
+      generatedAt: now.toISOString(),
+    });
+    return {
+      id: `web:${item.url}`,
+      title: item.title,
+      content: item.snippet,
+      source: item.siteName,
+      sourceUrl: item.url,
+      publishedAt: resolved.publishedAt || coveragePlaceholder(null),
+      timeUnconfirmed: resolved.timeUnconfirmed,
+      subject: item.title,
+      region: null,
+      kind: "fact" as const,
+      sourceTier: item.sourceTier,
+      origin: "web-search" as const,
+      domain: item.domain,
+    };
+  });
+  const merged = mergeEventCandidates(
+    filterCandidates([...webCandidates, ...(await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end),
+  );
+  const enriched = scoreCandidates(
+    merged.map((candidate) => enrichCandidate(candidate, input)),
+    input,
+  ).slice(0, Math.max(1, Math.min(50, input.maxItems)));
+  const partitioned = partitionBriefItems(enriched);
+  const orderedForOverview = [...partitioned.importantFacts, ...partitioned.trendSignals, ...partitioned.otherItems];
+  const origins = [...new Set(enriched.map((candidate) => candidate.origin ?? "trusted-source"))];
+  const overview = buildEditorialOverview(orderedForOverview, input);
   const brief: BriefResult = {
-    taskName: input.name, coverageStart: coverage.start.toISOString(), coverageEnd: coverage.end.toISOString(), generatedAt: now.toISOString(), itemCount: candidates.length,
-    importantFacts: candidates.filter((x) => x.kind === "fact"), trendSignals: candidates.filter((x) => x.kind === "trend"), otherItems: candidates.filter((x) => x.kind === "other"),
-    sourceList: candidates.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
+    taskName: input.name,
+    coverageStart: coverage.start.toISOString(),
+    coverageEnd: coverage.end.toISOString(),
+    generatedAt: now.toISOString(),
+    itemCount: enriched.length,
+    importantFacts: partitioned.importantFacts,
+    trendSignals: partitioned.trendSignals,
+    otherItems: partitioned.otherItems,
+    sourceList: enriched.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
     metadata: { overview, origins },
   };
   const rows = await query<{ id: string }>(
