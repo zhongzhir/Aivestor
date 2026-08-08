@@ -3,6 +3,7 @@
  * 不负责联网搜索；仅基于已有候选做表达与分桶。
  */
 import type { Candidate, IntelligenceTaskInput } from "@/lib/intelligence";
+import { sourceQualityRank } from "@/lib/intelligenceSourceQuality";
 
 const HYPE_DETECT_PATTERNS = [
   /持续爆发/, /迎来新一轮/, /估值拐点/, /进入新时代/, /全面爆发/, /风口来临/,
@@ -170,7 +171,7 @@ export function buildFactSummary(title: string, snippet: string, options?: { sou
     if (summary && !/[。！？]$/.test(summary)) summary += "。";
   }
   if (!summary) {
-    summary = concrete && !isClue ? `${sanitizeFactTitle(title, text)}。` : `公开信息提到：${sanitizeFactTitle(title, text)}。`;
+    summary = `${sanitizeFactTitle(title, text)}。`;
   }
   if (isClue && !/线索|待确认|据/.test(summary)) {
     summary = `线索：${summary.replace(/^线索：/, "")}`;
@@ -296,13 +297,14 @@ export function mergeEventCandidates(candidates: Candidate[]): Candidate[] {
     const urls = [...new Set([...(existing.sourceUrls ?? []), ...(candidate.sourceUrls ?? []), existing.sourceUrl, candidate.sourceUrl].filter((url): url is string => !!url))];
     existing.sourceUrls = urls;
     existing.source = [...new Set(`${existing.source}; ${candidate.source}`.split(/;\s*/).filter(Boolean))].join("; ");
-    if (candidate.sourceTier === "A" || (candidate.sourceTier === "B" && existing.sourceTier !== "A")) {
+    if (sourceQualityRank(candidate.sourceTier) > sourceQualityRank(existing.sourceTier)) {
       existing.sourceTier = candidate.sourceTier;
-      if (!existing.timeUnconfirmed && candidate.timeUnconfirmed === false && candidate.sourceTier === "A") {
-        existing.title = candidate.title;
-        existing.content = candidate.content;
-        existing.summary = candidate.summary ?? existing.summary;
-      }
+      existing.source = candidate.source;
+      existing.sourceUrl = candidate.sourceUrl;
+      existing.domain = candidate.domain;
+      existing.title = candidate.title;
+      existing.content = candidate.content;
+      existing.summary = candidate.summary ?? existing.summary;
     }
     if (!existing.timeUnconfirmed && candidate.timeUnconfirmed) {
       /* keep confirmed time */
@@ -459,19 +461,19 @@ export function enrichCandidate(
     isHypeTitle(title)
     || isOpinionTitle(title)
     || (isHypeTitle(candidate.title) && !cleanedEntity)
-    || (candidate.evidenceStatus === "unavailable" && sourceCount <= 1);
+    || (sourceQualityRank(candidate.sourceTier) <= 1 && sourceCount <= 1);
   const { summary, isClue } = buildFactSummary(title, candidate.content, {
     sourceCount,
     forceClue,
-    trustedSource: candidate.sourceTier === "A" || candidate.sourceTier === "B",
+    trustedSource: sourceQualityRank(candidate.sourceTier) >= 2,
   });
   const investmentNote = isClue ? null : buildInvestmentNote({ title, content: candidate.content, summary }, input);
   const confidence: Candidate["confidence"] =
-    sourceCount > 1 || candidate.sourceTier === "A"
+    sourceCount > 1 || sourceQualityRank(candidate.sourceTier) >= 3
       ? "high"
       : isClue || candidate.timeUnconfirmed
         ? "low"
-        : candidate.sourceTier === "B" || candidate.sourceTier === "C"
+        : sourceQualityRank(candidate.sourceTier) >= 2
           ? "medium"
           : "low";
   return {
@@ -497,30 +499,32 @@ export function scoreAndSortCandidates(candidates: Candidate[], input: Intellige
     const concrete = FACT_MARKERS.test(candidate.title) || FACT_MARKERS.test(candidate.summary ?? "");
     const importance: Candidate["importance"] = candidate.isClue
       ? "low"
-      : concrete && (candidate.sourceTier === "A" || (candidate.sourceUrls?.length ?? 0) > 1)
+      : concrete && (sourceQualityRank(candidate.sourceTier) >= 3 || (candidate.sourceUrls?.length ?? 0) > 1)
         ? "high"
         : concrete
           ? "medium"
           : "low";
     const confidence: Candidate["confidence"] =
-      candidate.sourceTier === "A" || (candidate.sourceUrls?.length ?? 0) > 1
+      sourceQualityRank(candidate.sourceTier) >= 3 || (candidate.sourceUrls?.length ?? 0) > 1
         ? "high"
         : candidate.timeUnconfirmed || candidate.isClue
           ? "low"
-          : candidate.sourceTier === "B" || candidate.sourceTier === "C"
+          : sourceQualityRank(candidate.sourceTier) >= 2
             ? "medium"
             : "low";
     const kind: Candidate["kind"] = candidate.isClue ? "other" : candidate.kind === "trend" ? "trend" : "fact";
     return { ...candidate, relevance, importance, confidence, kind };
   }).sort((a, b) => {
     const rank = (value?: "high" | "medium" | "low") => (value === "high" ? 3 : value === "medium" ? 2 : 1);
-    const tier = (value?: "A" | "B" | "C" | "D") => (value === "A" ? 4 : value === "B" ? 3 : value === "C" ? 2 : 1);
+    const tier = (value?: "S" | "A" | "B" | "C" | "D") => sourceQualityRank(value);
+    const evidence = (item: Candidate) => item.evidenceStatus === "full" ? 3 : item.evidenceStatus === "partial" ? 2 : 1;
     const multi = (item: Candidate) => (item.sourceUrls?.length ?? (item.sourceUrl ? 1 : 0));
     const fresh = (item: Candidate) => (item.timeUnconfirmed ? 0 : Date.parse(item.publishedAt) || 0);
     return (
-      rank(b.importance) - rank(a.importance)
+      tier(b.sourceTier) - tier(a.sourceTier)
+      || evidence(b) - evidence(a)
+      || rank(b.importance) - rank(a.importance)
       || rank(b.relevance) - rank(a.relevance)
-      || tier(b.sourceTier) - tier(a.sourceTier)
       || multi(b) - multi(a)
       || fresh(b) - fresh(a)
     );

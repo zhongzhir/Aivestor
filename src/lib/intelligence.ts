@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
 import { searchWebForIntelligence, type WebSearchCredentials } from "@/lib/intelligenceWebSearch";
+import { topicRelevance } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import {
   buildEditorialOverview,
@@ -54,7 +55,7 @@ export interface Candidate {
   subject: string;
   region: string | null;
   kind: "fact" | "trend" | "other";
-  sourceTier?: "A" | "B" | "C" | "D";
+  sourceTier?: "S" | "A" | "B" | "C" | "D";
   origin?: "web-search" | "trusted-source" | "market-insights";
   domain?: string;
   matchedTerms?: string[];
@@ -102,7 +103,7 @@ export interface BriefResult {
   importantFacts: BriefItem[];
   trendSignals: BriefItem[];
   otherItems: BriefItem[];
-  sourceList: Array<{ source: string; url: string | null; publishedAt: string; sourceTier?: "A" | "B" | "C" | "D"; origin?: string }>;
+  sourceList: Array<{ source: string; url: string | null; publishedAt: string; sourceTier?: "S" | "A" | "B" | "C" | "D"; origin?: string }>;
   metadata: { overview: string; origins: string[] };
 }
 
@@ -152,6 +153,7 @@ export function filterCandidates(candidates: Candidate[], input: IntelligenceTas
     }
     const text = [candidate.title, candidate.content, candidate.subject, candidate.region ?? ""].join(" ");
     if (exclude.some((term) => text.toLocaleLowerCase().includes(term.toLocaleLowerCase()))) return false;
+    if (candidate.origin === "web-search" && !topicRelevance(candidate, input).passed) return false;
     // 主题词存在时必须命中主题，避免仅因“融资/政策”等泛关键词误入
     if (topics.length && !textMatches(text, topics)) return false;
     if (regions.length && !textMatches(text, regions) && !textMatches(text, topics)) return false;
@@ -238,7 +240,7 @@ export async function loadCandidates(start: Date, end: Date): Promise<Candidate[
         subject: row.source_name,
         region: null,
         kind: "fact" as const,
-        sourceTier: "A" as const,
+        sourceTier: "S" as const,
         origin: "trusted-source" as const,
         domain: (() => { try { return new URL(row.canonical_url || row.source_homepage).hostname.replace(/^www\./, ""); } catch { return ""; } })(),
       };
