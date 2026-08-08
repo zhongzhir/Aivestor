@@ -1,6 +1,10 @@
 export interface IntelligenceSourceDefinition {
   key: string;
   name: string;
+  category: string;
+  coverage: "general" | "domain";
+  trustLevel: "official" | "regulatory" | "authoritative";
+  priority: number;
   homepage: string;
   kind: "rss" | "html";
   endpoint: string;
@@ -8,12 +12,17 @@ export interface IntelligenceSourceDefinition {
   aliases: string[];
 }
 
-// 首批只锁定官方一手来源，避免把转载、营销软文和未经核验的聚合站混入情报。
-// 新来源必须先经过来源质量评估，再加入这里。
-export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
+// 来源注册表是全局能力，不绑定任何一个情报主题。
+// coverage=domain 代表该来源重点覆盖某个领域；coverage=general 代表可服务多个研究主题。
+// 新来源必须先经过来源质量评估，再加入这里。全网搜索/网页发现由采集器独立负责。
+export const TRUSTED_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "openai-news",
     name: "OpenAI News",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 90,
     homepage: "https://openai.com/news/",
     kind: "rss",
     endpoint: "https://openai.com/news/rss.xml",
@@ -23,6 +32,10 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "anthropic-news",
     name: "Anthropic Newsroom",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 90,
     homepage: "https://www.anthropic.com/news",
     kind: "html",
     endpoint: "https://www.anthropic.com/news",
@@ -32,6 +45,10 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "google-deepmind-blog",
     name: "Google DeepMind Blog",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 90,
     homepage: "https://deepmind.google/blog/",
     kind: "html",
     endpoint: "https://deepmind.google/blog/",
@@ -41,6 +58,10 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "nvidia-newsroom",
     name: "NVIDIA Newsroom",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 85,
     homepage: "https://nvidianews.nvidia.com/news/latest",
     kind: "rss",
     endpoint: "https://nvidianews.nvidia.com/rss",
@@ -50,6 +71,10 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "microsoft-ai",
     name: "Microsoft AI / Official Blog",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 85,
     homepage: "https://blogs.microsoft.com/ai/",
     kind: "html",
     endpoint: "https://blogs.microsoft.com/ai/",
@@ -59,6 +84,10 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "qwen-blog",
     name: "Qwen 官方博客",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 90,
     homepage: "https://qwenlm.github.io/blog/",
     kind: "html",
     endpoint: "https://qwenlm.github.io/blog/",
@@ -68,6 +97,10 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "deepseek-official",
     name: "DeepSeek 官方信息",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 90,
     homepage: "https://www.deepseek.com/",
     kind: "html",
     endpoint: "https://www.deepseek.com/",
@@ -77,6 +110,10 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   {
     key: "minimax-news",
     name: "MiniMax 官方新闻",
+    category: "AI/大模型",
+    coverage: "domain",
+    trustLevel: "official",
+    priority: 90,
     homepage: "https://www.minimax.io/news",
     kind: "html",
     endpoint: "https://www.minimax.io/news",
@@ -85,6 +122,13 @@ export const HIGH_VALUE_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
   },
 ];
 
+// 保留旧名称，避免独立采集脚本或外部部署脚本在升级期间中断。
+export const HIGH_VALUE_INTELLIGENCE_SOURCES = TRUSTED_INTELLIGENCE_SOURCES;
+
 export function sourceByKey(key: string): IntelligenceSourceDefinition | undefined {
-  return HIGH_VALUE_INTELLIGENCE_SOURCES.find((source) => source.key === key);
+  return TRUSTED_INTELLIGENCE_SOURCES.find((source) => source.key === key);
+}
+
+export function sourceTags(source: IntelligenceSourceDefinition): string[] {
+  return [...new Set([source.category, source.coverage, source.trustLevel, ...source.aliases])];
 }

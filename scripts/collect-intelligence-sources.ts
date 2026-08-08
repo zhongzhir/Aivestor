@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
-import { HIGH_VALUE_INTELLIGENCE_SOURCES, type IntelligenceSourceDefinition } from "@/lib/intelligenceSources";
+import { HIGH_VALUE_INTELLIGENCE_SOURCES, sourceTags, type IntelligenceSourceDefinition } from "@/lib/intelligenceSources";
 
 const FETCH_TIMEOUT_MS = 20_000;
 const MAX_ITEMS_PER_SOURCE = 40;
@@ -120,7 +120,7 @@ async function main() {
              published_at = EXCLUDED.published_at,
              subjects = EXCLUDED.subjects,
              raw_hash = EXCLUDED.raw_hash`,
-          [source.key, source.name, source.homepage, item.url, item.title, item.summary, item.publishedAt.toISOString(), JSON.stringify(source.aliases), rawHash]
+          [source.key, source.name, source.homepage, item.url, item.title, item.summary, item.publishedAt.toISOString(), JSON.stringify(sourceTags(source)), rawHash]
         );
         inserted += 1;
       }
