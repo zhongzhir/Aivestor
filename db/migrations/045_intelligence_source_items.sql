@@ -23,7 +23,8 @@ CREATE INDEX IF NOT EXISTS idx_intelligence_source_items_published
 CREATE INDEX IF NOT EXISTS idx_intelligence_source_items_source_time
   ON intelligence_source_items(source_key, published_at DESC);
 
--- 采集器专用账号可写，主应用账号只读；角色不存在时跳过，兼容不同环境命名。
+-- 采集器专用账号可写，主应用账号只读。
+-- 兼容不同部署角色命名（aivestor / aivestor_app / zjjr_sync）；角色不存在时跳过，不报错。
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'zjjr_sync') THEN
@@ -31,5 +32,8 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aivestor_app') THEN
     EXECUTE 'GRANT SELECT ON intelligence_source_items TO aivestor_app';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'aivestor') THEN
+    EXECUTE 'GRANT SELECT ON intelligence_source_items TO aivestor';
   END IF;
 END $$;

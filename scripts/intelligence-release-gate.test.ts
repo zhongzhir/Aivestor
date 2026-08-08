@@ -27,7 +27,20 @@ assert.match(web, /isDashScopeCredential/);
 assert.match(web, /assigned_site_list/);
 assert.match(migration045, /CREATE TABLE IF NOT EXISTS/);
 assert.match(migration045, /CREATE INDEX IF NOT EXISTS/);
-assert.match(migration045, /GRANT SELECT ON intelligence_source_items TO aivestor_app/);
+// 生产可能是 aivestor；其它环境可能是 aivestor_app；采集器为 zjjr_sync。
+// 三者均须条件授权，角色缺失时跳过且不报错。
+assert.match(
+  migration045,
+  /IF EXISTS \(SELECT 1 FROM pg_roles WHERE rolname = 'zjjr_sync'\)[\s\S]*GRANT SELECT, INSERT, UPDATE, DELETE ON intelligence_source_items TO zjjr_sync/,
+);
+assert.match(
+  migration045,
+  /IF EXISTS \(SELECT 1 FROM pg_roles WHERE rolname = 'aivestor_app'\)[\s\S]*GRANT SELECT ON intelligence_source_items TO aivestor_app/,
+);
+assert.match(
+  migration045,
+  /IF EXISTS \(SELECT 1 FROM pg_roles WHERE rolname = 'aivestor'\)[\s\S]*GRANT SELECT ON intelligence_source_items TO aivestor/,
+);
 assert.match(migration046, /ADD COLUMN IF NOT EXISTS metadata JSONB/);
 assert.doesNotMatch(core, /aivestor\.cn|aivestor\.com\.cn|中鉴智投/);
 console.log("intelligence release gate tests passed");
