@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
+import { searchWebForIntelligence, type WebSearchCredentials } from "@/lib/intelligenceWebSearch";
 
 export type ExecutionMode = "manual" | "scheduled";
 export type Feedback = "valuable" | "irrelevant";
@@ -44,6 +45,14 @@ export interface Candidate {
   subject: string;
   region: string | null;
   kind: "fact" | "trend" | "other";
+  sourceTier?: "A" | "B" | "C" | "D";
+  origin?: "web-search" | "trusted-source" | "market-insights";
+  domain?: string;
+  matchedTerms?: string[];
+  sourceUrls?: string[];
+  importance?: "high" | "medium" | "low";
+  relevance?: "high" | "medium" | "low";
+  confidence?: "high" | "medium" | "low";
 }
 
 interface SourceItemRow {
@@ -71,7 +80,38 @@ export interface BriefResult {
   importantFacts: BriefItem[];
   trendSignals: BriefItem[];
   otherItems: BriefItem[];
-  sourceList: Array<{ source: string; url: string | null; publishedAt: string }>;
+  sourceList: Array<{ source: string; url: string | null; publishedAt: string; sourceTier?: "A" | "B" | "C" | "D"; origin?: string }>;
+}
+
+function titleTokens(title: string): Set<string> { return new Set(title.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter((token) => token.length > 1)); }
+function compactTitle(title: string): string { return title.toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, ""); }
+export function mergeCandidates(candidates: Candidate[]): Candidate[] {
+  const merged: Candidate[] = [];
+  for (const candidate of candidates) {
+    const tokens = titleTokens(candidate.title);
+    const existing = merged.find((item) => {
+      const days = Math.abs(new Date(item.publishedAt).getTime() - new Date(candidate.publishedAt).getTime()) / 86400000;
+      if (days > 14) return false;
+      if (item.sourceUrl && candidate.sourceUrl && item.sourceUrl === candidate.sourceUrl) return true;
+      const compactA = compactTitle(item.title); const compactB = compactTitle(candidate.title);
+      if (compactA === compactB || compactA.includes(compactB) || compactB.includes(compactA)) return true;
+      const other = titleTokens(item.title); const overlap = [...tokens].filter((token) => other.has(token)).length;
+      return overlap >= 2 && overlap / Math.max(2, Math.min(tokens.size, other.size)) >= 0.55;
+    });
+    if (!existing) { merged.push({ ...candidate, sourceUrls: candidate.sourceUrl ? [candidate.sourceUrl] : [] }); continue; }
+    const urls = [...new Set([...(existing.sourceUrls ?? []), ...(candidate.sourceUrls ?? []), candidate.sourceUrl].filter((url): url is string => !!url))];
+    existing.sourceUrls = urls;
+    existing.source = [...new Set(`${existing.source}; ${candidate.source}`.split(/;\s*/).filter(Boolean))].join("; ");
+    existing.sourceTier = existing.sourceTier === "A" || candidate.sourceTier !== "A" ? existing.sourceTier : candidate.sourceTier;
+    if (candidate.kind === "fact" && existing.kind !== "fact") existing.kind = candidate.kind;
+  }
+  return merged;
+}
+
+function candidateMarkdown(candidate: Candidate, input: IntelligenceTaskInput): string {
+  const confidence = candidate.confidence === "high" ? "高" : candidate.confidence === "medium" ? "中" : "低";
+  const corroboration = (candidate.sourceUrls?.length ?? 1) > 1 ? "，已有多来源交叉印证" : "，当前为单一来源，建议结合其他来源核验";
+  return `**发生了什么**\n\n${candidate.content || candidate.title}\n\n**为什么值得关注**\n\n该信息直接匹配本次关注主题（${[...input.topics, ...input.entities, ...input.keywords].filter(Boolean).slice(0, 4).join("、") || "用户订制主题"}）。\n\n**可信度**\n\n${confidence}（来源等级 ${candidate.sourceTier ?? "C"}${corroboration}）。\n\n**时间**\n\n${new Date(candidate.publishedAt).toLocaleString("zh-CN")}`;
 }
 
 export function validateTaskInput(input: IntelligenceTaskInput, now = new Date()): string | null {
@@ -178,6 +218,7 @@ export async function loadCandidates(start: Date, end: Date): Promise<Candidate[
       subject: row.source_name,
       region: null,
       kind: /安全|政策|发布|融资|合作|模型|产品|研究|投资/.test(`${row.title}${row.summary}`) ? "trend" : "fact",
+      sourceTier: "A", origin: "trusted-source", domain: (() => { try { return new URL(row.canonical_url || row.source_homepage).hostname.replace(/^www\./, ""); } catch { return ""; } })(),
     }));
   }
 
@@ -189,19 +230,35 @@ export async function loadCandidates(start: Date, end: Date): Promise<Candidate[
       WHERE generated_at BETWEEN $1 AND $2 OR data_as_of BETWEEN $1::date AND $2::date
       ORDER BY generated_at DESC`, [start.toISOString(), end.toISOString()]
   );
-  return rows.map((row) => ({ id: row.id, title: row.title, content: row.content, source: "market-insights / 中鉴内部数据（降级）", sourceUrl: null, publishedAt: row.generated_at || `${row.data_as_of}T00:00:00.000Z`, subject: row.title, region: null, kind: /趋势|增长|变化|融资|政策/.test(`${row.title}${row.content}`) ? "trend" : "fact" }));
+  return rows.map((row) => ({ id: row.id, title: row.title, content: row.content, source: "market-insights / 中鉴内部数据（降级）", sourceUrl: null, publishedAt: row.generated_at || `${row.data_as_of}T00:00:00.000Z`, subject: row.title, region: null, kind: /趋势|增长|变化|融资|政策/.test(`${row.title}${row.content}`) ? "trend" : "fact", sourceTier: "D", origin: "market-insights" }));
 }
 
-export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string): Promise<{ id: string; brief: BriefResult }> {
+function scoreCandidates(candidates: Candidate[], input: IntelligenceTaskInput): Candidate[] {
+  const terms = [...input.topics, ...input.entities, ...input.keywords, ...input.includeRequirements].filter(Boolean);
+  return candidates.map((candidate) => {
+    const text = `${candidate.title} ${candidate.content}`.toLocaleLowerCase();
+    const hits = terms.filter((term) => text.includes(term.toLocaleLowerCase())).length;
+    const relevance: Candidate["relevance"] = hits >= 2 ? "high" : hits === 1 ? "medium" : "low";
+    const importance: Candidate["importance"] = /融资|并购|收购|授权|交易|监管|政策|发布|重大|合作/.test(candidate.title) ? "high" : candidate.kind === "fact" ? "medium" : "low";
+    const confidence: Candidate["confidence"] = candidate.sourceTier === "A" || (candidate.sourceUrls?.length ?? 0) > 1 ? "high" : candidate.sourceTier === "B" || candidate.sourceTier === "C" ? "medium" : "low";
+    return { ...candidate, relevance, importance, confidence };
+  }).sort((a, b) => {
+    const rank = (value: Candidate["importance"] | Candidate["relevance"]): number => value === "high" ? 3 : value === "medium" ? 2 : 1;
+    return rank(b.importance) + rank(b.relevance) - rank(a.importance) - rank(a.relevance);
+  });
+}
+
+export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: WebSearchCredentials): Promise<{ id: string; brief: BriefResult }> {
   if (!input.isActive) throw new Error("停用的情报任务不能执行");
   const validationError = validateTaskInput(input, now);
   if (validationError) throw new Error(validationError);
   const coverage = coverageFor(input, now);
-  const candidates = filterCandidates(await loadCandidates(coverage.start, coverage.end), input, coverage.start, coverage.end);
+  const webCandidates: Candidate[] = (await searchWebForIntelligence(input, coverage.start, credentials)).map((item) => ({ id: `web:${item.url}`, title: item.title, content: item.snippet, source: item.siteName, sourceUrl: item.url, publishedAt: item.publishedAt || now.toISOString(), subject: item.title, region: null, kind: /融资|并购|发布|政策|合作|交易|投资|产品|模型|研究/.test(item.title) ? "fact" : "trend", sourceTier: item.sourceTier, origin: "web-search", domain: item.domain }));
+  const candidates = scoreCandidates(mergeCandidates(filterCandidates([...webCandidates, ...(await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end)), input).slice(0, Math.max(1, Math.min(50, input.maxItems))).map((candidate) => ({ ...candidate, content: candidateMarkdown(candidate, input) }));
   const brief: BriefResult = {
     taskName: input.name, coverageStart: coverage.start.toISOString(), coverageEnd: coverage.end.toISOString(), generatedAt: now.toISOString(), itemCount: candidates.length,
     importantFacts: candidates.filter((x) => x.kind === "fact"), trendSignals: candidates.filter((x) => x.kind === "trend"), otherItems: candidates.filter((x) => x.kind === "other"),
-    sourceList: candidates.map((x) => ({ source: x.source, url: x.sourceUrl, publishedAt: x.publishedAt })),
+    sourceList: candidates.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
   };
   const rows = await query<{ id: string }>(
     `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, scheduled_slot)
@@ -241,7 +298,7 @@ export async function runScheduledTasks(now = new Date()): Promise<number> {
         await query("UPDATE intelligence_tasks SET is_active = false WHERE id = $1 AND user_id = $2", [task.id, task.user_id]);
         continue;
       }
-      await generateBrief(task.user_id, task.id, normalizeTaskInput({ ...task, includeRequirements: task.include_requirements, excludeRequirements: task.exclude_requirements, maxItems: task.max_items, lookbackPeriod: task.lookback_period, outputInstructions: task.output_instructions, executionMode: task.execution_mode, scheduleConfig: cfg, isActive: task.is_active }), now, scheduledSlot);
+      await generateBrief(task.user_id, task.id, normalizeTaskInput({ ...task, includeRequirements: task.include_requirements, excludeRequirements: task.exclude_requirements, maxItems: task.max_items, lookbackPeriod: task.lookback_period, outputInstructions: task.output_instructions, executionMode: task.execution_mode, scheduleConfig: cfg, isActive: task.is_active }), now, scheduledSlot, generation.credentials);
       count++;
     } catch {
       // 额度或上游异常时暂停该任务，避免下一轮调度持续失败。
