@@ -10,7 +10,7 @@ const appPage = read(`${root}/src/app/(app)/data-apps/[appId]/page.tsx`);
 const middleware = read(`${root}/src/middleware.ts`);
 
 assert.match(layout, /getOrgContext/);
-assert.match(layout, /<Sidebar hasOrganization=\{!!orgContext\} \/>/);
+assert.match(layout, /<AppShell hasOrganization=\{!!orgContext\}>/);
 assert.doesNotMatch(sidebar, /href: "\/data-apps\/intelligence-subscriptions"/);
 assert.match(sidebar, /hasOrganization/);
 assert.doesNotMatch(sidebar, /session\.user\.orgId/);

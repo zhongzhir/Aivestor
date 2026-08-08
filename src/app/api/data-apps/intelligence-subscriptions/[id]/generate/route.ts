@@ -21,7 +21,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
     return NextResponse.json({ error: "生成情报简报会消耗 AI 额度。你可以使用平台额度、配置自己的 AI API，或升级机构版获得更高额度和团队能力。", code: "quota_unavailable", paused: true }, { status: 402 });
   }
   try {
-    const result = await generateBrief(guard.access.userId, params.id, input, new Date(), undefined, generation.credentials);
+    const result = await generateBrief(guard.access.userId, params.id, input, new Date(), undefined, { ...generation.credentials, provider: generation.credentials.provider });
     return NextResponse.json({ ...result, aiSource: generation.source }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "生成失败" }, { status: 400 });
