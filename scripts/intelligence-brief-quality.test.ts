@@ -9,8 +9,9 @@ import {
   resolvePublishedAt,
   sanitizeFactTitle,
 } from "@/lib/intelligenceBriefQuality";
-import { normalizeTaskInput, type Candidate } from "@/lib/intelligence";
+import { filterCandidates, normalizeTaskInput, type Candidate } from "@/lib/intelligence";
 import { normalizeWebResults } from "@/lib/intelligenceWebSearch";
+import { isHistoricalReviewCandidate } from "@/lib/intelligenceTopicRelevance";
 
 const input = normalizeTaskInput({
   name: "中国创新药海外 BD 交易",
@@ -122,6 +123,23 @@ const titleOnlyClue = enrichCandidate({
 assert.equal(titleOnlyClue.isClue, true, "单一非可信来源只有标题时应降级为线索");
 assert.match(titleOnlyClue.followUpReason || "", /原始来源|公司或项目/);
 
+const historicalReview = {
+  id: "review",
+  title: "中国创新药上半年 BD 交易突破 1100 亿美元",
+  content: "上半年盘点显示，中国创新药累计交易额突破 1100 亿美元",
+  source: "高质量媒体",
+  sourceUrl: "https://example.com/review",
+  publishedAt: "2026-08-08T00:00:00.000Z",
+  subject: "中国创新药",
+  region: null,
+  kind: "fact" as const,
+  sourceTier: "A" as const,
+  origin: "web-search" as const,
+  evidenceStatus: "full" as const,
+};
+assert.equal(isHistoricalReviewCandidate(historicalReview, input), true);
+assert.equal(filterCandidates([historicalReview], input, new Date("2026-08-01"), new Date("2026-08-09")).length, 0, "历史综述不能进入本期新增");
+
 const noFactOverview = buildEditorialOverview([
   { ...titleOnlyClue, isClue: true, kind: "other" },
 ], input);
@@ -148,6 +166,21 @@ const conflictingAmounts = mergeEventCandidates([
   { id: "c2", title: "甲公司完成海外授权交易", content: "交易总金额 5 亿美元", source: "B", sourceUrl: "https://b.example/c2", publishedAt: "2026-08-07T01:00:00.000Z", subject: "甲公司", region: null, kind: "fact", sourceTier: "C", domain: "b.example" },
 ]);
 assert.equal(conflictingAmounts.length, 2, "金额冲突的来源不得强行合并");
+
+const sameFinancing = mergeEventCandidates([
+  { id: "moon-1", title: "月之暗面35亿美元融资", content: "中国大模型企业融资动态", source: "证券时报", sourceUrl: "https://stcn.example/moon", publishedAt: "2026-08-07T00:00:00.000Z", subject: "月之暗面", region: null, kind: "fact", sourceTier: "A", domain: "stcn.example" },
+  { id: "moon-2", title: "头部大模型吸金35亿美元", content: "融资周报披露头部大模型资本动态", source: "澎湃", sourceUrl: "https://thepaper.example/moon", publishedAt: "2026-08-08T00:00:00.000Z", subject: "头部大模型", region: null, kind: "fact", sourceTier: "A", domain: "thepaper.example" },
+]);
+assert.equal(sameFinancing.length, 1, "同金额同融资事件应合并");
+assert.equal(sameFinancing[0]?.sourceUrls?.length, 2);
+const mergedFinancing = sameFinancing.map((item) => enrichCandidate(item, normalizeTaskInput({ name: "中国 AI 大模型企业资本动态", topics: ["AI", "大模型"], keywords: ["融资", "投资"] })));
+assert.equal(partitionBriefItems(mergedFinancing).trendSignals.length, 0, "一个合并事件不能形成趋势");
+
+const factualTitle = sanitizeFactTitle("月之暗面35亿美元融资背后：中国大模型估值被重新定义", "月之暗面完成35亿美元融资");
+assert.doesNotMatch(factualTitle, /背后|重新定义|吸金/);
+const repeatedSummary = buildFactSummary("月之暗面完成35亿美元融资", "月之暗面完成35亿美元融资", { sourceCount: 1, trustedSource: true });
+assert.equal(repeatedSummary.summary, "", "标题没有第二事实维度时不输出复读摘要");
+assert.equal(partitionBriefItems([]).importantFacts.length, 0, "空简报是合法结果");
 
 // 5. 单一事件不得形成趋势
 const single = enrichCandidate({

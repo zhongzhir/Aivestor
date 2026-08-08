@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
 import { searchWebForIntelligence, type WebSearchCredentials } from "@/lib/intelligenceWebSearch";
-import { topicRelevance } from "@/lib/intelligenceTopicRelevance";
+import { isHistoricalReviewCandidate, topicRelevance } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import {
   buildEditorialOverview,
@@ -154,6 +154,7 @@ export function filterCandidates(candidates: Candidate[], input: IntelligenceTas
     const text = [candidate.title, candidate.content, candidate.subject, candidate.region ?? ""].join(" ");
     if (exclude.some((term) => text.toLocaleLowerCase().includes(term.toLocaleLowerCase()))) return false;
     if (candidate.origin === "web-search" && !topicRelevance(candidate, input).passed) return false;
+    if (candidate.origin === "web-search" && isHistoricalReviewCandidate(candidate, input)) return false;
     // 主题词存在时必须命中主题，避免仅因“融资/政策”等泛关键词误入
     if (topics.length && !textMatches(text, topics)) return false;
     if (regions.length && !textMatches(text, regions) && !textMatches(text, topics)) return false;

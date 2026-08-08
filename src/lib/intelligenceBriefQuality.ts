@@ -12,11 +12,11 @@ const HYPE_DETECT_PATTERNS = [
   /海外重围/, /真拐点/, /价值重估/, /绝不错过/, /大热门/, /一触即发/, /万亿市场/,
   /资本盛宴/, /资本狂热/, /疯狂突破/, /彻底拆解/, /利好共振/, /表现十分亮眼/,
   /业绩亮眼/, /迎来新时代/, /重塑/, /卡位/, /争夺战/, /成人礼/, /大消息!?/,
-  /迎来窗口/, /亮眼/, /爆发/, /前所未有/, /抢滩/,
+  /迎来窗口/, /亮眼/, /爆发/, /前所未有/, /抢滩/, /重新定义/, /吸金/, /开门红/, /加速跑/,
 ];
 
 /** 清洗时可删除的编辑腔后缀；不单独作为 hype 判定依据（避免误伤事实标题）。 */
-const HYPE_STRIP_EXTRA = [/拷问.+$/, /背后[,，].*$/, /陷[^:：，,。]*罗生门/];
+const HYPE_STRIP_EXTRA = [/拷问.+$/, /背后[,:：，].*$/, /陷[^:：，,。]*罗生门/, /开门红[!！]?/, /加速跑/, /创新高/, /[|｜].*$/, /[，,：:].*$/];
 
 const HYPE_TITLE_PATTERNS = [...HYPE_DETECT_PATTERNS, ...HYPE_STRIP_EXTRA];
 
@@ -30,7 +30,12 @@ const EXTERNAL_INSTRUCTION = /ignore\s+(?:all\s+)?previous\s+instructions?|syste
 function removeExternalInstructions(text: string): string {
   return text
     .split(/[。！？\n.!?]+/)
-    .map((part) => part.trim())
+    .map((part) => part
+      .replace(/ignore\s+(?:all\s+)?previous\s+instructions?/gi, "")
+      .replace(/print\s+(?:the\s+)?(?:system\s+prompt|api\s*key)/gi, "")
+      .replace(/(?:system\s+prompt|api\s*key)/gi, "")
+      .replace(/忽略(?:以上|之前)指令|打印.*?(?:提示词|密钥)|输出.*?(?:API\s*Key|密钥)/gi, "")
+      .trim())
     .filter((part) => part && !EXTERNAL_INSTRUCTION.test(part))
     .join("。")
     .trim();
@@ -149,7 +154,7 @@ export function formatPublishedLabel(publishedAt: string | null, timeUnconfirmed
 }
 
 /** 仅保留来源可支持的事实摘要；模糊单一来源降级为线索。 */
-export function buildFactSummary(title: string, snippet: string, options?: { sourceCount?: number; forceClue?: boolean; trustedSource?: boolean }): { summary: string; isClue: boolean } {
+export function buildFactSummary(title: string, snippet: string, options?: { sourceCount?: number; forceClue?: boolean; trustedSource?: boolean; preserveSummaryWhenSanitized?: boolean }): { summary: string; isClue: boolean } {
   const text = removeExternalInstructions(snippet || title || "").replace(/\s+/g, " ").trim();
   const sourceCount = options?.sourceCount ?? 1;
   const concrete = FACT_MARKERS.test(`${title} ${text}`) && !isHypeTitle(title) && !isOpinionTitle(title);
@@ -171,8 +176,9 @@ export function buildFactSummary(title: string, snippet: string, options?: { sou
     if (summary && !/[。！？]$/.test(summary)) summary += "。";
   }
   if (!summary) {
-    summary = `${sanitizeFactTitle(title, text)}。`;
+    summary = "";
   }
+  if (!options?.preserveSummaryWhenSanitized && summary && compactTitle(summary.replace(/^线索：/, "")) === compactTitle(title)) summary = "";
   if (isClue && !/线索|待确认|据/.test(summary)) {
     summary = `线索：${summary.replace(/^线索：/, "")}`;
   }
@@ -227,6 +233,8 @@ export function extractEventEntity(title: string, content = ""): string | null {
   if (company?.[1]) return company[1].replace(/\s+/g, "").toLocaleLowerCase();
   const asset = text.match(/([A-Z]{1,5}[-\s]?\d{3,5}|TY[‑\-]?\d{3,5})/i);
   if (asset?.[1]) return asset[1].replace(/\s+/g, "").toLocaleLowerCase();
+  const beforeAmount = text.match(/([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9·\-]{1,20})(?=\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币))/);
+  if (beforeAmount?.[1]) return beforeAmount[1].replace(/(?:完成|推进|计划|被曝|吸金|头部|中国|国内)$/g, "").trim().toLocaleLowerCase() || null;
   return null;
 }
 
@@ -255,6 +263,11 @@ function sameUnderlyingEvent(a: Candidate, b: Candidate): boolean {
   const themeA = eventThemeKey(a.title, a.content);
   const themeB = eventThemeKey(b.title, b.content);
   if (entityA && entityB && entityA === entityB && themeA === themeB) return true;
+  const amountKey = (value: string) => [...value.matchAll(/\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币)/g)].map((match) => match[0]!.replace(/\s+/g, "")).sort().join(",");
+  const amountA = amountKey(`${a.title} ${a.content}`);
+  const amountB = amountKey(`${b.title} ${b.content}`);
+  const genericEntity = (value: string | null) => !!value && /头部|大模型|企业|公司|国内|中国/.test(value);
+  if (amountA && amountA === amountB && themeA === themeB && (!entityA || !entityB || entityA === entityB || genericEntity(entityA) || genericEntity(entityB))) return true;
   if (entityA && entityB && entityA === entityB && /同源康|TY.?9591/i.test(`${a.title}${b.title}`)) return true;
   const compactA = compactTitle(a.title);
   const compactB = compactTitle(b.title);
@@ -466,8 +479,9 @@ export function enrichCandidate(
     sourceCount,
     forceClue,
     trustedSource: sourceQualityRank(candidate.sourceTier) >= 2,
+    preserveSummaryWhenSanitized: candidate.title !== title,
   });
-  const investmentNote = isClue ? null : buildInvestmentNote({ title, content: candidate.content, summary }, input);
+  const investmentNote = isClue || !summary ? null : buildInvestmentNote({ title, content: candidate.content, summary }, input);
   const confidence: Candidate["confidence"] =
     sourceCount > 1 || sourceQualityRank(candidate.sourceTier) >= 3
       ? "high"
