@@ -24,6 +24,16 @@ const OPINION_MARKERS = /如何重估|还是真|吗\?|吗？|背后是|talk秀|�
 const FACT_MARKERS = /融资|并购|收购|授权|交易|合作|上市|获批|批准|签约|达成|完成|发布|公告|投资|首付款|轮融资|政策|监管|BD|licensing|管线|适应症|金额|亿元|万美元|亿美元|投保|补贴|立案|协议|一药两授|互诉|诉讼|权益/;
 const CLUE_MARKERS = /或将|有望|据传|消息称|业内人士|知情人士|传闻|可能|预计会|分析认为/;
 const INVESTMENT_SIGNAL = /首付款|总金额|授权|BD|licensing|融资|轮次|估值|监管|政策|管线|权益|区域|共同开发|联合开发|买方|连续|多家/;
+const EXTERNAL_INSTRUCTION = /ignore\s+(?:all\s+)?previous\s+instructions?|system\s+prompt|api\s*key|忽略(?:以上|之前)指令|系统提示词|打印.*(?:提示词|密钥)|输出.*(?:API\s*Key|密钥)/i;
+
+function removeExternalInstructions(text: string): string {
+  return text
+    .split(/[。！？\n.!?]+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !EXTERNAL_INSTRUCTION.test(part))
+    .join("。")
+    .trim();
+}
 
 export function isHypeTitle(title: string): boolean {
   return HYPE_DETECT_PATTERNS.some((pattern) => pattern.test(title));
@@ -44,7 +54,7 @@ export function sanitizeFactTitle(title: string, snippet = ""): string {
     .replace(/[，,、\s]{2,}/g, "，")
     .replace(/^[\s，,、：:!！?？]+|[\s，,、：:!！?？]+$/g, "")
     .trim();
-  if (originalHype || isOpinionTitle(title) || !next || next.length < 6 || !FACT_MARKERS.test(next)) {
+  if (EXTERNAL_INSTRUCTION.test(title) || originalHype || isOpinionTitle(title) || !next || next.length < 6 || !FACT_MARKERS.test(next)) {
     const fromSnippet = extractLeadFact(snippet);
     if (fromSnippet) return fromSnippet.slice(0, 80);
   }
@@ -57,9 +67,9 @@ export function sanitizeFactTitle(title: string, snippet = ""): string {
 }
 
 function extractLeadFact(text: string): string | null {
-  const cleaned = text.replace(/\s+/g, " ").trim();
+  const cleaned = removeExternalInstructions(text).replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
-  const sentence = cleaned.split(/[。！？\n]/).map((part) => part.trim()).find((part) => FACT_MARKERS.test(part) && !isHypeTitle(part) && part.length >= 8);
+  const sentence = cleaned.split(/[。！？\n.!?]/).map((part) => part.trim()).find((part) => FACT_MARKERS.test(part) && !isHypeTitle(part) && part.length >= 8);
   return sentence ? sentence.slice(0, 80) : null;
 }
 
@@ -135,7 +145,7 @@ export function formatPublishedLabel(publishedAt: string | null, timeUnconfirmed
 
 /** 仅保留来源可支持的事实摘要；模糊单一来源降级为线索。 */
 export function buildFactSummary(title: string, snippet: string, options?: { sourceCount?: number; forceClue?: boolean; trustedSource?: boolean }): { summary: string; isClue: boolean } {
-  const text = (snippet || title || "").replace(/\s+/g, " ").trim();
+  const text = removeExternalInstructions(snippet || title || "").replace(/\s+/g, " ").trim();
   const sourceCount = options?.sourceCount ?? 1;
   const concrete = FACT_MARKERS.test(`${title} ${text}`) && !isHypeTitle(title) && !isOpinionTitle(title);
   const vague = CLUE_MARKERS.test(text) && !/公告|披露|官方/.test(text);
@@ -147,6 +157,7 @@ export function buildFactSummary(title: string, snippet: string, options?: { sou
   if (text && text !== title) {
     const sentences = text.split(/[。！？\n]/).map((part) => part.trim()).filter(Boolean);
     const kept = sentences.filter((sentence) => {
+      if (EXTERNAL_INSTRUCTION.test(sentence)) return false;
       if (isHypeTitle(sentence)) return false;
       if (/符合你的关注主题|直接匹配本次关注/.test(sentence)) return false;
       return true;
@@ -252,6 +263,13 @@ function sameUnderlyingEvent(a: Candidate, b: Candidate): boolean {
   return overlap >= 2 && ratio >= 0.55;
 }
 
+function materialConflict(a: Candidate, b: Candidate): boolean {
+  const amounts = (value: string) => [...value.matchAll(/\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币)/g)].map((match) => match[0]!.replace(/\s+/g, "")).sort();
+  const left = amounts(`${a.title} ${a.content}`);
+  const right = amounts(`${b.title} ${b.content}`);
+  return left.length > 0 && right.length > 0 && left.some((value) => !right.includes(value)) && right.some((value) => !left.includes(value));
+}
+
 /** 转载合并：同底层事件只保留一张卡片，聚合来源。 */
 export function mergeEventCandidates(candidates: Candidate[]): Candidate[] {
   const merged: Candidate[] = [];
@@ -261,6 +279,7 @@ export function mergeEventCandidates(candidates: Candidate[]): Candidate[] {
       const bTime = candidate.timeUnconfirmed ? null : Date.parse(candidate.publishedAt);
       if (aTime && bTime && Math.abs(aTime - bTime) / 86400000 > 14) return false;
       if (item.sourceUrl && candidate.sourceUrl && item.sourceUrl === candidate.sourceUrl) return true;
+      if (materialConflict(item, candidate)) return false;
       return sameUnderlyingEvent(item, candidate);
     });
     if (!existing) {
@@ -423,7 +442,8 @@ export function enrichCandidate(
   const forceClue =
     isHypeTitle(title)
     || isOpinionTitle(title)
-    || (isHypeTitle(candidate.title) && !cleanedEntity);
+    || (isHypeTitle(candidate.title) && !cleanedEntity)
+    || (candidate.evidenceStatus === "unavailable" && sourceCount <= 1);
   const { summary, isClue } = buildFactSummary(title, candidate.content, {
     sourceCount,
     forceClue,

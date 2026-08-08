@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
 import { searchWebForIntelligence, type WebSearchCredentials } from "@/lib/intelligenceWebSearch";
+import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import {
   buildEditorialOverview,
   enrichCandidate,
@@ -69,6 +70,9 @@ export interface Candidate {
   timeUnconfirmed?: boolean;
   /** 单一模糊来源，降级为线索 */
   isClue?: boolean;
+  /** 搜索结果正文取证状态；仅标题/snippet 的单源不得升级为事实。 */
+  evidenceStatus?: EvidenceStatus;
+  evidencePublishedAt?: string;
 }
 
 interface SourceItemRow {
@@ -297,11 +301,22 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
       sourceTier: item.sourceTier,
       origin: "web-search" as const,
       domain: item.domain,
+      evidenceStatus: "unavailable" as const,
     };
   });
-  const merged = mergeEventCandidates(
-    filterCandidates([...webCandidates, ...(await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end),
-  );
+  const filtered = filterCandidates([...webCandidates, ...(await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end);
+  // 先按现有候选评分截取高价值 URL，再做有限并发正文取证，避免每次任务抓取整个搜索结果集。
+  const evidenceCandidates = scoreCandidates(filtered, input).slice(0, 16);
+  await acquireEvidence(evidenceCandidates);
+  for (const candidate of evidenceCandidates) {
+    const resolved = resolvePublishedAt({ sourcePublishedAt: candidate.evidencePublishedAt, url: candidate.sourceUrl });
+    if (candidate.evidencePublishedAt) {
+      candidate.publishedAt = resolved.publishedAt || candidate.publishedAt;
+      candidate.timeUnconfirmed = resolved.timeUnconfirmed;
+    }
+    delete candidate.evidencePublishedAt;
+  }
+  const merged = mergeEventCandidates(filtered);
   const enriched = scoreCandidates(
     merged.map((candidate) => enrichCandidate(candidate, input)),
     input,

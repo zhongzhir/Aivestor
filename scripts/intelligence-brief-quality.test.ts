@@ -136,6 +136,12 @@ const tongyuankang = mergeEventCandidates([
 ]);
 assert.equal(tongyuankang.length, 1, "同源康同一授权争议应合并为一条");
 
+const conflictingAmounts = mergeEventCandidates([
+  { id: "c1", title: "甲公司完成海外授权交易", content: "交易总金额 1 亿美元", source: "A", sourceUrl: "https://a.example/c1", publishedAt: "2026-08-07T00:00:00.000Z", subject: "甲公司", region: null, kind: "fact", sourceTier: "C", domain: "a.example" },
+  { id: "c2", title: "甲公司完成海外授权交易", content: "交易总金额 5 亿美元", source: "B", sourceUrl: "https://b.example/c2", publishedAt: "2026-08-07T01:00:00.000Z", subject: "甲公司", region: null, kind: "fact", sourceTier: "C", domain: "b.example" },
+]);
+assert.equal(conflictingAmounts.length, 2, "金额冲突的来源不得强行合并");
+
 // 5. 单一事件不得形成趋势
 const single = enrichCandidate({
   id: "s1",
