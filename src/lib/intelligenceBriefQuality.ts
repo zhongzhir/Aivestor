@@ -23,6 +23,9 @@ const HYPE_TITLE_PATTERNS = [...HYPE_DETECT_PATTERNS, ...HYPE_STRIP_EXTRA];
 const OPINION_MARKERS = /如何重估|还是真|吗\?|吗？|背后是|talk秀|周报\s*\|+|发展到哪一步|参与者几何|全梳理|最新动向曝光/;
 
 const FACT_MARKERS = /融资|并购|收购|授权|交易|合作|上市|获批|批准|签约|达成|完成|发布|公告|投资|首付款|轮融资|政策|监管|BD|licensing|管线|适应症|金额|亿元|万美元|亿美元|投保|补贴|立案|协议|一药两授|互诉|诉讼|权益/;
+const CONCRETE_EVENT_ACTIONS = /完成|推进|计划|重启|寻求|被曝|宣布|达成|签署|签约|获批|批准|启动|披露|拟|收购|并购|投资|融资|募资|上市|IPO|授权|BD|licensing/;
+const CONCRETE_EVENT_DETAILS = /\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币)|[一二三四五六七八九十]+轮|[A-D]轮|Pre-?IPO|投资方|买方|交易对手|官方公告|公司公告|监管文件|权益区域/;
+const GENERIC_EVENT_SUBJECTS = /^(?:AI|AIGC|人工智能|大模型|资本|行业|市场|企业|公司|机构|融资|投资|交易|并购|中国AI|AI行业|头部大模型)$/i;
 const CLUE_MARKERS = /或将|有望|据传|消息称|业内人士|知情人士|传闻|可能|预计会|分析认为/;
 const INVESTMENT_SIGNAL = /首付款|总金额|授权|BD|licensing|融资|轮次|估值|监管|政策|管线|权益|区域|共同开发|联合开发|买方|连续|多家/;
 const EXTERNAL_INSTRUCTION = /ignore\s+(?:all\s+)?previous\s+instructions?|system\s+prompt|api\s*key|忽略(?:以上|之前)指令|系统提示词|打印.*(?:提示词|密钥)|输出.*(?:API\s*Key|密钥)/i;
@@ -179,7 +182,7 @@ export function buildFactSummary(title: string, snippet: string, options?: { sou
     summary = "";
   }
   if (!options?.preserveSummaryWhenSanitized && summary && compactTitle(summary.replace(/^线索：/, "")) === compactTitle(title)) summary = "";
-  if (isClue && !/线索|待确认|据/.test(summary)) {
+  if (isClue && summary && !/线索|待确认|据/.test(summary)) {
     summary = `线索：${summary.replace(/^线索：/, "")}`;
   }
   return { summary: summary.slice(0, 360), isClue };
@@ -224,6 +227,21 @@ export function buildInvestmentNote(candidate: Pick<Candidate, "title" | "conten
   }
   if (!notes.length) return null;
   return notes[0]!;
+}
+
+/**
+ * Editorial layer：把已确认事实或具体线索转成克制的判断；推断使用条件语气，
+ * 不补写金额、投资方或交易条件等来源未提供的事实。
+ */
+export function buildEditorialCommentary(candidate: Pick<Candidate, "title" | "content"> & { summary?: string; isClue?: boolean }, _input?: IntelligenceTaskInput): string | null {
+  const text = `${candidate.title} ${candidate.summary ?? ""} ${candidate.content}`.replace(/\s+/g, " ").trim();
+  if (!text || isHypeTitle(candidate.title) || isOpinionTitle(candidate.title)) return null;
+  if (!candidate.isClue) return buildInvestmentNote(candidate);
+  if (/融资|募资|估值|轮融资|亿美元|亿元/.test(text)) return "若融资消息得到确认，将反映相关企业仍在争取较大规模资本；下一步应核对融资轮次、金额与投资方。";
+  if (/授权|BD|licensing|交易|合作|签约/.test(text)) return "若交易消息得到确认，将提供管线/合作方选择的线索；下一步应核对交易对手、权益范围与付款安排。";
+  if (/并购|收购|上市|IPO|股权|投资/.test(text)) return "若该资本动作得到确认，可能改变相关主体的竞争或融资条件；下一步应核对公告主体与交易进度。";
+  if (/政策|监管|获批|批准|补贴|规划|通知/.test(text)) return "若政策动作得到确认，可能影响相关项目的商业化与融资预期；下一步应核对发布主体和正式文件。";
+  return null;
 }
 
 /** 抽取主体，用于转载合并与趋势独立性判断。 */
@@ -341,6 +359,34 @@ function isWebEvidenceVerified(candidate: Candidate): boolean {
   return FACT_MARKERS.test(text) && candidate.content.trim().length > candidate.title.trim().length + 20 && !isHypeTitle(candidate.title) && !isOpinionTitle(candidate.title);
 }
 
+function extractConcreteEventSubject(candidate: Candidate): string | null {
+  const text = `${candidate.title} ${candidate.content}`.replace(/\s+/g, " ").trim();
+  const extracted = extractEventEntity(candidate.title, candidate.content);
+  if (extracted && !GENERIC_EVENT_SUBJECTS.test(extracted)) return extracted;
+  const beforeAction = text.match(/(?:^|[：:，,。\s])([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9·-]{1,24}?)(?=(?:完成|推进|计划|重启|寻求|被曝|宣布|达成|签署|签约|获批|批准|启动|披露|拟))/);
+  const subject = beforeAction?.[1]?.replace(/^(?:中国|国内|头部)/, "").trim();
+  return subject && !GENERIC_EVENT_SUBJECTS.test(subject) ? subject : null;
+}
+
+function hasConcreteUnavailableEvent(candidate: Candidate): boolean {
+  const text = `${candidate.title} ${candidate.content}`;
+  const subject = extractConcreteEventSubject(candidate);
+  if (!subject) return false;
+  const hasAction = CONCRETE_EVENT_ACTIONS.test(text) && FACT_MARKERS.test(text);
+  const hasDetails = CONCRETE_EVENT_DETAILS.test(text);
+  return hasAction || hasDetails;
+}
+
+export function isClueQualityEligible(candidate: Candidate): boolean {
+  if (candidate.origin !== "web-search" || candidate.evidenceStatus !== "unavailable") return true;
+  return isWebEvidenceVerified(candidate) || hasConcreteUnavailableEvent(candidate) || isGenericWebCommentary(candidate);
+}
+
+function isGenericWebCommentary(candidate: Candidate): boolean {
+  const text = `${candidate.title} ${candidate.content}`;
+  return !hasConcreteUnavailableEvent(candidate) && (/趋势|热潮|热度|涌入|升温|持续|回顾|综述|盘点|行业|市场|资本/.test(text) || isOpinionTitle(candidate.title));
+}
+
 /** 单篇新闻不得单独成为趋势；至少 2 个独立主体事件指向同一变化。 */
 export function partitionBriefItems(candidates: Candidate[]): {
   importantFacts: Candidate[];
@@ -350,6 +396,7 @@ export function partitionBriefItems(candidates: Candidate[]): {
   const facts: Candidate[] = [];
   const others: Candidate[] = [];
   for (const item of candidates) {
+    if (!isClueQualityEligible(item)) continue;
     if (!isWebEvidenceVerified(item) || item.isClue || item.importance === "low" || item.kind === "other" || isHypeTitle(item.title) || isOpinionTitle(item.title)) {
       others.push({ ...item, kind: item.kind === "trend" ? "other" : item.kind, isClue: item.isClue || !isWebEvidenceVerified(item) || isHypeTitle(item.title) || isOpinionTitle(item.title) });
     } else {
@@ -446,7 +493,12 @@ export function buildEditorialOverview(candidates: Candidate[], input: Intellige
   } else {
     const clues = candidates.filter((item) => item.isClue).slice(0, 2).map((item) => sanitizeFactTitle(item.title, item.summary ?? item.content));
     parts.push(`本期「${topic}」未发现证据充分、可确认的新重大事件。`);
-    if (clues.length) parts.push(`值得继续核实：${clues.join("；")}。`);
+    if (clues.length) {
+      parts.push(`值得继续核实：${clues.join("；")}。`);
+      const clue = candidates.find((item) => item.isClue)!;
+      const commentary = buildEditorialCommentary({ ...clue, isClue: true });
+      if (commentary) parts.push(`简评：${commentary}`);
+    }
   }
   if (themes.includes("bd-licensing") && top.length >= 2) {
     parts.push("相比单纯标题热度，更值得看交易结构、管线资产与授权区域是否出现新的组合方式。");
@@ -477,19 +529,28 @@ export function enrichCandidate(
   const title = sanitizeFactTitle(candidate.title, candidate.content);
   const cleanedEntity = extractEventEntity(title, candidate.content);
   // 清洗后仍含炒作词/评论词 → 线索；原文炒作且清洗后无主体 → 线索
+  const genericCommentary = candidate.origin === "web-search" && candidate.evidenceStatus === "unavailable" && isGenericWebCommentary(candidate);
   const forceClue =
     isHypeTitle(title)
     || isOpinionTitle(title)
     || (isHypeTitle(candidate.title) && !cleanedEntity)
     || (sourceQualityRank(candidate.sourceTier) <= 1 && sourceCount <= 1)
-    || !isWebEvidenceVerified(candidate);
-  const { summary, isClue } = buildFactSummary(title, candidate.content, {
+    || (!isWebEvidenceVerified(candidate) && !genericCommentary);
+  const summaryResult = buildFactSummary(title, candidate.content, {
     sourceCount,
     forceClue,
     trustedSource: sourceQualityRank(candidate.sourceTier) >= 2,
     preserveSummaryWhenSanitized: candidate.title !== title,
   });
-  const investmentNote = isClue || !summary ? null : buildInvestmentNote({ title, content: candidate.content, summary }, input);
+  const isClue = genericCommentary ? false : summaryResult.isClue;
+  const summary = summaryResult.summary;
+  const investmentNote = genericCommentary
+    ? undefined
+    : isClue
+      ? buildEditorialCommentary({ title, content: candidate.content, summary, isClue }, input)
+      : summary
+        ? buildEditorialCommentary({ title, content: candidate.content, summary, isClue }, input)
+        : undefined;
   const confidence: Candidate["confidence"] =
     sourceCount > 1 || sourceQualityRank(candidate.sourceTier) >= 3
       ? "high"
@@ -507,7 +568,8 @@ export function enrichCandidate(
     investmentNote: investmentNote || undefined,
     isClue,
     followUpReason: isClue ? buildFollowUpReason({ ...candidate, title, content: summary }) : undefined,
-    kind: isClue ? "other" : "fact",
+    kind: isClue || genericCommentary ? "other" : "fact",
+    importance: genericCommentary ? "low" : candidate.importance,
     confidence,
   };
 }

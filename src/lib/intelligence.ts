@@ -6,6 +6,7 @@ import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence
 import {
   buildEditorialOverview,
   enrichCandidate,
+  isClueQualityEligible,
   mergeEventCandidates,
   partitionBriefItems,
   resolvePublishedAt,
@@ -379,7 +380,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const postEvidencePassed = filtered.filter((candidate) => candidate.origin === "web-search").length;
   const merged = mergeEventCandidates(filtered);
   const enriched = scoreCandidates(
-    merged.map((candidate) => enrichCandidate(candidate, normalizedInput)),
+    merged.map((candidate) => enrichCandidate(candidate, normalizedInput)).filter(isClueQualityEligible),
     normalizedInput,
   ).slice(0, Math.max(1, Math.min(50, input.maxItems)));
   const partitioned = partitionBriefItems(enriched);

@@ -4,7 +4,7 @@ import { normalizeWebResults, planIntelligenceQueries, buildIntelligenceSearchRu
 import { normalizeTaskInput } from "@/lib/intelligence";
 import { sourceQualityForDomain } from "@/lib/intelligenceSourceQuality";
 import { topicRelevance } from "@/lib/intelligenceTopicRelevance";
-import { enrichCandidate, mergeEventCandidates, partitionBriefItems } from "@/lib/intelligenceBriefQuality";
+import { buildEditorialCommentary, enrichCandidate, isClueQualityEligible, mergeEventCandidates, partitionBriefItems } from "@/lib/intelligenceBriefQuality";
 
 const themes = [
   normalizeTaskInput({ name: "中国 AI 大模型企业资本新闻监测", topics: ["AI 大模型"], entities: ["中国企业"], keywords: ["资本", "融资"] }),
@@ -89,6 +89,26 @@ assert.equal(unavailableA.isClue, true, "普通 A 级搜索结果无正文时不
 assert.equal(unavailableA.kind, "other");
 const unavailableC = enrichCandidate({ ...relevantBd, id: "unavailable-c", sourceTier: "C", evidenceStatus: "unavailable" }, pharma);
 assert.equal(unavailableC.isClue, true, "C 级搜索结果无正文时最多只能作为线索");
+const moonClue = enrichCandidate({ ...relevantBd, id: "moon-clue", title: "月之暗面35亿美元融资", content: "月之暗面被报道完成35亿美元融资，具体轮次仍需核对。", sourceTier: "A", evidenceStatus: "unavailable" }, aiCapital);
+assert.equal(moonClue.isClue, true, "具体融资事件可以保留为线索");
+assert.equal(isClueQualityEligible(moonClue), true);
+assert.ok(moonClue.summary && moonClue.summary !== "线索：", "具体线索必须有实质摘要");
+const deepseekClue = enrichCandidate({ ...relevantBd, id: "deepseek-clue", title: "DeepSeek重启第二轮融资", content: "DeepSeek重启第二轮融资的消息仍待公司确认。", sourceTier: "C", evidenceStatus: "unavailable" }, aiCapital);
+assert.equal(deepseekClue.isClue, true, "具体轮次事件可以保留为低置信线索");
+assert.equal(isClueQualityEligible(deepseekClue), true);
+const genericCommentary = enrichCandidate({ ...relevantBd, id: "generic-commentary", title: "资本仍在涌入AI", content: "资本仍在涌入AI，行业热度持续。", sourceTier: "A", evidenceStatus: "unavailable" }, aiCapital);
+assert.equal(genericCommentary.isClue, false, "泛化资本评论不得保留为具体线索");
+assert.equal(isClueQualityEligible(genericCommentary), true, "泛化评论可以作为低权重背景材料");
+assert.equal(genericCommentary.importance, "low");
+assert.equal(partitionBriefItems([genericCommentary]).otherItems.length, 1);
+const genericHype = enrichCandidate({ ...relevantBd, id: "generic-hype", title: "AI融资热潮持续", content: "AI融资热潮持续，市场关注度上升。", sourceTier: "A", evidenceStatus: "unavailable" }, aiCapital);
+assert.equal(genericHype.isClue, false);
+assert.equal(isClueQualityEligible(genericHype), true);
+assert.equal(partitionBriefItems([genericHype]).otherItems.length, 1);
+const titleOnlyClue = enrichCandidate({ ...relevantBd, id: "title-only-clue", title: "DeepSeek重启第二轮融资", content: "", sourceTier: "C", evidenceStatus: "unavailable" }, aiCapital);
+assert.equal(titleOnlyClue.summary, "", "没有摘要正文时不得输出空壳线索前缀");
+assert.match(titleOnlyClue.investmentNote || "", /若融资消息得到确认/);
+assert.match(buildEditorialCommentary(moonClue) || "", /若融资消息得到确认/);
 const verified = enrichCandidate({ ...relevantBd, id: "verified", sourceTier: "A", evidenceStatus: "full", content: "公司公告披露与海外买方达成 license-out，包含授权区域与交易进度。" }, pharma);
 assert.equal(verified.isClue, false, "正文充分支持的候选可以成为事实");
 const unavailableTrend = partitionBriefItems([
