@@ -1,4 +1,5 @@
 import type { IntelligenceTaskInput, ScheduleConfig } from "@/lib/intelligence";
+import { normalizeIntelligenceTaskSemantics } from "@/lib/intelligenceTopicRelevance";
 
 export interface IntelligencePlan {
   task: IntelligenceTaskInput;
@@ -124,12 +125,12 @@ export function parseNaturalLanguageFallback(description: string, userTimezone =
     text.includes("事实") ? "区分重要事实与趋势信号" : "",
   ].filter(Boolean).join("；");
   return {
-    task: {
+    task: normalizeIntelligenceTaskSemantics({
       name: inferName(text, topics, entities), topics, entities, keywords: [], regions,
       includeRequirements: include, excludeRequirements: exclude, maxItems: parseMaxItems(text),
       lookbackPeriod: parseLookback(text), outputInstructions, executionMode: hasCompleteSchedule ? "scheduled" : "manual",
       scheduleConfig, isActive: true,
-    },
+    }),
     questions,
   };
 }
@@ -168,7 +169,7 @@ export function planFromAI(description: string, rawText: string, userTimezone = 
     isActive: true,
   };
   const questions = Array.isArray(raw.questions) ? raw.questions.filter((v): v is string => typeof v === "string").slice(0, 2) : fallback.questions;
-  return { task: merged, questions };
+  return { task: normalizeIntelligenceTaskSemantics(merged), questions };
 }
 
 export const INTELLIGENCE_PARSE_SYSTEM = `你负责把用户的一句话关注描述整理为情报任务配置。只输出 JSON，不要解释。
@@ -177,4 +178,8 @@ JSON 结构必须是：{"task":{"name":string,"topics":string[],"entities":strin
 - 只使用用户明确表达的信息；不确定的非关键字段使用克制默认值：最近3天、10条、手动生成、启用任务；时区使用请求提供的用户时区。
 - 用户提到每天/每周/星期和时间时使用 scheduled，并解析星期、时间、时区；未提到生成节奏时使用 manual。
 - 只有关注对象缺失，或用户明确要求定时但星期/时间无法判断时，才在 questions 中提出最少问题；否则 questions 为空。
+- topics 只放行业、技术、赛道或关注主题，例如“AI大模型”“创新药”“商业航天”；不要放“资本动态”“融资动态”“政策动态”“最新消息”等事件类型。
+- entities 只放具体可识别的公司、机构、基金、政府部门或项目；不要放“中国AI大模型企业”“创新药公司”“商业航天企业”等泛化类别。
+- keywords 可放融资、投资、并购、估值、IPO、授权交易等事件动作和检索提示。
+- regions 表示关注地域范围；文章未字面出现地域名称，不代表地域冲突。
 - 不要添加新的字段，不要返回 Markdown 代码块。`;

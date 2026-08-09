@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mergeCandidates } from "@/lib/intelligence";
+import { filterCandidatesWithReasons, mergeCandidates } from "@/lib/intelligence";
 import { normalizeWebResults, planIntelligenceQueries, buildIntelligenceSearchRuns, WEB_SEARCH_SYSTEM_PROMPT, INTELLIGENCE_SEARCH_LIMITS } from "@/lib/intelligenceWebSearch";
 import { normalizeTaskInput } from "@/lib/intelligence";
 import { sourceQualityForDomain } from "@/lib/intelligenceSourceQuality";
@@ -45,6 +45,34 @@ assert.equal(merged[0].sourceTier, "A");
 const pharma = normalizeTaskInput({ name: "中国创新药海外 BD 交易", topics: ["创新药"], keywords: ["海外 BD", "交易"] });
 const aiCapital = normalizeTaskInput({ name: "中国 AI 大模型企业资本动态", topics: ["AI", "大模型"], keywords: ["融资", "投资"] });
 const space = normalizeTaskInput({ name: "北京商业航天融资与政策动态", topics: ["商业航天"], regions: ["北京"], keywords: ["融资", "政策"] });
+const productionConfig = normalizeTaskInput({
+  name: "中国AI大模型企业资本动态",
+  topics: ["AI大模型", "资本动态"],
+  entities: ["中国AI大模型企业"],
+  keywords: ["AI大模型", "资本", "融资", "投资", "并购", "估值"],
+  regions: ["中国"],
+});
+assert.deepEqual(productionConfig.topics, ["AI大模型"]);
+assert.ok(productionConfig.keywords.includes("资本动态"));
+assert.deepEqual(productionConfig.entities, [], "泛化企业类别不应作为具体实体");
+
+const smokeCandidate = (title: string, content: string, id = title): any => ({ id, title, content, source: "smoke", sourceUrl: `https://example.com/${id}`, publishedAt: "2026-08-08T00:00:00.000Z", subject: title, region: null, kind: "fact", sourceTier: "C", origin: "web-search" });
+const recent = new Date("2026-08-01T00:00:00.000Z");
+const end = new Date("2026-08-09T00:00:00.000Z");
+const preCases = filterCandidatesWithReasons([
+  smokeCandidate("月之暗面完成新一轮融资", "AI公司月之暗面完成融资", "moon"),
+  smokeCandidate("智谱完成融资", "AI大模型公司智谱完成融资", "zhipu"),
+  smokeCandidate("阿里发布新模型", "阿里发布新模型并开启公测", "product"),
+  smokeCandidate("美国 Anthropic 完成融资", "美国 Anthropic 完成融资，没有中国主体", "foreign"),
+  smokeCandidate("中国AI行业年度融资回顾", "中国AI行业年度融资回顾与累计交易统计", "review"),
+  smokeCandidate("AI 大模型公司完成融资", "正文披露该 AI 大模型公司完成一轮融资", "body"),
+], productionConfig, recent, end, "pre-evidence", false);
+assert.deepEqual(preCases.candidates.map((item) => item.id), ["moon", "zhipu", "body"]);
+assert.equal(preCases.dropReasons.productOnly, 1);
+assert.equal(preCases.dropReasons.regionMismatch, 1);
+assert.equal(preCases.dropReasons.historicalReview, 1);
+const postCases = filterCandidatesWithReasons(preCases.candidates.map((item) => ({ ...item, evidenceStatus: "full" as const })), productionConfig, recent, end, "post-evidence", true);
+assert.deepEqual(postCases.candidates.map((item) => item.id), ["moon", "zhipu", "body"]);
 const relevantBd: any = { id: "bd", title: "甲公司完成海外授权", content: "甲公司与海外买方达成 license-out", source: "x", sourceUrl: "https://xueqiu.com/a", publishedAt: "2026-08-08T00:00:00.000Z", subject: "甲公司", region: null, kind: "fact", sourceTier: "C", origin: "web-search" };
 const productOnly: any = { id: "product", title: "大模型开启公测", content: "产品发布新版本", source: "x", sourceUrl: "https://x.example/a", publishedAt: "2026-08-08T00:00:00.000Z", subject: "大模型", region: null, kind: "fact", sourceTier: "A", origin: "web-search" };
 const spaceOpinion: any = { id: "space", title: "商业航天景气元年", content: "行业观点认为技术突破", source: "x", sourceUrl: "https://x.example/s", publishedAt: "2026-08-08T00:00:00.000Z", subject: "商业航天", region: "北京", kind: "fact", sourceTier: "A", origin: "web-search", evidenceStatus: "full" };

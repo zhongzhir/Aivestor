@@ -126,6 +126,9 @@ export function safeRetrievalMetadata(result: RetrievalResult, counts: {
   relevanceDropped: number;
   evidence: { full: number; partial: number; unavailable: number };
   final: { facts: number; clues: number; trends: number };
+  preEvidencePassed?: number;
+  postEvidencePassed?: number;
+  relevanceDropReasons?: Record<string, number>;
 }) {
   return {
     status: result.status,

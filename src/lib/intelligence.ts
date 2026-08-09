@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider } from "@/lib/intelligenceProvider";
-import { isHistoricalReviewCandidate, topicRelevance } from "@/lib/intelligenceTopicRelevance";
+import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntelligenceTaskSemantics, topicRelevance, type RelevanceDropReasons, type RelevancePhase } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import {
   buildEditorialOverview,
@@ -108,7 +108,11 @@ export interface BriefResult {
     overview: string;
     origins: string[];
     generationProvider: string;
-    retrieval: ReturnType<typeof safeRetrievalMetadata>;
+    retrieval: ReturnType<typeof safeRetrievalMetadata> & {
+      preEvidencePassed?: number;
+      postEvidencePassed?: number;
+      relevanceDropReasons?: Record<string, number>;
+    };
   };
 }
 
@@ -149,12 +153,26 @@ function textMatches(text: string, terms: string[]): boolean {
   return terms.some((term) => haystack.includes(term.toLocaleLowerCase()));
 }
 
-export function filterCandidates(candidates: Candidate[], input: IntelligenceTaskInput, start: Date, end: Date): Candidate[] {
+interface FilterResult {
+  candidates: Candidate[];
+  dropReasons: RelevanceDropReasons;
+}
+
+function incrementDropReason(reasons: RelevanceDropReasons, reason?: string) {
+  if (reason === "region-mismatch") reasons.regionMismatch++;
+  else if (reason === "topic-mismatch") reasons.topicMismatch++;
+  else if (reason === "capital-event-mismatch") reasons.capitalEventMismatch++;
+  else if (reason === "historical-review") reasons.historicalReview++;
+  else if (reason === "product-only") reasons.productOnly++;
+}
+
+export function filterCandidatesWithReasons(candidates: Candidate[], input: IntelligenceTaskInput, start: Date, end: Date, phase: RelevancePhase = "post-evidence", deduplicate = phase === "post-evidence"): FilterResult {
   const topics = input.topics;
   const regions = input.regions;
   const entities = input.entities;
   const soft = [...input.keywords, ...input.includeRequirements];
   const exclude = input.excludeRequirements;
+  const reasons = emptyRelevanceDropReasons();
   const result = candidates.filter((candidate) => {
     if (!candidate.timeUnconfirmed) {
       const publishedAt = new Date(candidate.publishedAt);
@@ -162,32 +180,46 @@ export function filterCandidates(candidates: Candidate[], input: IntelligenceTas
     }
     const text = [candidate.title, candidate.content, candidate.subject, candidate.region ?? ""].join(" ");
     if (exclude.some((term) => text.toLocaleLowerCase().includes(term.toLocaleLowerCase()))) return false;
-    if (candidate.origin === "web-search" && !topicRelevance(candidate, input).passed) return false;
-    if (candidate.origin === "web-search" && isHistoricalReviewCandidate(candidate, input)) return false;
-    // 主题词存在时必须命中主题，避免仅因“融资/政策”等泛关键词误入
-    if (topics.length && !textMatches(text, topics)) return false;
-    if (regions.length && !textMatches(text, regions) && !textMatches(text, topics)) return false;
-    if (!topics.length && !regions.length) {
+    if (candidate.origin === "web-search") {
+      const relevance = topicRelevance(candidate, input, phase);
+      if (!relevance.passed) {
+        incrementDropReason(reasons, relevance.reason);
+        return false;
+      }
+      if (isHistoricalReviewCandidate(candidate, input)) {
+        incrementDropReason(reasons, "historical-review");
+        return false;
+      }
+    }
+    // 预取证阶段不以主题/地域字面缺失硬拒绝；正文取证后再执行严格主题门。
+    if (phase === "post-evidence" && topics.length && !textMatches(text, topics) && candidate.origin !== "web-search") return false;
+    if (phase === "post-evidence" && regions.length && !textMatches(text, regions) && candidate.origin !== "web-search") return false;
+    if (!topics.length && !regions.length && phase === "post-evidence") {
       const include = [...entities, ...soft];
       if (!textMatches(text, include)) return false;
     } else if (entities.length && soft.length) {
       // 已通过主题/地域；实体为加分项，不强制
-    } else if (!topics.length && regions.length && soft.length && !textMatches(text, soft) && !textMatches(text, entities)) {
+    } else if (phase === "post-evidence" && !topics.length && regions.length && soft.length && !textMatches(text, soft) && !textMatches(text, entities)) {
       return false;
     }
     return true;
   });
 
+  if (!deduplicate) return { candidates: result, dropReasons: reasons };
   const bySubject = new Map<string, Candidate>();
   for (const candidate of result) {
     const key = candidate.subject.trim().toLocaleLowerCase() || candidate.title.trim().toLocaleLowerCase();
     const previous = bySubject.get(key);
     if (!previous || new Date(candidate.publishedAt) > new Date(previous.publishedAt)) bySubject.set(key, candidate);
   }
-  return [...bySubject.values()].sort((a, b) => {
+  return { candidates: [...bySubject.values()].sort((a, b) => {
     const rank = { fact: 3, trend: 2, other: 1 };
     return rank[b.kind] - rank[a.kind] || new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
-  }).slice(0, Math.max(1, Math.min(50, input.maxItems * 3)));
+  }).slice(0, Math.max(1, Math.min(50, input.maxItems * 3))), dropReasons: reasons };
+}
+
+export function filterCandidates(candidates: Candidate[], input: IntelligenceTaskInput, start: Date, end: Date): Candidate[] {
+  return filterCandidatesWithReasons(candidates, input, start, end).candidates;
 }
 
 export function normalizeTaskInput(body: Record<string, unknown>): IntelligenceTaskInput {
@@ -200,7 +232,7 @@ export function normalizeTaskInput(body: Record<string, unknown>): IntelligenceT
     timezone: typeof schedule?.timezone === "string" ? schedule.timezone : "Asia/Shanghai",
   } as ScheduleConfig : null;
   const lookback = body.lookbackPeriod && typeof body.lookbackPeriod === "object" ? body.lookbackPeriod as Record<string, unknown> : { kind: "days", value: 3 };
-  return {
+  return normalizeIntelligenceTaskSemantics({
     name: typeof body.name === "string" ? body.name.trim() : "",
     topics: asList(body.topics), entities: asList(body.entities), keywords: asList(body.keywords), regions: asList(body.regions),
     includeRequirements: asList(body.includeRequirements), excludeRequirements: asList(body.excludeRequirements),
@@ -208,7 +240,7 @@ export function normalizeTaskInput(body: Record<string, unknown>): IntelligenceT
     lookbackPeriod: { kind: lookback.kind === "custom" ? "custom" : "days", value: Number(lookback.value) || 3, start: typeof lookback.start === "string" ? lookback.start : undefined, end: typeof lookback.end === "string" ? lookback.end : undefined },
     outputInstructions: typeof body.outputInstructions === "string" ? body.outputInstructions.trim() : "",
     executionMode: mode, scheduleConfig, isActive: body.isActive === true,
-  };
+  });
 }
 
 export function coverageFor(input: IntelligenceTaskInput, now = new Date()): { start: Date; end: Date } {
@@ -293,10 +325,11 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   if (!input.isActive) throw new Error("停用的情报任务不能执行");
   const validationError = validateTaskInput(input, now);
   if (validationError) throw new Error(validationError);
-  const coverage = coverageFor(input, now);
+  const normalizedInput = normalizeIntelligenceTaskSemantics(input);
+  const coverage = coverageFor(normalizedInput, now);
   const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
   const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
-  const retrievalResult = await retrieval.retrieve({ input, start: coverage.start });
+  const retrievalResult = await retrieval.retrieve({ input: normalizedInput, start: coverage.start });
   const webCandidates: Candidate[] = retrievalResult.results.map((item) => {
     const resolved = resolvePublishedAt({
       sourcePublishedAt: item.publishedAt,
@@ -321,10 +354,9 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
       evidenceStatus: "unavailable" as const,
     };
   });
-  const filtered = filterCandidates([...webCandidates, ...(retrievalResult.status === "failed" ? [] : await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end);
-  const relevancePassed = webCandidates.filter((candidate) => filtered.some((item) => item.id === candidate.id)).length;
+  const preFiltered = filterCandidatesWithReasons([...webCandidates, ...(retrievalResult.status === "failed" ? [] : await loadCandidates(coverage.start, coverage.end))], normalizedInput, coverage.start, coverage.end, "pre-evidence", false);
   // 先按现有候选评分截取高价值 URL，再做有限并发正文取证，避免每次任务抓取整个搜索结果集。
-  const evidenceCandidates = scoreCandidates(filtered, input).slice(0, 16);
+  const evidenceCandidates = scoreCandidates(preFiltered.candidates, normalizedInput).slice(0, 16);
   const evidenceResult = await acquireEvidence(evidenceCandidates);
   for (const candidate of evidenceCandidates) {
     const resolved = resolvePublishedAt({ sourcePublishedAt: candidate.evidencePublishedAt, url: candidate.sourceUrl });
@@ -334,22 +366,36 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
     }
     delete candidate.evidencePublishedAt;
   }
+  const postFiltered = filterCandidatesWithReasons(preFiltered.candidates, normalizedInput, coverage.start, coverage.end, "post-evidence", true);
+  const filtered = postFiltered.candidates;
+  const dropReasons = {
+    regionMismatch: preFiltered.dropReasons.regionMismatch + postFiltered.dropReasons.regionMismatch,
+    topicMismatch: preFiltered.dropReasons.topicMismatch + postFiltered.dropReasons.topicMismatch,
+    capitalEventMismatch: preFiltered.dropReasons.capitalEventMismatch + postFiltered.dropReasons.capitalEventMismatch,
+    historicalReview: preFiltered.dropReasons.historicalReview + postFiltered.dropReasons.historicalReview,
+    productOnly: preFiltered.dropReasons.productOnly + postFiltered.dropReasons.productOnly,
+  };
+  const preEvidencePassed = preFiltered.candidates.filter((candidate) => candidate.origin === "web-search").length;
+  const postEvidencePassed = filtered.filter((candidate) => candidate.origin === "web-search").length;
   const merged = mergeEventCandidates(filtered);
   const enriched = scoreCandidates(
-    merged.map((candidate) => enrichCandidate(candidate, input)),
-    input,
+    merged.map((candidate) => enrichCandidate(candidate, normalizedInput)),
+    normalizedInput,
   ).slice(0, Math.max(1, Math.min(50, input.maxItems)));
   const partitioned = partitionBriefItems(enriched);
   const orderedForOverview = [...partitioned.importantFacts, ...partitioned.trendSignals, ...partitioned.otherItems];
   const origins = [...new Set(enriched.map((candidate) => candidate.origin ?? "trusted-source"))];
-  const overview = buildRetrievalOverview(retrievalResult.status, orderedForOverview, input);
+  const overview = buildRetrievalOverview(retrievalResult.status, orderedForOverview, normalizedInput);
   const clues = enriched.filter((candidate) => candidate.isClue).length;
   const retrievalMetadata = safeRetrievalMetadata(retrievalResult, {
     searchCandidates: retrievalResult.results.length,
-    relevancePassed,
-    relevanceDropped: Math.max(0, webCandidates.length - relevancePassed),
+    relevancePassed: postEvidencePassed,
+    relevanceDropped: Math.max(0, webCandidates.length - postEvidencePassed),
     evidence: { full: evidenceResult.stats.full, partial: evidenceResult.stats.partial, unavailable: evidenceResult.stats.unavailable },
     final: { facts: partitioned.importantFacts.length, clues, trends: partitioned.trendSignals.length },
+    preEvidencePassed,
+    postEvidencePassed,
+    relevanceDropReasons: dropReasons,
   });
   const brief: BriefResult = {
     taskName: input.name,
