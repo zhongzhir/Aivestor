@@ -3,6 +3,7 @@ import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenc
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider } from "@/lib/intelligenceProvider";
 import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntelligenceTaskSemantics, topicRelevance, type RelevanceDropReasons, type RelevancePhase } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
+import { runAiFirstResearch } from "@/lib/intelligenceResearchAgent";
 import {
   buildEditorialOverview,
   enrichCandidate,
@@ -113,6 +114,13 @@ export interface BriefResult {
       preEvidencePassed?: number;
       postEvidencePassed?: number;
       relevanceDropReasons?: Record<string, number>;
+    };
+    research?: {
+      mode: "ai-first";
+      plan: { understanding: string; eventTypes: string[]; likelyEntities: string[]; queries: string[]; deepDiveCriteria: string[] };
+      rounds: Array<{ round: number; queries: string[]; resultCount: number; followUpQueries: string[] }>;
+      claims: number;
+      generationCalls: number;
     };
   };
 }
@@ -322,6 +330,23 @@ function scoreCandidates(candidates: Candidate[], input: IntelligenceTaskInput):
   return scoreAndSortCandidates(candidates, input);
 }
 
+async function persistBrief(userId: string, taskId: string, brief: BriefResult, scheduledSlot?: string): Promise<{ id: string; brief: BriefResult }> {
+  const rows = await query<{ id: string }>(
+    `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, metadata, scheduled_slot)
+     SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13
+       FROM intelligence_tasks
+      WHERE id = $1 AND user_id = $2 AND is_active = true
+     ON CONFLICT (task_id, scheduled_slot) WHERE scheduled_slot IS NOT NULL DO NOTHING RETURNING id`,
+    [taskId, userId, brief.taskName, brief.coverageStart, brief.coverageEnd, brief.generatedAt, brief.itemCount, JSON.stringify(brief.importantFacts), JSON.stringify(brief.trendSignals), JSON.stringify(brief.otherItems), JSON.stringify(brief.sourceList), JSON.stringify(brief.metadata), scheduledSlot]
+  );
+  if (!rows[0] && scheduledSlot) {
+    const existing = await query<{ id: string }>("SELECT id FROM intelligence_briefs WHERE task_id = $1 AND scheduled_slot = $2", [taskId, scheduledSlot]);
+    if (existing[0]) return { id: existing[0].id, brief };
+  }
+  if (!rows[0]) throw new Error("任务已停用或删除");
+  return { id: rows[0].id, brief };
+}
+
 export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: Parameters<typeof createIntelligenceGenerationProvider>[0]): Promise<{ id: string; brief: BriefResult }> {
   if (!input.isActive) throw new Error("停用的情报任务不能执行");
   const validationError = validateTaskInput(input, now);
@@ -330,6 +355,36 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const coverage = coverageFor(normalizedInput, now);
   const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
   const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
+  if (generationProvider.generate) {
+    const research = await runAiFirstResearch(normalizedInput, coverage, { generationProvider, retrieval });
+    const brief: BriefResult = {
+      taskName: input.name,
+      coverageStart: coverage.start.toISOString(),
+      coverageEnd: coverage.end.toISOString(),
+      generatedAt: now.toISOString(),
+      itemCount: research.importantFacts.length + research.otherItems.length,
+      importantFacts: research.importantFacts,
+      trendSignals: research.trendSignals,
+      otherItems: research.otherItems,
+      sourceList: research.sourceList,
+      metadata: {
+        overview: research.overview,
+        origins: ["web-search"],
+        generationProvider: generationProvider.id,
+        retrieval: {
+          status: research.retrieval.status,
+          providers: research.retrieval.providers,
+          searchCandidates: research.retrieval.searchCandidates,
+          relevancePassed: research.research.claims,
+          relevanceDropped: Math.max(0, research.retrieval.searchCandidates - research.research.claims),
+          evidence: research.retrieval.evidence,
+          final: research.retrieval.final,
+        },
+        research: { mode: "ai-first", ...research.research },
+      },
+    };
+    return persistBrief(userId, taskId, brief, scheduledSlot);
+  }
   const retrievalResult = await retrieval.retrieve({ input: normalizedInput, start: coverage.start });
   const webCandidates: Candidate[] = retrievalResult.results.map((item) => {
     const resolved = resolvePublishedAt({
@@ -411,20 +466,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
     sourceList: concreteItems.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
     metadata: { overview, origins, generationProvider: generationProvider.id, retrieval: retrievalMetadata },
   };
-  const rows = await query<{ id: string }>(
-    `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, metadata, scheduled_slot)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13
-       FROM intelligence_tasks
-      WHERE id = $1 AND user_id = $2 AND is_active = true
-     ON CONFLICT (task_id, scheduled_slot) WHERE scheduled_slot IS NOT NULL DO NOTHING RETURNING id`,
-    [taskId, userId, brief.taskName, brief.coverageStart, brief.coverageEnd, brief.generatedAt, brief.itemCount, JSON.stringify(brief.importantFacts), JSON.stringify(brief.trendSignals), JSON.stringify(brief.otherItems), JSON.stringify(brief.sourceList), JSON.stringify(brief.metadata), scheduledSlot]
-  );
-  if (!rows[0] && scheduledSlot) {
-    const existing = await query<{ id: string }>("SELECT id FROM intelligence_briefs WHERE task_id = $1 AND scheduled_slot = $2", [taskId, scheduledSlot]);
-    if (existing[0]) return { id: existing[0].id, brief };
-  }
-  if (!rows[0]) throw new Error("任务已停用或删除");
-  return { id: rows[0].id, brief };
+  return persistBrief(userId, taskId, brief, scheduledSlot);
 }
 
 export async function runScheduledTasks(now = new Date()): Promise<number> {

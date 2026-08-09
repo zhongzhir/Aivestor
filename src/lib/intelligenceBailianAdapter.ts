@@ -22,11 +22,13 @@ export class BailianRetrievalProvider implements RetrievalProvider {
   readonly id = "bailian-web";
   constructor(private readonly credentials: BailianCredentials = {}) {}
 
-  async searchWeb({ input }: RetrievalRequest): Promise<RetrievalRunResult> {
+  async searchWeb({ input, queries }: RetrievalRequest): Promise<RetrievalRunResult> {
     const apiKey = this.credentials.apiKey || process.env.BAILIAN_API_KEY;
     if (!apiKey) return { status: "failed", results: [], queryCount: 0, errorCode: "missing_credentials" };
-    const planned = planIntelligenceQueries(input);
-    const runs = buildIntelligenceSearchRuns(input, planned);
+    const planned = queries?.map((query) => query.trim()).filter(Boolean).filter((query, index, list) => list.indexOf(query) === index).slice(0, 8) ?? [];
+    const runs = planned.length
+      ? planned.map((query) => ({ query, assigned: [], purpose: "general" as const }))
+      : buildIntelligenceSearchRuns(input, planIntelligenceQueries(input));
     const results: WebSearchItem[] = [];
     let failed = 0;
     for (const run of runs) {

@@ -1,4 +1,4 @@
-import type { AIProvider } from "@/lib/ai";
+import { streamChat, type AIProvider } from "@/lib/ai";
 import type { UserCredentials } from "@/lib/report";
 import type { IntelligenceTaskInput } from "@/lib/intelligence";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
@@ -12,6 +12,13 @@ export interface IntelligenceProviderCapabilities {
 export interface RetrievalRequest {
   input: IntelligenceTaskInput;
   start: Date;
+  /** AI Researcher 自主生成的查询；为空时 Retrieval Provider 保持 legacy 规划兼容。 */
+  queries?: string[];
+}
+
+export interface IntelligenceGenerationRequest {
+  system: string;
+  prompt: string;
 }
 
 export interface RetrievalRunResult {
@@ -24,6 +31,7 @@ export interface RetrievalRunResult {
 export interface IntelligenceProvider {
   id: string;
   capabilities: IntelligenceProviderCapabilities;
+  generate?: (request: IntelligenceGenerationRequest) => Promise<string>;
   searchWeb?: (request: RetrievalRequest) => Promise<RetrievalRunResult>;
 }
 
@@ -60,6 +68,24 @@ export function createIntelligenceGenerationProvider(
   return {
     id: credentials?.provider ?? "unknown",
     capabilities: { generation: !!credentials, nativeWebSearch },
+    ...(credentials?.apiKey
+      ? {
+          generate: async ({ system, prompt }: IntelligenceGenerationRequest) => {
+            let output = "";
+            for await (const chunk of streamChat({
+              provider: credentials.provider,
+              apiKey: credentials.apiKey,
+              baseURL: credentials.baseURL,
+              system,
+              messages: [{ role: "user", content: prompt }],
+            })) {
+              output += chunk;
+              if (output.length > 48_000) throw new Error("intelligence generation output too large");
+            }
+            return output.trim();
+          },
+        }
+      : {}),
     ...(nativeWebSearch
       ? { searchWeb: createBailianRetrievalProvider({ apiKey: credentials.apiKey, model: undefined }) .searchWeb }
       : {}),
