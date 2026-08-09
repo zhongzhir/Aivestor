@@ -327,11 +327,18 @@ export function mergeEventCandidates(candidates: Candidate[]): Candidate[] {
     }
     if ((candidate.sourceUrls?.length ?? 0) + 1 > 1 || urls.length > 1) {
       existing.confidence = existing.confidence === "low" ? "medium" : existing.confidence;
-      if (existing.isClue && urls.length > 1 && FACT_MARKERS.test(existing.title) && !isHypeTitle(existing.title)) existing.isClue = false;
     }
     if (candidate.kind === "fact" && existing.kind !== "fact") existing.kind = "fact";
   }
   return merged;
+}
+
+function isWebEvidenceVerified(candidate: Candidate): boolean {
+  if (candidate.origin !== "web-search") return true;
+  if (candidate.evidenceStatus === "full" || candidate.evidenceStatus === "partial") return true;
+  if (candidate.sourceTier !== "S") return false;
+  const text = `${candidate.title} ${candidate.content}`;
+  return FACT_MARKERS.test(text) && candidate.content.trim().length > candidate.title.trim().length + 20 && !isHypeTitle(candidate.title) && !isOpinionTitle(candidate.title);
 }
 
 /** 单篇新闻不得单独成为趋势；至少 2 个独立主体事件指向同一变化。 */
@@ -343,8 +350,8 @@ export function partitionBriefItems(candidates: Candidate[]): {
   const facts: Candidate[] = [];
   const others: Candidate[] = [];
   for (const item of candidates) {
-    if (item.isClue || item.importance === "low" || item.kind === "other" || isHypeTitle(item.title) || isOpinionTitle(item.title)) {
-      others.push({ ...item, kind: item.kind === "trend" ? "other" : item.kind, isClue: item.isClue || isHypeTitle(item.title) || isOpinionTitle(item.title) });
+    if (!isWebEvidenceVerified(item) || item.isClue || item.importance === "low" || item.kind === "other" || isHypeTitle(item.title) || isOpinionTitle(item.title)) {
+      others.push({ ...item, kind: item.kind === "trend" ? "other" : item.kind, isClue: item.isClue || !isWebEvidenceVerified(item) || isHypeTitle(item.title) || isOpinionTitle(item.title) });
     } else {
       facts.push(item);
     }
@@ -474,7 +481,8 @@ export function enrichCandidate(
     isHypeTitle(title)
     || isOpinionTitle(title)
     || (isHypeTitle(candidate.title) && !cleanedEntity)
-    || (sourceQualityRank(candidate.sourceTier) <= 1 && sourceCount <= 1);
+    || (sourceQualityRank(candidate.sourceTier) <= 1 && sourceCount <= 1)
+    || !isWebEvidenceVerified(candidate);
   const { summary, isClue } = buildFactSummary(title, candidate.content, {
     sourceCount,
     forceClue,

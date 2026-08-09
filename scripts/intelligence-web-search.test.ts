@@ -4,7 +4,7 @@ import { normalizeWebResults, planIntelligenceQueries, buildIntelligenceSearchRu
 import { normalizeTaskInput } from "@/lib/intelligence";
 import { sourceQualityForDomain } from "@/lib/intelligenceSourceQuality";
 import { topicRelevance } from "@/lib/intelligenceTopicRelevance";
-import { enrichCandidate, mergeEventCandidates } from "@/lib/intelligenceBriefQuality";
+import { enrichCandidate, mergeEventCandidates, partitionBriefItems } from "@/lib/intelligenceBriefQuality";
 
 const themes = [
   normalizeTaskInput({ name: "中国 AI 大模型企业资本新闻监测", topics: ["AI 大模型"], entities: ["中国企业"], keywords: ["资本", "融资"] }),
@@ -84,6 +84,23 @@ assert.equal(lowEvidenceClue.isClue, true);
 const fullSingleCClue = enrichCandidate({ ...relevantBd, evidenceStatus: "full" }, pharma);
 assert.equal(fullSingleCClue.isClue, true, "single C source must never become fact");
 assert.doesNotMatch(fullSingleCClue.summary || "", /公开信息提到/);
+const unavailableA = enrichCandidate({ ...relevantBd, id: "unavailable-a", sourceTier: "A", evidenceStatus: "unavailable" }, pharma);
+assert.equal(unavailableA.isClue, true, "普通 A 级搜索结果无正文时不得晋级事实");
+assert.equal(unavailableA.kind, "other");
+const unavailableC = enrichCandidate({ ...relevantBd, id: "unavailable-c", sourceTier: "C", evidenceStatus: "unavailable" }, pharma);
+assert.equal(unavailableC.isClue, true, "C 级搜索结果无正文时最多只能作为线索");
+const verified = enrichCandidate({ ...relevantBd, id: "verified", sourceTier: "A", evidenceStatus: "full", content: "公司公告披露与海外买方达成 license-out，包含授权区域与交易进度。" }, pharma);
+assert.equal(verified.isClue, false, "正文充分支持的候选可以成为事实");
+const unavailableTrend = partitionBriefItems([
+  enrichCandidate({ ...relevantBd, id: "unavailable-1", subject: "甲公司", evidenceStatus: "unavailable", sourceUrl: "https://x.example/u1" }, pharma),
+  enrichCandidate({ ...relevantBd, id: "unavailable-2", subject: "乙公司", evidenceStatus: "unavailable", sourceUrl: "https://y.example/u2", title: "乙公司完成海外授权交易" }, pharma),
+]);
+assert.equal(unavailableTrend.trendSignals.length, 0, "两个无正文线索不得形成趋势");
+const verifiedTrend = partitionBriefItems([
+  enrichCandidate({ ...relevantBd, id: "verified-1", subject: "甲公司", evidenceStatus: "full", sourceTier: "A", sourceUrl: "https://x.example/v1", content: "甲公司与海外买方达成 license-out，披露授权区域与交易进度。" }, pharma),
+  enrichCandidate({ ...relevantBd, id: "verified-2", subject: "乙公司", evidenceStatus: "full", sourceTier: "A", sourceUrl: "https://y.example/v2", title: "乙公司完成海外授权交易", content: "乙公司与海外买方达成 license-out，披露授权区域与交易进度。" }, pharma),
+]);
+assert.ok(verifiedTrend.trendSignals.length >= 1, "两个独立正文事实可以形成趋势");
 const primary = mergeEventCandidates([
   { ...relevantBd, id: "c", source: "雪球", sourceTier: "C", sourceUrl: "https://xueqiu.com/c" },
   { ...relevantBd, id: "a", source: "36氪", sourceTier: "A", sourceUrl: "https://36kr.com/a" },
