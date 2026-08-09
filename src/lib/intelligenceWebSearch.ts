@@ -91,24 +91,6 @@ export function normalizeWebResults(raw: unknown, query: string): WebSearchItem[
   }).filter((item): item is WebSearchItem => !!item).filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxCandidates);
 }
 
-export async function searchWebForIntelligence(input: IntelligenceTaskInput, start: Date, credentials?: WebSearchCredentials): Promise<WebSearchItem[]> {
-  const isDashScopeCredential = credentials?.provider === "qwen" && (!credentials.baseURL || credentials.baseURL.includes("dashscope.aliyuncs.com"));
-  const apiKey = process.env.BAILIAN_API_KEY || (isDashScopeCredential ? credentials?.apiKey : undefined);
-  if (!apiKey) return [];
-  const assigned = matchingSources(input);
-  const results: WebSearchItem[] = [];
-  const planned = planIntelligenceQueries(input);
-  const runs = buildIntelligenceSearchRuns(input, planned, assigned);
-  for (const run of runs) {
-    try {
-      results.push(...await searchWithDashScopeHTTP(run.query, freshness(input), run.assigned, apiKey, credentials?.model));
-    } catch (error) {
-      console.warn(`[intelligence-web-search] query failed: ${run.query}`, error instanceof Error ? error.message : error);
-    }
-  }
-  return results.filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxCandidates);
-}
-
 export function buildIntelligenceSearchRuns(input: IntelligenceTaskInput, planned = planIntelligenceQueries(input), assigned = matchingSources(input)): IntelligenceSearchRun[] {
   return ([
     { query: planned[0] || input.name, assigned: [], purpose: "general" },
@@ -118,16 +100,9 @@ export function buildIntelligenceSearchRuns(input: IntelligenceTaskInput, planne
   ] as IntelligenceSearchRun[]).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxQueries);
 }
 
-async function searchWithDashScopeHTTP(query: string, freshnessDays: number, assigned: string[], apiKey: string, model?: string): Promise<WebSearchItem[]> {
-  const response = await fetch(process.env.BAILIAN_DASHSCOPE_ENDPOINT || "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: model || process.env.BAILIAN_SEARCH_MODEL || "qwen-plus",
-      input: { messages: [{ role: "system", content: WEB_SEARCH_SYSTEM_PROMPT }, { role: "user", content: `${query}\n只返回与该检索意图直接相关的最新公开信息。` }] },
-      parameters: { enable_search: true, result_format: "message", search_options: { forced_search: true, enable_source: true, search_strategy: "turbo", freshness: freshnessDays, ...(assigned.length ? { assigned_site_list: assigned } : {}) } },
-    }),
-  });
-  if (!response.ok) throw new Error(`DashScope HTTP ${response.status}`);
-  return normalizeWebResults(await response.json(), query);
+/** 兼容旧的离线审查脚本；正式业务入口使用 IntelligenceRetrievalOrchestrator。 */
+export async function searchWebForIntelligence(input: IntelligenceTaskInput, start: Date, credentials?: WebSearchCredentials): Promise<WebSearchItem[]> {
+  const { createBailianRetrievalProvider } = await import("@/lib/intelligenceBailianAdapter");
+  const result = await createBailianRetrievalProvider({ apiKey: credentials?.apiKey, model: credentials?.model }).searchWeb({ input, start });
+  return result.results;
 }

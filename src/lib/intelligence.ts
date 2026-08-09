@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
-import { searchWebForIntelligence, type WebSearchCredentials } from "@/lib/intelligenceWebSearch";
+import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider } from "@/lib/intelligenceProvider";
 import { isHistoricalReviewCandidate, topicRelevance } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import {
@@ -104,12 +104,21 @@ export interface BriefResult {
   trendSignals: BriefItem[];
   otherItems: BriefItem[];
   sourceList: Array<{ source: string; url: string | null; publishedAt: string; sourceTier?: "S" | "A" | "B" | "C" | "D"; origin?: string }>;
-  metadata: { overview: string; origins: string[] };
+  metadata: {
+    overview: string;
+    origins: string[];
+    generationProvider: string;
+    retrieval: ReturnType<typeof safeRetrievalMetadata>;
+  };
 }
 
 /** @deprecated 使用 mergeEventCandidates；保留导出名兼容既有测试 */
 export function mergeCandidates(candidates: Candidate[]): Candidate[] {
   return mergeEventCandidates(candidates);
+}
+
+export function buildRetrievalOverview(status: "success" | "partial" | "failed", items: Candidate[], input: IntelligenceTaskInput): string {
+  return status === "failed" ? "本期联网检索未成功完成，请稍后重新生成。" : buildEditorialOverview(items, input);
 }
 
 export function validateTaskInput(input: IntelligenceTaskInput, now = new Date()): string | null {
@@ -280,12 +289,15 @@ function scoreCandidates(candidates: Candidate[], input: IntelligenceTaskInput):
   return scoreAndSortCandidates(candidates, input);
 }
 
-export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: WebSearchCredentials): Promise<{ id: string; brief: BriefResult }> {
+export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: Parameters<typeof createIntelligenceGenerationProvider>[0]): Promise<{ id: string; brief: BriefResult }> {
   if (!input.isActive) throw new Error("停用的情报任务不能执行");
   const validationError = validateTaskInput(input, now);
   if (validationError) throw new Error(validationError);
   const coverage = coverageFor(input, now);
-  const webCandidates: Candidate[] = (await searchWebForIntelligence(input, coverage.start, credentials)).map((item) => {
+  const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
+  const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
+  const retrievalResult = await retrieval.retrieve({ input, start: coverage.start });
+  const webCandidates: Candidate[] = retrievalResult.results.map((item) => {
     const resolved = resolvePublishedAt({
       sourcePublishedAt: item.publishedAt,
       url: item.url,
@@ -309,10 +321,11 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
       evidenceStatus: "unavailable" as const,
     };
   });
-  const filtered = filterCandidates([...webCandidates, ...(await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end);
+  const filtered = filterCandidates([...webCandidates, ...(retrievalResult.status === "failed" ? [] : await loadCandidates(coverage.start, coverage.end))], input, coverage.start, coverage.end);
+  const relevancePassed = webCandidates.filter((candidate) => filtered.some((item) => item.id === candidate.id)).length;
   // 先按现有候选评分截取高价值 URL，再做有限并发正文取证，避免每次任务抓取整个搜索结果集。
   const evidenceCandidates = scoreCandidates(filtered, input).slice(0, 16);
-  await acquireEvidence(evidenceCandidates);
+  const evidenceResult = await acquireEvidence(evidenceCandidates);
   for (const candidate of evidenceCandidates) {
     const resolved = resolvePublishedAt({ sourcePublishedAt: candidate.evidencePublishedAt, url: candidate.sourceUrl });
     if (candidate.evidencePublishedAt) {
@@ -329,7 +342,15 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const partitioned = partitionBriefItems(enriched);
   const orderedForOverview = [...partitioned.importantFacts, ...partitioned.trendSignals, ...partitioned.otherItems];
   const origins = [...new Set(enriched.map((candidate) => candidate.origin ?? "trusted-source"))];
-  const overview = buildEditorialOverview(orderedForOverview, input);
+  const overview = buildRetrievalOverview(retrievalResult.status, orderedForOverview, input);
+  const clues = enriched.filter((candidate) => candidate.isClue).length;
+  const retrievalMetadata = safeRetrievalMetadata(retrievalResult, {
+    searchCandidates: retrievalResult.results.length,
+    relevancePassed,
+    relevanceDropped: Math.max(0, webCandidates.length - relevancePassed),
+    evidence: { full: evidenceResult.stats.full, partial: evidenceResult.stats.partial, unavailable: evidenceResult.stats.unavailable },
+    final: { facts: partitioned.importantFacts.length, clues, trends: partitioned.trendSignals.length },
+  });
   const brief: BriefResult = {
     taskName: input.name,
     coverageStart: coverage.start.toISOString(),
@@ -340,7 +361,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
     trendSignals: partitioned.trendSignals,
     otherItems: partitioned.otherItems,
     sourceList: enriched.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
-    metadata: { overview, origins },
+    metadata: { overview, origins, generationProvider: generationProvider.id, retrieval: retrievalMetadata },
   };
   const rows = await query<{ id: string }>(
     `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, metadata, scheduled_slot)

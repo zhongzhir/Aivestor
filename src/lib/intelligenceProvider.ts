@@ -1,0 +1,122 @@
+import type { AIProvider } from "@/lib/ai";
+import type { UserCredentials } from "@/lib/report";
+import type { IntelligenceTaskInput } from "@/lib/intelligence";
+import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
+import { createBailianRetrievalProvider } from "@/lib/intelligenceBailianAdapter";
+
+export interface IntelligenceProviderCapabilities {
+  generation: boolean;
+  nativeWebSearch: boolean;
+}
+
+export interface RetrievalRequest {
+  input: IntelligenceTaskInput;
+  start: Date;
+}
+
+export interface RetrievalRunResult {
+  status: "success" | "partial" | "failed";
+  results: WebSearchItem[];
+  queryCount: number;
+  errorCode?: string;
+}
+
+export interface IntelligenceProvider {
+  id: string;
+  capabilities: IntelligenceProviderCapabilities;
+  searchWeb?: (request: RetrievalRequest) => Promise<RetrievalRunResult>;
+}
+
+export interface RetrievalProvider {
+  id: string;
+  searchWeb(request: RetrievalRequest): Promise<RetrievalRunResult>;
+}
+
+export interface RetrievalProviderDiagnostic {
+  provider: string;
+  attempted: boolean;
+  succeeded: boolean;
+  queryCount: number;
+  resultCount: number;
+  errorCode?: string;
+}
+
+export interface RetrievalResult {
+  status: "success" | "partial" | "failed";
+  providers: RetrievalProviderDiagnostic[];
+  results: WebSearchItem[];
+}
+
+function isDashScopeQwen(credentials: Pick<UserCredentials, "provider" | "baseURL" | "apiKey">): boolean {
+  return credentials.provider === "qwen" &&
+    !!credentials.apiKey &&
+    (!credentials.baseURL || credentials.baseURL.includes("dashscope.aliyuncs.com"));
+}
+
+export function createIntelligenceGenerationProvider(
+  credentials?: Pick<UserCredentials, "provider" | "baseURL" | "apiKey">,
+): IntelligenceProvider {
+  const nativeWebSearch = !!credentials && isDashScopeQwen(credentials);
+  return {
+    id: credentials?.provider ?? "unknown",
+    capabilities: { generation: !!credentials, nativeWebSearch },
+    ...(nativeWebSearch
+      ? { searchWeb: createBailianRetrievalProvider({ apiKey: credentials.apiKey, model: undefined }) .searchWeb }
+      : {}),
+  };
+}
+
+export class IntelligenceRetrievalOrchestrator {
+  constructor(
+    private readonly generationProviders: IntelligenceProvider[] = [],
+    private readonly independentProviders: RetrievalProvider[] = [createBailianRetrievalProvider()],
+  ) {}
+
+  async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
+    const native = this.generationProviders.filter((provider) => provider.capabilities.nativeWebSearch && provider.searchWeb);
+    const providers: Array<{ id: string; searchWeb: RetrievalProvider["searchWeb"] }> = native.map((provider) => ({ id: provider.id, searchWeb: provider.searchWeb! }));
+    const selected = providers.length > 0 ? providers : this.independentProviders;
+    const diagnostics: RetrievalProviderDiagnostic[] = [];
+    const results: WebSearchItem[] = [];
+
+    for (const provider of selected) {
+      try {
+        const run = await provider.searchWeb(request);
+        diagnostics.push({ provider: provider.id, attempted: true, succeeded: run.status !== "failed", queryCount: run.queryCount, resultCount: run.results.length, ...(run.errorCode ? { errorCode: run.errorCode } : {}) });
+        results.push(...run.results);
+      } catch (error) {
+        diagnostics.push({ provider: provider.id, attempted: true, succeeded: false, queryCount: 0, resultCount: 0, errorCode: errorCode(error) });
+      }
+    }
+
+    const unique = results.filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index);
+    const succeeded = diagnostics.filter((item) => item.succeeded).length;
+    const failed = diagnostics.filter((item) => !item.succeeded).length;
+    const status: RetrievalResult["status"] = succeeded === 0 ? "failed" : failed > 0 ? "partial" : "success";
+    return { status, providers: diagnostics, results: unique };
+  }
+}
+
+export function errorCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/missing credentials/i.test(message)) return "missing_credentials";
+  if (/timeout|timed out|abort/i.test(message)) return "timeout";
+  if (/http \d+/i.test(message)) return `upstream_${message.match(/http (\d+)/i)?.[1] ?? "error"}`;
+  return "upstream_error";
+}
+
+export function safeRetrievalMetadata(result: RetrievalResult, counts: {
+  searchCandidates: number;
+  relevancePassed: number;
+  relevanceDropped: number;
+  evidence: { full: number; partial: number; unavailable: number };
+  final: { facts: number; clues: number; trends: number };
+}) {
+  return {
+    status: result.status,
+    providers: result.providers,
+    ...counts,
+  };
+}
+
+export type IntelligenceGenerationProviderId = AIProvider | "unknown";
