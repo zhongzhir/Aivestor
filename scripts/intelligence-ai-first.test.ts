@@ -45,6 +45,14 @@ const generationProvider: IntelligenceProvider = {
     if (system.includes("[PHASE:research-supervisor]")) {
       supervisorCalls++;
       return JSON.stringify({
+        coverageMap: {
+          researchDimensions: [
+            { dimension: "窗口内重大资本交易", importance: "critical", discoveredClaims: ["claim-2"], coverage: "weak", nextQuestions: ["是否还有未发现的直接资本动作"] },
+            { dimension: "资本市场准入变化", importance: "high", discoveredClaims: ["claim-3"], coverage: "strong", nextQuestions: [] },
+            { dimension: "尚未覆盖的重要资本事项", importance: "high", discoveredClaims: [], coverage: "missing", nextQuestions: ["窗口内还有哪些高价值事项"] },
+          ],
+          highestValueGaps: ["尚未覆盖的重要资本事项"],
+        },
         prioritizedClaims: [
           { claimId: "claim-2", priority: "critical", reason: "窗口内重大融资且金额待核" },
           { claimId: "claim-3", priority: "high", reason: "窗口内流动性事项" },
@@ -69,8 +77,13 @@ const generationProvider: IntelligenceProvider = {
     if (system.includes("[PHASE:claim-verification]")) return JSON.stringify({ claims: [
       { id: "claim-1", statement: "甲公司于5月完成战略投资", eventDate: "2026-05-08", backgroundDate: "2026-05-08", entities: ["甲公司"], eventType: "战略投资", significance: "历史背景", confidence: "medium", classification: "background", relevanceToResearch: "high" },
       { id: "claim-2", statement: "甲公司于8月6日启动新融资，拟募资80亿元", eventDate: "2026-08-06", entities: ["甲公司"], eventType: "融资", significance: "融资规模较大", confidence: "high", classification: "fact", relevanceToResearch: "high" },
-      { id: "claim-3", statement: "乙公司于8月7日纳入交易互联机制", eventDate: "2026-08-07", entities: ["乙公司"], eventType: "上市流动性", significance: "可能改善流动性", confidence: "high", classification: "fact", relevanceToResearch: "high" },
+      { id: "claim-3", statement: "乙公司于8月7日纳入交易互联机制，股价上涨4.42%", eventDate: "2026-08-07", entities: ["乙公司"], eventType: "上市流动性", significance: "可能改善流动性", confidence: "high", classification: "fact", relevanceToResearch: "high" },
       { id: "claim-4", statement: "丙公司启动上市辅导", eventDate: "2026-08-07", entities: ["丙公司"], eventType: "上市辅导", significance: "与目标赛道缺乏明确关联", confidence: "low", classification: "clue", relevanceToResearch: "low", discardReason: "证据未显示其属于目标赛道" },
+    ] });
+    if (system.includes("[PHASE:evidence-entailment-rewrite]")) return JSON.stringify({ claims: [
+      { id: "claim-1", supportedStatement: "甲公司于5月完成战略投资", unsupportedDetails: [], classification: "background" },
+      { id: "claim-2", supportedStatement: "甲公司于8月6日启动新融资，拟募资80亿元", unsupportedDetails: [], classification: "fact" },
+      { id: "claim-3", supportedStatement: "乙公司于8月7日纳入交易互联机制", unsupportedDetails: ["股价上涨4.42%"], classification: "fact" },
     ] });
     if (system.includes("[PHASE:final-synthesis]")) return JSON.stringify({
       sentences: [
@@ -114,7 +127,7 @@ const evidenceText: Record<string, string> = {
   "https://primary.example/alpha": "公告确认甲公司于8月6日启动融资，拟募资80亿元。",
 };
 
-const emptyAgenda = { prioritizedClaims: [], mergedClaims: [], verificationTargets: [], gapFillQueries: [], stopReason: "无候选" };
+const emptyAgenda = { coverageMap: { researchDimensions: [], highestValueGaps: [] }, prioritizedClaims: [], mergedClaims: [], verificationTargets: [], gapFillQueries: [], stopReason: "无候选" };
 
 async function main() {
   const result = await runAiFirstResearch(input, coverage, {
@@ -134,6 +147,7 @@ async function main() {
   assert.equal(result.research.rounds.filter((round) => round.stage === "gap-fill").length, 1, "Coverage Review 最多追加一轮 gap-fill");
   assert.match(retrievalCalls.flat().join(" "), /甲公司.*金额.*投资方|甲公司.*投资方/);
   assert.equal(result.research.supervisorAgendas.length, 3, "Coverage、gap-fill 后和取证后都应由研究主管全局复核");
+  assert.equal(result.research.supervisorAgendas[0]?.coverageMap.highestValueGaps[0], "尚未覆盖的重要资本事项");
   assert.equal(result.research.supervisorAgendas[0]?.mergedClaims[0]?.duplicateClaimIds[0], "claim-5", "语义重复 claim 应由研究主管合并");
   assert.equal(result.research.verificationTraces[0]?.claimId, "claim-2", "验证预算应按主管优先级而非 claim 顺序分配");
   assert.equal(result.research.verificationTraces[0]?.highQualitySourceFound, true);
@@ -145,6 +159,8 @@ async function main() {
   assert.equal(result.importantFacts.length, 2);
   assert.equal(result.editorialBackground.some((claim) => claim.backgroundDate?.startsWith("2026-05")), true);
   assert.equal(result.importantFacts.some((item) => item.title.includes("首家")), false);
+  assert.equal(result.importantFacts.some((item) => item.title.includes("4.42%")), false, "Fact 必须使用 entailment rewrite 的 supportedStatement");
+  assert.deepEqual(result.research.verifiedClaims.find((claim) => claim.id === "claim-3")?.unsupportedDetails, ["股价上涨4.42%"]);
   assert.equal(result.importantFacts.some((item) => item.title.includes("劳动政策")), false);
   assert.equal(result.research.verifiedClaims.find((claim) => claim.statement.includes("80亿元"))?.supportingEvidence[0]?.url, "https://primary.example/alpha");
   assert.equal(result.research.verifiedClaims.find((claim) => claim.statement.includes("80亿元"))?.supportingEvidence[0]?.publishedAt, null, "异常未来来源日期必须归一为 null");
@@ -153,13 +169,25 @@ async function main() {
   assert.match(result.overview, /^【资本动态】/);
   assert.doesNotMatch(result.overview, /5月的战略投资是本期新增/, "Publication Contract 必须拒绝 background 伪装成 fact");
   assert.ok(result.overview.length <= 500);
-  assert.equal(prompts.some((prompt) => /全局研究目标出发分配有限取证预算/.test(prompt)), true);
+  assert.equal(result.research.rounds.every((round) => round.queryResults.every((item) => item.topResults.every((result) => !!result.title && !!result.domain))), true);
+  assert.equal(result.research.rounds.find((round) => round.stage === "discovery")?.queryResults[0]?.topResults[0]?.title, "甲公司投资及融资报道");
+  assert.equal(result.research.rounds.find((round) => round.stage === "gap-fill")?.queryResults[0]?.topResults[0]?.domain, "coverage.example");
+  assert.equal(prompts.some((prompt) => /生成 AI Coverage Map/.test(prompt)), true);
+  assert.equal(prompts.some((prompt) => /A\. 已发现 Claims 中哪些最值得验证；B\./.test(prompt)), true);
+  assert.equal(prompts.some((prompt) => /Evidence Entailment Rewrite/.test(prompt)), true);
   assert.equal(prompts.some((prompt) => /relevanceToResearch=high\/medium\/low/.test(prompt)), true);
 
   const clue: ResearchClaim = { id: "clue-1", statement: "甲公司被报道筹划融资", eventDate: null, backgroundDate: null, entities: ["甲公司"], eventType: "融资", significance: "", confidence: "low", sourceUrls: ["https://x.example"], evidenceStatus: "unavailable", classification: "clue", relevanceToResearch: "high", supportingEvidence: [] };
   const wrongFact = renderPublicationContract([{ text: "甲公司已经完成融资。", mode: "fact", supportingClaimIds: ["clue-1"] }], [clue]);
   assert.equal(wrongFact, "", "clue 不得通过引用关系伪装成 fact");
   assert.match(renderPublicationContract([{ text: "据报道，甲公司可能筹划融资。", mode: "clue", supportingClaimIds: ["clue-1"] }], [clue]), /尚待核实/);
+  const longAnalysis = "这是完整分析句。".repeat(40);
+  const bounded = renderPublicationContract([
+    { text: longAnalysis, mode: "analysis", supportingClaimIds: ["clue-1"] },
+    { text: "第二条完整分析句。", mode: "analysis", supportingClaimIds: ["clue-1"] },
+  ], [clue]);
+  assert.ok(bounded.length <= 500);
+  assert.ok(!bounded || bounded.endsWith("。"), "超长文本只能按完整 FinalSentence 删除，不得截断半句");
   const unsupported = enforceClaimPublicationGate({ ...clue, classification: "fact", confidence: "high", statement: "甲公司完成100亿元融资" });
   assert.equal(unsupported.classification, "clue");
   assert.equal(resolvePublishedAt({ sourcePublishedAt: "1970-01-01", url: null }).publishedAt, null);
@@ -184,7 +212,7 @@ async function main() {
   });
   assert.equal(emptyResult.overview, "本期未发现符合条件、且可核验的新增事实。");
 
-  console.log("intelligence ai-first 03 tests passed");
+  console.log("intelligence ai-first 04 tests passed");
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
