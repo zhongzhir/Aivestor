@@ -1,4 +1,4 @@
-import { completeChatWithTools, streamChat, type AIProvider, type ChatToolDefinition, type ToolCall, type ToolChatMessage } from "@/lib/ai";
+import { completeChatWithTools, defaultAIModel, streamChat, type AIProvider, type ChatToolDefinition, type ToolCall, type ToolChatMessage } from "@/lib/ai";
 import type { UserCredentials } from "@/lib/report";
 import type { IntelligenceTaskInput } from "@/lib/intelligence";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
@@ -42,6 +42,7 @@ export interface RetrievalRunResult {
 
 export interface IntelligenceProvider {
   id: string;
+  model?: string;
   capabilities: IntelligenceProviderCapabilities;
   generate?: (request: IntelligenceGenerationRequest) => Promise<string>;
   runAgentTurn?: (request: IntelligenceAgentTurnRequest) => Promise<IntelligenceAgentTurnResult>;
@@ -83,6 +84,7 @@ export function createIntelligenceGenerationProvider(
   const agenticToolUse = !!credentials?.apiKey && credentials.provider === "deepseek";
   return {
     id: credentials?.provider ?? "unknown",
+    model: credentials ? defaultAIModel(credentials.provider) : undefined,
     capabilities: { generation: !!credentials, nativeWebSearch, agenticToolUse },
     ...(credentials?.apiKey
       ? {

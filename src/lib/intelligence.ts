@@ -4,6 +4,7 @@ import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator
 import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntelligenceTaskSemantics, topicRelevance, type RelevanceDropReasons, type RelevancePhase } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import { runAiFirstResearch, type AgenticResearchTelemetry, type ResearchAgenda, type ResearchClaim, type VerificationTrace } from "@/lib/intelligenceResearchAgent";
+import { runAiNativeResearch, type AiNativeResearchReport, type AiNativeResearchResult } from "@/lib/intelligenceAiNative";
 import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
 import {
   buildEditorialOverview,
@@ -117,6 +118,11 @@ export interface BriefResult {
       relevanceDropReasons?: Record<string, number>;
     };
     research?: {
+      mode: "ai-native";
+      executionMode: "ai-native";
+      report: AiNativeResearchReport;
+      agent: AgenticResearchTelemetry;
+    } | {
       mode: "ai-first";
       plan: { understanding: string; eventTypes: string[]; likelyEntities: string[]; queries: string[]; deepDiveCriteria: string[] };
       rounds: Array<{ round: number; stage?: "discovery" | "gap-fill" | "verification"; queries: string[]; resultCount: number; followUpQueries: string[] }>;
@@ -127,9 +133,51 @@ export interface BriefResult {
       supervisorAgendas: ResearchAgenda[];
       verificationTraces: VerificationTrace[];
       retrievalProviderGap: boolean;
-      executionMode?: "agentic" | "scripted-fallback";
+      executionMode?: "agentic" | "legacy-fallback";
       agent?: AgenticResearchTelemetry;
     };
+  };
+}
+
+export function buildAiNativeBriefResult(
+  input: IntelligenceTaskInput,
+  coverage: { start: Date; end: Date },
+  now: Date,
+  generationProvider: IntelligenceProvider,
+  research: AiNativeResearchResult,
+): BriefResult {
+  return {
+    taskName: input.name,
+    coverageStart: coverage.start.toISOString(),
+    coverageEnd: coverage.end.toISOString(),
+    generatedAt: now.toISOString(),
+    itemCount: research.importantFacts.length + research.otherItems.length,
+    importantFacts: research.importantFacts,
+    trendSignals: [],
+    otherItems: research.otherItems,
+    sourceList: research.sourceList,
+    metadata: {
+      // The AI-native answer is the user-facing result. Do not reclassify or rebuild it here.
+      overview: research.report.answer,
+      origins: ["web-search"],
+      generationProvider: generationProvider.id,
+      retrieval: {
+        status: research.retrieval.status,
+        providers: research.retrieval.providers,
+        searchCandidates: research.retrieval.searchCandidates,
+        // Compatibility counters only: AI-native does no programmatic relevance filtering.
+        relevancePassed: research.report.items.length,
+        relevanceDropped: 0,
+        evidence: research.retrieval.evidence,
+        final: research.retrieval.final,
+      },
+      research: {
+        mode: "ai-native",
+        executionMode: "ai-native",
+        report: research.report,
+        agent: research.telemetry,
+      },
+    },
   };
 }
 
@@ -362,6 +410,10 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const coverage = coverageFor(normalizedInput, now);
   const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
   const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
+  if (generationProvider.capabilities.agenticToolUse && generationProvider.runAgentTurn && generationProvider.generate) {
+    const research = await runAiNativeResearch(normalizedInput, coverage, { generationProvider, retrieval });
+    return persistBrief(userId, taskId, buildAiNativeBriefResult(input, coverage, now, generationProvider, research), scheduledSlot);
+  }
   if (generationProvider.generate) {
     const research = await runAiFirstResearch(normalizedInput, coverage, { generationProvider, retrieval });
     const brief: BriefResult = {

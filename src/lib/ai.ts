@@ -105,6 +105,10 @@ const OPENAI_COMPATIBLE: Record<
 
 const DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-latest";
 
+export function defaultAIModel(provider: AIProvider): string {
+  return provider === "claude" ? DEFAULT_CLAUDE_MODEL : OPENAI_COMPATIBLE[provider].defaultModel;
+}
+
 // AI 空闲超时：建立连接到首个 token、以及流式过程中两次 token 之间，
 // 任意一段超过该时长无数据即中止，避免提供方挂起时把整个函数拖到
 // 平台 maxDuration（120s）才以 504 收场。每收到一块数据就重置计时。

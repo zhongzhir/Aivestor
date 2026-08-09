@@ -3,7 +3,10 @@ import { acquireEvidence, type EvidenceAcquisitionStats, type EvidenceCandidate,
 import type { IntelligenceProvider, IntelligenceRetrievalOrchestrator, RetrievalProviderDiagnostic, RetrievalResult } from "@/lib/intelligenceProvider";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
 import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
-import type { ChatToolDefinition, ToolChatMessage } from "@/lib/ai";
+import type { ToolChatMessage } from "@/lib/ai";
+import { AGENTIC_RESEARCH_LIMITS, INTELLIGENCE_AGENT_TOOLS as AGENTIC_TOOLS, packAgentSearchResults, parseAgentToolArguments as parseToolArguments, type AgenticFailureCode, type AgenticResearchTelemetry, type AgenticTurnTelemetry } from "@/lib/intelligenceAgentRuntime";
+export { AGENTIC_RESEARCH_LIMITS, packAgentSearchResults } from "@/lib/intelligenceAgentRuntime";
+export type { AgenticFailureCode, AgenticInvalidReason, AgenticResearchTelemetry, AgenticTurnTelemetry } from "@/lib/intelligenceAgentRuntime";
 
 export const AI_RESEARCH_LIMITS = {
   maxRounds: 3,
@@ -16,59 +19,6 @@ export const AI_RESEARCH_LIMITS = {
   maxVerificationQueries: 4,
   maxEvidenceSpansPerClaim: 4,
 } as const;
-
-export const AGENTIC_RESEARCH_LIMITS = {
-  maxAgentTurns: 8,
-  maxSearchCalls: 6,
-  maxTotalQueries: 20,
-  maxReadUrls: 20,
-  maxFindings: 12,
-  maxDurationMs: 240_000,
-  maxUrlsPerReadCall: 5,
-  maxResultsPerSearchTool: 24,
-  maxPageCharsPerRead: 5_000,
-} as const;
-
-export type AgenticFailureCode =
-  | "SEARCH_NOT_ATTEMPTED"
-  | "SEARCH_PROVIDER_MISS"
-  | "RESULT_NOT_SELECTED"
-  | "EVIDENCE_FETCH_FAILED"
-  | "CLAIM_NOT_PUBLISHED"
-  | "AGENT_FINALIZATION_FAILED";
-
-export type AgenticInvalidReason =
-  | "SEARCH_BUDGET_EXHAUSTED"
-  | "READ_URL_NOT_IN_SOURCE_POOL"
-  | "READ_ALREADY_ACQUIRED"
-  | "INVALID_TOOL_ARGUMENTS"
-  | "UNKNOWN_TOOL"
-  | "INVALID_FINAL_JSON"
-  | "AGENT_TURN_LIMIT"
-  | "AGENT_TIMEOUT"
-  | "FINALIZATION_FAILED";
-
-export interface AgenticTurnTelemetry {
-  turn: number;
-  action: "web_search" | "read_url" | "inspect_sources" | "final" | "invalid";
-  searchQueries?: string[];
-  searchTopResults?: QueryResultTelemetry[];
-  selectedUrls?: string[];
-  readResults?: Array<{ url: string; evidenceStatus: EvidenceStatus }>;
-  unresolvedGaps?: string[];
-  invalidReason?: AgenticInvalidReason;
-}
-
-export interface AgenticResearchTelemetry {
-  turns: AgenticTurnTelemetry[];
-  searchedAreas: string[];
-  unresolvedGaps: string[];
-  confidence: "high" | "medium" | "low";
-  failureCodes: AgenticFailureCode[];
-  searchCalls: number;
-  totalQueries: number;
-  readUrls: number;
-}
 
 export interface ResearchPlan {
   understanding: string;
@@ -182,7 +132,7 @@ export interface AiFirstResearchResult {
     supervisorAgendas: ResearchAgenda[];
     verificationTraces: VerificationTrace[];
     retrievalProviderGap: boolean;
-    executionMode?: "agentic" | "scripted-fallback";
+    executionMode?: "agentic" | "legacy-fallback";
     agent?: AgenticResearchTelemetry;
   };
 }
@@ -326,35 +276,6 @@ function searchMaterials(items: WebSearchItem[]): Array<Record<string, unknown>>
     source: cleanExternal(item.siteName, 120),
     publishedAt: item.publishedAt,
   }));
-}
-
-/** Deterministic round-robin packing: every query gets its next result before any query gets another. */
-export function packAgentSearchResults(queries: string[], items: WebSearchItem[], limit: number): WebSearchItem[] {
-  if (limit <= 0) return [];
-  const uniqueQueries = asStrings(queries, queries.length);
-  const seen = new Set<string>();
-  const buckets = uniqueQueries.map((query) => items.filter((item) => item.query === query));
-  const unmatched = items.filter((item) => !uniqueQueries.includes(item.query));
-  const packed: WebSearchItem[] = [];
-  let depth = 0;
-  while (packed.length < limit && buckets.some((bucket) => depth < bucket.length)) {
-    for (const bucket of buckets) {
-      const item = bucket[depth];
-      if (item && !seen.has(item.url)) {
-        seen.add(item.url);
-        packed.push(item);
-        if (packed.length >= limit) break;
-      }
-    }
-    depth++;
-  }
-  for (const item of unmatched) {
-    if (packed.length >= limit) break;
-    if (seen.has(item.url)) continue;
-    seen.add(item.url);
-    packed.push(item);
-  }
-  return packed;
 }
 
 function normalizeDraftClaims(value: unknown, allowedUrls: Set<string>, offset: number): ResearchClaim[] {
@@ -943,61 +864,6 @@ web_search 只负责发现资料；重要陈述应使用 read_url 阅读正文�
 研究充分后停止调用工具，只输出严格 JSON：{"findings":[{"claim":"一个主体的一项原子事件","eventDate":null,"entities":[],"eventType":"","significance":"","sourceUrls":[],"confidence":"high|medium|low"}],"searchedAreas":[],"unresolvedGaps":[],"confidence":"high|medium|low"}。
 每个 finding 只能描述一个具体事件；sourceUrls 必须来自工具返回；日期必须对应事件本身而非文章发布日期。不确定细节不要补写。不要输出 Markdown，也不要输出内部思考过程。`;
 
-const AGENTIC_TOOLS: ChatToolDefinition[] = [
-  {
-    type: "function",
-    function: {
-      name: "web_search",
-      description: "搜索公开互联网资料。可一次提交多个由你自主设计的查询，用于发现、补缺或交叉核验。",
-      parameters: {
-        type: "object",
-        properties: {
-          queries: { type: "array", items: { type: "string" }, minItems: 1 },
-          unresolvedGaps: { type: "array", items: { type: "string" }, description: "本轮搜索希望解决的研究缺口，仅用于运行遥测" },
-        },
-        required: ["queries"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "read_url",
-      description: "安全读取搜索结果中的公开网页正文，以核实重要事件。只能读取 web_search 已返回的 URL。",
-      parameters: {
-        type: "object",
-        properties: {
-          urls: { type: "array", items: { type: "string" }, minItems: 1 },
-          unresolvedGaps: { type: "array", items: { type: "string" }, description: "阅读后仍需解决的研究缺口，仅用于运行遥测" },
-        },
-        required: ["urls"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "inspect_sources",
-      description: "查看当前已经收集的来源和正文状态，避免重复研究。",
-      parameters: {
-        type: "object",
-        properties: {
-          unresolvedGaps: { type: "array", items: { type: "string" }, description: "当前仍未解决的研究缺口，仅用于运行遥测" },
-        },
-      },
-    },
-  },
-];
-
-function parseToolArguments(value: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(value || "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
 function safeAgentFinal(value: Partial<AgentFinalOutput>, allowedUrls: Set<string>): AgentFinalOutput {
   const confidence = value.confidence === "high" || value.confidence === "medium" ? value.confidence : "low";
   const findings = Array.isArray(value.findings) ? value.findings.slice(0, AGENTIC_RESEARCH_LIMITS.maxFindings).flatMap((raw) => {
@@ -1265,6 +1131,8 @@ async function runAgenticResearch(
     retrievalProviderGap: false,
     executionMode: "agentic" as const,
     agent: {
+      provider: generationProvider.id,
+      model: generationProvider.model || null,
       turns,
       searchedAreas: telemetrySearchedAreas,
       unresolvedGaps: telemetryUnresolvedGaps,
@@ -1273,6 +1141,10 @@ async function runAgenticResearch(
       searchCalls,
       totalQueries,
       readUrls,
+      sourceCount: allResults.length,
+      reportItemCount: claims.length,
+      finalization: finalizationFailed ? "failed" as const : "direct" as const,
+      durationMs: Date.now() - startedAt,
     },
   });
 
@@ -1403,6 +1275,6 @@ export async function runAiFirstResearch(
     return runAgenticResearch(input, coverage, dependencies);
   }
   const result = await runScriptedAiFirstResearch(input, coverage, dependencies);
-  result.research.executionMode = "scripted-fallback";
+  result.research.executionMode = "legacy-fallback";
   return result;
 }
