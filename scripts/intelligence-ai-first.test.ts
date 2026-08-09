@@ -4,6 +4,7 @@ import { resolvePublishedAt } from "@/lib/intelligenceBriefQuality";
 import {
   enforceClaimPublicationGate,
   hasRetrievalProviderGap,
+  packAgentSearchResults,
   renderPublicationContract,
   runAiFirstResearch,
   type ResearchClaim,
@@ -287,7 +288,106 @@ async function main() {
   assert.equal(noSearchResult.overview, "本期联网检索未成功完成，请稍后重新生成。");
   assert.deepEqual(noSearchResult.research.agent?.failureCodes, ["SEARCH_NOT_ATTEMPTED"]);
 
-  console.log("intelligence ai-first 05 tests passed");
+  const balancedInput = [
+    ...Array.from({ length: 6 }, (_, index) => ({ title: `甲查询结果${index}`, url: `https://balance.example/a-${index}`, siteName: "来源甲", snippet: "", publishedAt: null, sourceTier: "B" as const, domain: "balance.example", query: "query-a" })),
+    ...Array.from({ length: 2 }, (_, index) => ({ title: `乙查询结果${index}`, url: `https://balance.example/b-${index}`, siteName: "来源乙", snippet: "", publishedAt: null, sourceTier: "B" as const, domain: "balance.example", query: "query-b" })),
+  ];
+  const balanced = packAgentSearchResults(["query-a", "query-b"], balancedInput, 4);
+  assert.deepEqual(balanced.map((item) => item.query), ["query-a", "query-b", "query-a", "query-b"], "多 query 结果必须 round-robin 公平装配");
+
+  const lateUrl = "https://late.example/key-event";
+  let lateTurn = 0;
+  let lateUrlRead = false;
+  const latePoolProvider: IntelligenceProvider = {
+    id: "mock-late-pool",
+    capabilities: { generation: true, nativeWebSearch: false, agenticToolUse: true },
+    async runAgentTurn() {
+      lateTurn++;
+      if (lateTurn <= 4) return { content: null, reasoningContent: null, toolCalls: [{ id: `late-search-${lateTurn}`, type: "function", function: { name: "web_search", arguments: JSON.stringify({ queries: [`pool-query-${lateTurn}`] }) } }] };
+      if (lateTurn === 5) return { content: null, reasoningContent: null, toolCalls: [{ id: "late-read", type: "function", function: { name: "read_url", arguments: JSON.stringify({ urls: [lateUrl] }) } }] };
+      return { content: JSON.stringify({ findings: [{ claim: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", sourceUrls: [lateUrl], confidence: "high" }], searchedAreas: ["窗口内资本事项"], unresolvedGaps: [], confidence: "high" }), reasoningContent: null, toolCalls: [] };
+    },
+    async generate({ system }) {
+      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [{ url: lateUrl, relevantText: "丁公司于8月8日完成股权融资。", publishedAt: "2026-08-08" }] }] });
+      if (system.includes("[PHASE:agentic-claim-verification]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", confidence: "high", classification: "fact", relevanceToResearch: "high" }] });
+      if (system.includes("[PHASE:agentic-evidence-entailment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportedStatement: "丁公司于8月8日完成股权融资", unsupportedDetails: [], classification: "fact" }] });
+      if (system.includes("[PHASE:agentic-final-synthesis]")) return JSON.stringify({ sentences: [{ text: "丁公司于8月8日完成股权融资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "丁公司完成股权融资" }], trends: [] });
+      throw new Error(`unexpected late-pool phase: ${system}`);
+    },
+  };
+  const latePoolResult = await runAiFirstResearch(input, coverage, {
+    generationProvider: latePoolProvider,
+    retrieval: {
+      async retrieve(request) {
+        const query = request.queries?.[0] || "";
+        const call = Number(query.split("-").at(-1));
+        const results = Array.from({ length: 24 }, (_, index) => ({
+          title: `第${call}轮结果${index}`,
+          url: call === 4 && index === 0 ? lateUrl : `https://pool.example/${call}-${index}`,
+          siteName: "检索来源", snippet: call === 4 && index === 0 ? "丁公司披露股权融资。" : "普通结果。", publishedAt: "2026-08-08", sourceTier: "B" as const, domain: call === 4 && index === 0 ? "late.example" : "pool.example", query,
+        }));
+        return { status: "success" as const, providers: [{ provider: "mock-web", attempted: true, succeeded: true, queryCount: 1, resultCount: results.length }], results };
+      },
+    },
+    acquireEvidence: (async (candidates: any[]) => {
+      lateUrlRead = candidates.some((candidate) => candidate.sourceUrl === lateUrl);
+      for (const candidate of candidates) { candidate.evidenceStatus = "full"; candidate.content = "丁公司于8月8日完成股权融资。"; }
+      return { candidates, stats: { attempted: candidates.length, full: candidates.length, partial: 0, unavailable: 0 } };
+    }) as any,
+  });
+  assert.equal(lateUrlRead, true, "前三轮已累积超过60条来源后，后续关键 URL 仍必须可被 read_url 读取");
+  assert.equal(latePoolResult.retrieval.searchCandidates, 96, "Agent source pool 不得复用 legacy 60 条上限");
+  assert.equal(latePoolResult.importantFacts.length, 1);
+
+  const forcedUrl = "https://forced.example/event";
+  let forcedTurn = 0;
+  let forcedFinalizationCalls = 0;
+  const forcedProvider: IntelligenceProvider = {
+    id: "mock-forced-finalization",
+    capabilities: { generation: true, nativeWebSearch: false, agenticToolUse: true },
+    async runAgentTurn() {
+      forcedTurn++;
+      if (forcedTurn === 1) return { content: null, reasoningContent: null, toolCalls: [{ id: "forced-search", type: "function", function: { name: "web_search", arguments: JSON.stringify({ queries: ["窗口内股权事项"], unresolvedGaps: ["需要确认交易详情"] }) } }] };
+      if (forcedTurn === 2) return { content: null, reasoningContent: null, toolCalls: [{ id: "forced-read", type: "function", function: { name: "read_url", arguments: JSON.stringify({ urls: [forcedUrl], unresolvedGaps: ["等待结果收口"] }) } }] };
+      return { content: null, reasoningContent: null, toolCalls: [{ id: `forced-inspect-${forcedTurn}`, type: "function", function: { name: "inspect_sources", arguments: "{}" } }] };
+    },
+    async generate({ system }) {
+      if (system.includes("[PHASE:agentic-forced-finalization]")) {
+        forcedFinalizationCalls++;
+        return JSON.stringify({ findings: [{ claim: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", sourceUrls: [forcedUrl], confidence: "high" }], searchedAreas: ["窗口内股权事项"], unresolvedGaps: [], confidence: "high" });
+      }
+      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [{ url: forcedUrl, relevantText: "戊公司于8月8日完成战略投资。", publishedAt: "2026-08-08" }] }] });
+      if (system.includes("[PHASE:agentic-claim-verification]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", confidence: "high", classification: "fact", relevanceToResearch: "high" }] });
+      if (system.includes("[PHASE:agentic-evidence-entailment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportedStatement: "戊公司于8月8日完成战略投资", unsupportedDetails: [], classification: "fact" }] });
+      if (system.includes("[PHASE:agentic-final-synthesis]")) return JSON.stringify({ sentences: [{ text: "戊公司于8月8日完成战略投资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "戊公司完成战略投资" }], trends: [] });
+      throw new Error(`unexpected forced phase: ${system}`);
+    },
+  };
+  const forcedResult = await runAiFirstResearch(input, coverage, {
+    generationProvider: forcedProvider,
+    retrieval: { async retrieve(request) { return { status: "success", providers: [{ provider: "mock-web", attempted: true, succeeded: true, queryCount: 1, resultCount: 1 }], results: [{ title: "戊公司投资公告", url: forcedUrl, siteName: "公告来源", snippet: "戊公司披露战略投资。", publishedAt: "2026-08-08", sourceTier: "S", domain: "forced.example", query: request.queries?.[0] || "" }] }; } },
+    acquireEvidence: (async (candidates: any[]) => { candidates[0].evidenceStatus = "full"; candidates[0].content = "戊公司于8月8日完成战略投资。"; return { candidates, stats: { attempted: 1, full: 1, partial: 0, unavailable: 0 } }; }) as any,
+  });
+  assert.equal(forcedFinalizationCalls, 1, "达到 maxAgentTurns 后必须执行一次无工具 forced finalization");
+  assert.equal(forcedResult.research.claims, 1);
+  assert.equal(forcedResult.importantFacts.length, 1);
+  assert.equal(forcedResult.research.agent?.turns.some((turn) => turn.invalidReason === "AGENT_TURN_LIMIT"), true);
+  assert.equal(forcedResult.research.agent?.unresolvedGaps.includes("需要确认交易详情"), true, "finalOutput 失败时 telemetry 仍须保留运行期 gaps");
+
+  const failedFinalProvider: IntelligenceProvider = {
+    id: "mock-finalization-failure",
+    capabilities: { generation: true, nativeWebSearch: false, agenticToolUse: true },
+    async runAgentTurn() { return { content: "not-json", reasoningContent: null, toolCalls: [] }; },
+    async generate({ system }) { if (system.includes("[PHASE:agentic-forced-finalization]")) throw new Error("forced final unavailable"); throw new Error("publication must not run"); },
+  };
+  const failedFinalResult = await runAiFirstResearch(input, coverage, { generationProvider: failedFinalProvider, retrieval });
+  assert.notEqual(failedFinalResult.overview, "本期未发现符合条件、且可核验的新增事实。");
+  assert.equal(failedFinalResult.overview, "本期研究未能完成结果收口，请稍后重新生成。");
+  assert.equal(failedFinalResult.research.agent?.failureCodes.includes("AGENT_FINALIZATION_FAILED"), true);
+  assert.equal(failedFinalResult.research.agent?.turns.some((turn) => turn.invalidReason === "INVALID_FINAL_JSON"), true);
+  assert.equal(failedFinalResult.research.agent?.turns.some((turn) => turn.invalidReason === "FINALIZATION_FAILED"), true);
+
+  console.log("intelligence ai-first 05A tests passed");
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
