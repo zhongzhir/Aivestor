@@ -3,7 +3,7 @@ import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenc
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider } from "@/lib/intelligenceProvider";
 import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntelligenceTaskSemantics, topicRelevance, type RelevanceDropReasons, type RelevancePhase } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
-import { runAiFirstResearch } from "@/lib/intelligenceResearchAgent";
+import { runAiFirstResearch, type ResearchClaim } from "@/lib/intelligenceResearchAgent";
 import {
   buildEditorialOverview,
   enrichCandidate,
@@ -118,9 +118,11 @@ export interface BriefResult {
     research?: {
       mode: "ai-first";
       plan: { understanding: string; eventTypes: string[]; likelyEntities: string[]; queries: string[]; deepDiveCriteria: string[] };
-      rounds: Array<{ round: number; queries: string[]; resultCount: number; followUpQueries: string[] }>;
+      rounds: Array<{ round: number; stage?: "discovery" | "verification"; queries: string[]; resultCount: number; followUpQueries: string[] }>;
       claims: number;
       generationCalls: number;
+      verifiedClaims: ResearchClaim[];
+      discardedClaims: Array<{ statement: string; reason: string }>;
     };
   };
 }
