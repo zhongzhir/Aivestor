@@ -117,6 +117,8 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 | 变量名 | 说明 | 是否必填 | 不填时的降级行为 |
 |--------|------|---------|----------------|
 | `SYSTEM_DEEPSEEK_API_KEY` | 平台代付的 DeepSeek API Key。配置后所有新用户获赠 `FREE_QUOTA_TOKENS` 个 token 免费额度 | 可选 | 用户必须自带 API Key 才能使用 AI 功能 |
+| `SYSTEM_AI_PROVIDER` | 平台免费 AI Provider；默认 `deepseek` | 可选 | `deepseek` |
+| `SYSTEM_AI_MODEL` | 平台免费 AI 模型；默认 `deepseek-v4-flash`，后续升级只需修改配置 | 可选 | `deepseek-v4-flash` |
 | `FREE_QUOTA_TOKENS` | 每用户的免费 token 上限。默认 500 万（DeepSeek 单价下约够分析 10 ~ 20 个 BP） | 可选 | 默认 `5000000` |
 
 ### 知识库向量检索（可选）
@@ -158,6 +160,8 @@ ENCRYPTION_KEY=64_hex_chars_from_openssl_rand_hex_32_xxxxxxxxxxxxxxxxxxxxxxxxxx
 # ── AI 能力 ─────────────────────────────────────────────────
 BAILIAN_API_KEY=
 SYSTEM_DEEPSEEK_API_KEY=
+SYSTEM_AI_PROVIDER=deepseek
+SYSTEM_AI_MODEL=deepseek-v4-flash
 FREE_QUOTA_TOKENS=5000000
 
 # ── 文件存储（留空则用本地磁盘）─────────────────────────────

@@ -83,7 +83,7 @@ const OPENAI_COMPATIBLE: Record<
   openai: { baseURL: undefined, defaultModel: "gpt-4o-mini" },
   deepseek: {
     baseURL: "https://api.deepseek.com",
-    defaultModel: "deepseek-chat",
+    defaultModel: "deepseek-v4-flash",
   },
   qwen: {
     baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -107,6 +107,54 @@ const DEFAULT_CLAUDE_MODEL = "claude-3-5-sonnet-latest";
 
 export function defaultAIModel(provider: AIProvider): string {
   return provider === "claude" ? DEFAULT_CLAUDE_MODEL : OPENAI_COMPATIBLE[provider].defaultModel;
+}
+
+export interface AIProviderAdapterCapabilities {
+  toolCalling: boolean;
+  structuredOutput: boolean;
+  /** True only after this provider's multi-turn tool protocol has passed real validation. */
+  agenticToolUse: boolean;
+}
+
+const PROVIDER_CAPABILITIES: Record<AIProvider, AIProviderAdapterCapabilities> = {
+  deepseek: { toolCalling: true, structuredOutput: true, agenticToolUse: true },
+  openai: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
+  qwen: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
+  claude: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
+  ctyun: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
+  zhipu: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
+  moonshot: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
+};
+
+export function getAIProviderAdapterCapabilities(provider: AIProvider): AIProviderAdapterCapabilities {
+  return { ...PROVIDER_CAPABILITIES[provider] };
+}
+
+export interface AIModelSelection {
+  provider: AIProvider;
+  model: string;
+  source: "explicit" | "credentials" | "system" | "adapter-default";
+}
+
+export function resolveAIModelSelection(options: {
+  selectedProvider?: AIProvider;
+  selectedModel?: string;
+  credentialProvider?: AIProvider;
+  credentialModel?: string;
+  useSystemConfiguration?: boolean;
+  env?: Record<string, string | undefined>;
+} = {}): AIModelSelection {
+  const env = options.env || process.env;
+  const configuredProvider = env.SYSTEM_AI_PROVIDER?.trim().toLowerCase();
+  const systemProvider = configuredProvider && isValidProvider(configuredProvider) ? configuredProvider : undefined;
+  const provider = options.selectedProvider || options.credentialProvider || systemProvider || "deepseek";
+  const selectedModel = options.selectedModel?.trim();
+  if (selectedModel) return { provider, model: selectedModel, source: "explicit" };
+  const credentialModel = options.credentialModel?.trim();
+  if (credentialModel) return { provider, model: credentialModel, source: "credentials" };
+  const systemModel = options.useSystemConfiguration !== false ? env.SYSTEM_AI_MODEL?.trim() : undefined;
+  if (systemModel) return { provider, model: systemModel, source: "system" };
+  return { provider, model: defaultAIModel(provider), source: "adapter-default" };
 }
 
 // AI 空闲超时：建立连接到首个 token、以及流式过程中两次 token 之间，

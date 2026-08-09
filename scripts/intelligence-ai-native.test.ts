@@ -82,6 +82,7 @@ async function main() {
   const brief = buildAiNativeBriefResult(input, coverage, new Date("2026-08-09T12:00:00.000Z"), provider, result);
   assert.equal(brief.metadata.overview, directAnswer, "BriefResult must use report.answer without a second rewrite");
   assert.equal(brief.metadata.research?.mode, "ai-native");
+  assert.equal(brief.metadata.generationModel, "synthetic-model");
   assert.notEqual(brief.metadata.overview, "本期未发现符合条件、且可核验的新增事实。");
 
   let repairTurn = 0;

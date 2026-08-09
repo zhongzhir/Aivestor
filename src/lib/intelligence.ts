@@ -112,6 +112,7 @@ export interface BriefResult {
     overview: string;
     origins: string[];
     generationProvider: string;
+    generationModel: string | null;
     retrieval: ReturnType<typeof safeRetrievalMetadata> & {
       preEvidencePassed?: number;
       postEvidencePassed?: number;
@@ -161,6 +162,7 @@ export function buildAiNativeBriefResult(
       overview: research.report.answer,
       origins: ["web-search"],
       generationProvider: generationProvider.id,
+      generationModel: generationProvider.model || null,
       retrieval: {
         status: research.retrieval.status,
         providers: research.retrieval.providers,
@@ -430,6 +432,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
         overview: research.overview,
         origins: ["web-search"],
         generationProvider: generationProvider.id,
+        generationModel: generationProvider.model || null,
         retrieval: {
           status: research.retrieval.status,
           providers: research.retrieval.providers,
@@ -523,7 +526,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
     trendSignals: partitioned.trendSignals,
     otherItems: partitioned.otherItems,
     sourceList: concreteItems.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
-    metadata: { overview, origins, generationProvider: generationProvider.id, retrieval: retrievalMetadata },
+    metadata: { overview, origins, generationProvider: generationProvider.id, generationModel: generationProvider.model || null, retrieval: retrievalMetadata },
   };
   return persistBrief(userId, taskId, brief, scheduledSlot);
 }

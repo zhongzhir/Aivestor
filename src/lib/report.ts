@@ -1,4 +1,4 @@
-import { type AIProvider, type ChatMessage, isValidProvider } from "@/lib/ai";
+import { type AIProvider, type ChatMessage, isValidProvider, resolveAIModelSelection } from "@/lib/ai";
 import { decrypt } from "@/lib/crypto";
 import { query } from "@/lib/db";
 import {
@@ -264,6 +264,7 @@ export function freeQuotaMetaFor(
 // 调用方根据 usingFreeQuota 决定是否在 streamChat 里挂 freeQuotaMeta。
 export interface UserCredentials {
   provider: AIProvider;
+  model?: string;
   apiKey: string;
   baseURL?: string;
   usingFreeQuota: boolean;
@@ -315,6 +316,7 @@ export async function loadUserAICredentials(
     try {
       return {
         provider,
+        model: resolveAIModelSelection({ credentialProvider: provider, useSystemConfiguration: false }).model,
         apiKey: decrypt(row.api_key_encrypted),
         baseURL: row.ai_base_url?.trim() || undefined,
         usingFreeQuota: false,
@@ -332,10 +334,12 @@ export async function loadUserAICredentials(
       const configuredProvider = getSystemAIProvider();
       const provider: AIProvider = isValidProvider(configuredProvider)
         ? configuredProvider
-        : "qwen";
+        : "deepseek";
+      const selection = resolveAIModelSelection({ credentialProvider: provider, useSystemConfiguration: true });
 
       return {
-        provider,
+        provider: selection.provider,
+        model: selection.model,
         apiKey: systemKey,
         baseURL: getSystemAIBaseURL(),
         usingFreeQuota: true,

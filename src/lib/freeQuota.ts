@@ -16,7 +16,7 @@ export { formatTokens };
 const QUOTA_LIMIT_DEFAULT = 5_000_000; // 500 万 tokens（绑定手机号后的完整额度）
 
 // F-15 方向A：免费额度按手机绑定状态分层。
-export const TRIAL_QUOTA_LIMIT = 500_000; // 未绑定手机号的新用户试用额度（50 万）
+export const TRIAL_QUOTA_LIMIT = 5_000_000; // 默认每位用户 500 万 tokens
 export const LEGACY_BIND_BONUS = 500_000; // 存量未绑定用户绑定后一次性追加额度
 
 export function getSystemApiKey(): string | null {
@@ -32,8 +32,11 @@ export function getSystemAIProvider(): string {
   const configured = process.env.SYSTEM_AI_PROVIDER?.trim().toLowerCase();
   if (configured) return configured;
 
-  // SYSTEM_AI_API_KEY 的默认行为保持兼容；旧 DeepSeek Key 明确为 DeepSeek。
-  return process.env.SYSTEM_AI_API_KEY?.trim() ? "qwen" : "deepseek";
+  return "deepseek";
+}
+
+export function getSystemAIModel(): string | undefined {
+  return process.env.SYSTEM_AI_MODEL?.trim() || undefined;
 }
 
 export function getSystemAIBaseURL(): string | undefined {

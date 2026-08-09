@@ -1,4 +1,4 @@
-import { completeChatWithTools, defaultAIModel, streamChat, type AIProvider, type ChatToolDefinition, type ToolCall, type ToolChatMessage } from "@/lib/ai";
+import { completeChatWithTools, getAIProviderAdapterCapabilities, resolveAIModelSelection, streamChat, type AIProvider, type ChatToolDefinition, type ToolCall, type ToolChatMessage } from "@/lib/ai";
 import type { UserCredentials } from "@/lib/report";
 import type { IntelligenceTaskInput } from "@/lib/intelligence";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
@@ -8,6 +8,8 @@ export interface IntelligenceProviderCapabilities {
   generation: boolean;
   nativeWebSearch: boolean;
   agenticToolUse?: boolean;
+  toolCalling?: boolean;
+  structuredOutput?: boolean;
 }
 
 export interface RetrievalRequest {
@@ -76,24 +78,37 @@ function isDashScopeQwen(credentials: Pick<UserCredentials, "provider" | "baseUR
 }
 
 export function createIntelligenceGenerationProvider(
-  credentials?: Pick<UserCredentials, "provider" | "baseURL" | "apiKey">,
+  credentials?: Pick<UserCredentials, "provider" | "baseURL" | "apiKey"> & Partial<Pick<UserCredentials, "model" | "usingFreeQuota">> & { selectedProvider?: AIProvider; selectedModel?: string },
 ): IntelligenceProvider {
-  const nativeWebSearch = !!credentials && isDashScopeQwen(credentials);
-  // First production adapter: DeepSeek's OpenAI-compatible multi-turn tool protocol.
-  // Other providers stay on the retained scripted fallback until their real protocol is validated.
-  const agenticToolUse = !!credentials?.apiKey && credentials.provider === "deepseek";
+  const selection = resolveAIModelSelection({
+    selectedProvider: credentials?.selectedProvider,
+    selectedModel: credentials?.selectedModel,
+    credentialProvider: credentials?.provider,
+    credentialModel: credentials?.model,
+    useSystemConfiguration: credentials?.usingFreeQuota === true,
+  });
+  const adapterCapabilities = getAIProviderAdapterCapabilities(selection.provider);
+  const nativeWebSearch = !!credentials && isDashScopeQwen({ ...credentials, provider: selection.provider });
+  const agenticToolUse = !!credentials?.apiKey && adapterCapabilities.agenticToolUse;
   return {
-    id: credentials?.provider ?? "unknown",
-    model: credentials ? defaultAIModel(credentials.provider) : undefined,
-    capabilities: { generation: !!credentials, nativeWebSearch, agenticToolUse },
+    id: credentials ? selection.provider : "unknown",
+    model: credentials ? selection.model : undefined,
+    capabilities: {
+      generation: !!credentials,
+      nativeWebSearch,
+      agenticToolUse,
+      toolCalling: adapterCapabilities.toolCalling,
+      structuredOutput: adapterCapabilities.structuredOutput,
+    },
     ...(credentials?.apiKey
       ? {
           generate: async ({ system, prompt }: IntelligenceGenerationRequest) => {
             let output = "";
             for await (const chunk of streamChat({
-              provider: credentials.provider,
+              provider: selection.provider,
               apiKey: credentials.apiKey,
               baseURL: credentials.baseURL,
+              model: selection.model,
               system,
               messages: [{ role: "user", content: prompt }],
             })) {
@@ -107,9 +122,10 @@ export function createIntelligenceGenerationProvider(
     ...(agenticToolUse && credentials?.apiKey
       ? {
           runAgentTurn: (request: IntelligenceAgentTurnRequest) => completeChatWithTools({
-            provider: credentials.provider,
+            provider: selection.provider,
             apiKey: credentials.apiKey,
             baseURL: credentials.baseURL,
+            model: selection.model,
             messages: request.messages,
             tools: request.tools,
           }),

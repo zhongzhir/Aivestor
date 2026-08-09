@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   let raw = "";
   try {
     for await (const chunk of streamChat({
-      provider: creds.provider, apiKey: creds.apiKey, baseURL: creds.baseURL,
+      provider: creds.provider, apiKey: creds.apiKey, baseURL: creds.baseURL, model: creds.model,
       freeQuotaMeta: freeQuotaMetaFor(creds, guard.access.userId, "intelligence-plan"),
       system: INTELLIGENCE_PARSE_SYSTEM, messages: [{ role: "user", content: description }],
     })) raw += chunk;
