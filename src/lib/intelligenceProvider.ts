@@ -74,18 +74,33 @@ export class IntelligenceRetrievalOrchestrator {
 
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
     const native = this.generationProviders.filter((provider) => provider.capabilities.nativeWebSearch && provider.searchWeb);
-    const providers: Array<{ id: string; searchWeb: RetrievalProvider["searchWeb"] }> = native.map((provider) => ({ id: provider.id, searchWeb: provider.searchWeb! }));
-    const selected = providers.length > 0 ? providers : this.independentProviders;
+    const nativeProviders: Array<{ id: string; searchWeb: RetrievalProvider["searchWeb"] }> = native.map((provider) => ({ id: provider.id, searchWeb: provider.searchWeb! }));
     const diagnostics: RetrievalProviderDiagnostic[] = [];
     const results: WebSearchItem[] = [];
 
-    for (const provider of selected) {
+    const run = async (provider: { id: string; searchWeb: RetrievalProvider["searchWeb"] }) => {
       try {
         const run = await provider.searchWeb(request);
         diagnostics.push({ provider: provider.id, attempted: true, succeeded: run.status !== "failed", queryCount: run.queryCount, resultCount: run.results.length, ...(run.errorCode ? { errorCode: run.errorCode } : {}) });
         results.push(...run.results);
+        return run.status;
       } catch (error) {
         diagnostics.push({ provider: provider.id, attempted: true, succeeded: false, queryCount: 0, resultCount: 0, errorCode: errorCode(error) });
+        return "failed" as const;
+      }
+    };
+
+    let nativeSucceeded = false;
+    for (const provider of nativeProviders) {
+      const status = await run(provider);
+      if (status !== "failed") {
+        nativeSucceeded = true;
+        break;
+      }
+    }
+    if (nativeProviders.length === 0 || !nativeSucceeded) {
+      for (const provider of this.independentProviders) {
+        await run(provider);
       }
     }
 

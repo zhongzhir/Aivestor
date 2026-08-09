@@ -8,6 +8,7 @@ const core = read("src/lib/intelligence.ts");
 const web = read("src/lib/intelligenceWebSearch.ts");
 const provider = read("src/lib/intelligenceProvider.ts");
 const adapter = read("src/lib/intelligenceBailianAdapter.ts");
+const freeQuota = read("src/lib/freeQuota.ts");
 const generate = read("src/app/api/data-apps/intelligence-subscriptions/[id]/generate/route.ts");
 const tasks = read("src/app/api/data-apps/intelligence-subscriptions/route.ts");
 const taskMutation = read("src/app/api/data-apps/intelligence-subscriptions/[id]/route.ts");
@@ -31,6 +32,7 @@ assert.match(provider, /nativeWebSearch/);
 assert.match(adapter, /class BailianRetrievalProvider/);
 assert.match(adapter, /BAILIAN_API_KEY/);
 assert.doesNotMatch(core, /BAILIAN_API_KEY|DashScope|searchWithDashScopeHTTP|searchWebForIntelligence|qwen/);
+assert.doesNotMatch(freeQuota, /BAILIAN_API_KEY/);
 assert.match(migration045, /CREATE TABLE IF NOT EXISTS/);
 assert.match(migration045, /CREATE INDEX IF NOT EXISTS/);
 // 生产可能是 aivestor；其它环境可能是 aivestor_app；采集器为 zjjr_sync。

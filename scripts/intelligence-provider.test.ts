@@ -29,6 +29,13 @@ assert.equal((await qwenFallback.retrieve(request)).providers[0]?.provider, "qwe
 const native: IntelligenceProvider = { id: "native-test", capabilities: { generation: true, nativeWebSearch: true }, searchWeb: async () => ({ status: "success", results: [item], queryCount: 1 }) };
 assert.equal((await new IntelligenceRetrievalOrchestrator([native], [provider("must-not-run", { status: "failed", results: [], queryCount: 1 })]).retrieve(request)).providers[0]?.provider, "native-test");
 
+const nativeFailure = await new IntelligenceRetrievalOrchestrator(
+  [{ id: "native-failure", capabilities: { generation: true, nativeWebSearch: true }, searchWeb: async () => ({ status: "failed", results: [], queryCount: 1, errorCode: "upstream_error" }) }],
+  [provider("independent-fallback", { status: "success", results: [item], queryCount: 1 })],
+).retrieve(request);
+assert.equal(nativeFailure.status, "partial", "native 失败且独立检索成功时整体应为 partial");
+assert.deepEqual(nativeFailure.providers.map((entry) => entry.provider), ["native-failure", "independent-fallback"]);
+
 const partial = await new IntelligenceRetrievalOrchestrator([], [provider("failed-a", { status: "failed", results: [], queryCount: 1, errorCode: "timeout" }), provider("success-b", { status: "success", results: [item], queryCount: 1 })]).retrieve(request);
 assert.equal(partial.status, "partial");
 assert.equal(partial.results.length, 1);
