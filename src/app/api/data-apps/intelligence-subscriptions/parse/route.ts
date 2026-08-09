@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireIntelligenceAPI } from "@/lib/intelligenceAccess";
 import { streamChat } from "@/lib/ai";
 import { freeQuotaMetaFor, loadUserAICredentials } from "@/lib/report";
-import { parseNaturalLanguageFallback, planFromAI, INTELLIGENCE_PARSE_SYSTEM } from "@/lib/intelligenceNaturalLanguage";
+import { parseNaturalLanguageFallback, planFromAIOrFallback, INTELLIGENCE_PARSE_SYSTEM } from "@/lib/intelligenceNaturalLanguage";
 import { validateTaskInput } from "@/lib/intelligence";
 
 export const maxDuration = 60;
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   let body: { description?: string; timezone?: string };
   try { body = await request.json(); } catch { return NextResponse.json({ error: "请重新描述你想关注的内容。" }, { status: 400 }); }
   const description = body.description?.trim();
-  if (!description) return NextResponse.json({ error: "请先写下你想持续关注的内容。" }, { status: 422 });
+  if (!description) return NextResponse.json({ error: "请先写下你想收集或研究的内容。" }, { status: 422 });
   if (description.length > 1000) return NextResponse.json({ error: "描述稍长，请保留最重要的关注对象和筛选要求。" }, { status: 422 });
 
   const userTimezone = body.timezone?.trim() || "Asia/Shanghai";
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       freeQuotaMeta: freeQuotaMetaFor(creds, guard.access.userId, "intelligence-plan"),
       system: INTELLIGENCE_PARSE_SYSTEM, messages: [{ role: "user", content: description }],
     })) raw += chunk;
-    const plan = planFromAI(description, raw, userTimezone);
+    const plan = planFromAIOrFallback(description, raw, userTimezone);
     const validationError = validateTaskInput(plan.task);
     if (validationError) return NextResponse.json({ plan: fallback });
     return NextResponse.json({ plan });

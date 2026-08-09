@@ -44,17 +44,32 @@ function parseWeekdays(text: string): number[] {
   return unique(result.map(String)).map(Number);
 }
 
-function parseLookback(text: string): { kind: "days"; value: number } {
+function dateAtUtcStart(year: number, month: number, day: number): Date | null {
+  const value = new Date(Date.UTC(year, month - 1, day));
+  return value.getUTCFullYear() === year && value.getUTCMonth() === month - 1 && value.getUTCDate() === day ? value : null;
+}
+
+function parseLookback(text: string, now: Date): IntelligenceTaskInput["lookbackPeriod"] {
+  const custom = text.match(/(20\d{2})[年\/-](\d{1,2})[月\/-](\d{1,2})日?\s*(?:至|到|—|–|-)\s*(?:(20\d{2})[年\/-](\d{1,2})[月\/-](\d{1,2})日?|今天|今日|现在)/);
+  if (custom) {
+    const start = dateAtUtcStart(Number(custom[1]), Number(custom[2]), Number(custom[3]));
+    const explicitEnd = custom[4] ? dateAtUtcStart(Number(custom[4]), Number(custom[5]), Number(custom[6])) : null;
+    if (start) {
+      const end = explicitEnd && explicitEnd < now ? explicitEnd : now;
+      if (start < end) return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
+    }
+  }
   const days = firstMatch(text, /最近\s*(\d+)\s*(?:天|日)/);
   if (days) return { kind: "days", value: Math.max(1, Math.min(365, Number(days))) };
   if (/最近一周|最近一星期|近一周/.test(text)) return { kind: "days", value: 7 };
+  if (/(?:看看|了解|收集|查找|研究|整理|汇总|分析)?.{0,8}(?:今天|今日)/.test(text)) return { kind: "days", value: 1 };
   if (/最近24小时|过去24小时|近24小时/.test(text)) return { kind: "days", value: 1 };
   if (/最近一个月|近一个月/.test(text)) return { kind: "days", value: 30 };
   return { kind: "days", value: 3 };
 }
 
 function parseMaxItems(text: string): number {
-  const raw = firstMatch(text, /(?:不超过|最多|至多|控制在)\s*(\d+)\s*条?/);
+  const raw = firstMatch(text, /(?:不超过|最多|至多|控制在)\s*(\d+)\s*条/);
   return Math.max(1, Math.min(50, raw ? Number(raw) : 10));
 }
 
@@ -102,33 +117,34 @@ function parseIncludeExclude(text: string): { include: string[]; exclude: string
 }
 
 export function parseNaturalLanguageFallback(description: string, userTimezone = DEFAULT_TIMEZONE): IntelligencePlan {
+  return parseNaturalLanguageFallbackAt(description, userTimezone, new Date());
+}
+
+export function parseNaturalLanguageFallbackAt(description: string, userTimezone = DEFAULT_TIMEZONE, now = new Date()): IntelligencePlan {
   const text = description.trim();
   const topics = parseTopics(text);
   const entities = parseEntities(text);
   const regions = parseRegions(text);
   const { include, exclude } = parseIncludeExclude(text);
-  const scheduled = /每天|每日|定时|每周|星期[一二三四五六日天]|周[一二三四五六日天]/.test(text);
+  const scheduled = /每天|每日|每周|持续|定期|定时|星期[一二三四五六日天]|周[一二三四五六日天]/.test(text);
   const weekdays = parseWeekdays(text);
   const time = parseTime(text);
-  const hasCompleteSchedule = scheduled && !!time;
+  const weekly = weekdays.length > 0 || /每周|星期|周[一二三四五六日天]/.test(text);
+  const hasCompleteSchedule = scheduled && !!time && (!weekly || weekdays.length > 0);
   const scheduleConfig: ScheduleConfig | null = hasCompleteSchedule ? {
-    frequency: weekdays.length > 0 || /每周|星期|周[一二三四五六日天]/.test(text) ? "weekly" : "daily",
-    weekdays: weekdays.length > 0 ? weekdays : [1],
+    frequency: weekly ? "weekly" : "daily",
+    weekdays: weekdays.length > 0 ? weekdays : undefined,
     time: time!,
     timezone: safeTimezone(userTimezone),
   } : null;
   const questions: string[] = [];
-  if (topics.length === 0 && entities.length === 0) questions.push("你最想持续关注哪个行业、公司、机构或赛事？");
-  if (scheduled && !time) questions.push("如果希望定时生成，请告诉我具体星期和时间？");
-  const outputInstructions = [
-    text.includes("合并") ? "同一主体或同一赛事的信息合并" : "",
-    text.includes("事实") ? "区分重要事实与趋势信号" : "",
-  ].filter(Boolean).join("；");
+  if (scheduled && !hasCompleteSchedule) questions.push(weekly ? "请补充每周执行的具体星期和时间。" : "请补充定时执行的具体时间。");
+  const outputInstructions = text;
   return {
     task: normalizeIntelligenceTaskSemantics({
       name: inferName(text, topics, entities), topics, entities, keywords: [], regions,
       includeRequirements: include, excludeRequirements: exclude, maxItems: parseMaxItems(text),
-      lookbackPeriod: parseLookback(text), outputInstructions, executionMode: hasCompleteSchedule ? "scheduled" : "manual",
+      lookbackPeriod: parseLookback(text, now), outputInstructions, executionMode: hasCompleteSchedule ? "scheduled" : "manual",
       scheduleConfig, isActive: true,
     }),
     questions,
@@ -149,7 +165,7 @@ export function planFromAI(description: string, rawText: string, userTimezone = 
   const task = raw.task && typeof raw.task === "object" ? raw.task : {};
   const cleanList = (value: unknown, fallbackValue: string[]) => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string").map((v) => v.trim().slice(0, 100)).filter(Boolean).slice(0, 20) : fallbackValue;
   const rawSchedule = task.scheduleConfig && typeof task.scheduleConfig === "object" ? task.scheduleConfig as Record<string, unknown> : null;
-  const scheduleConfig: ScheduleConfig | null = rawSchedule ? {
+  const parsedSchedule: ScheduleConfig | null = rawSchedule ? {
     frequency: rawSchedule.frequency === "weekly" ? "weekly" : "daily",
     weekdays: Array.isArray(rawSchedule.weekdays) ? rawSchedule.weekdays.filter((v): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 6).slice(0, 7) : [1],
     time: typeof rawSchedule.time === "string" ? rawSchedule.time.slice(0, 5) : "09:00",
@@ -164,20 +180,26 @@ export function planFromAI(description: string, rawText: string, userTimezone = 
     topics: cleanList(task.topics, fallback.task.topics), entities: cleanList(task.entities, fallback.task.entities), keywords: cleanList(task.keywords, fallback.task.keywords), regions: cleanList(task.regions, fallback.task.regions),
     includeRequirements: cleanList(task.includeRequirements, fallback.task.includeRequirements), excludeRequirements: cleanList(task.excludeRequirements, fallback.task.excludeRequirements),
     maxItems: Math.max(1, Math.min(50, Number(task.maxItems) || fallback.task.maxItems)), lookbackPeriod,
-    outputInstructions: typeof task.outputInstructions === "string" ? task.outputInstructions.trim().slice(0, 500) : fallback.task.outputInstructions,
-    executionMode: task.executionMode === "scheduled" ? "scheduled" : fallback.task.executionMode, scheduleConfig,
+    outputInstructions: typeof task.outputInstructions === "string" ? task.outputInstructions.trim().slice(0, 500) || fallback.task.outputInstructions : fallback.task.outputInstructions,
+    executionMode: fallback.task.executionMode, scheduleConfig: fallback.task.executionMode === "scheduled" ? parsedSchedule : null,
     isActive: true,
   };
-  const questions = Array.isArray(raw.questions) ? raw.questions.filter((v): v is string => typeof v === "string").slice(0, 2) : fallback.questions;
+  const questions = fallback.questions.length > 0 ? fallback.questions : [];
   return { task: normalizeIntelligenceTaskSemantics(merged), questions };
+}
+
+export function planFromAIOrFallback(description: string, rawText: string, userTimezone = DEFAULT_TIMEZONE): IntelligencePlan {
+  try { return planFromAI(description, rawText, userTimezone); } catch { return parseNaturalLanguageFallback(description, userTimezone); }
 }
 
 export const INTELLIGENCE_PARSE_SYSTEM = `你负责把用户的一句话关注描述整理为情报任务配置。只输出 JSON，不要解释。
 JSON 结构必须是：{"task":{"name":string,"topics":string[],"entities":string[],"keywords":string[],"regions":string[],"includeRequirements":string[],"excludeRequirements":string[],"maxItems":number,"lookbackPeriod":{"kind":"days"|"custom","value"?:number,"start"?:string,"end"?:string},"outputInstructions":string,"executionMode":"manual"|"scheduled","scheduleConfig":null|{"frequency":"daily"|"weekly","weekdays":number[],"time":"HH:MM","timezone":string}},"questions":string[]}
 规则：
 - 只使用用户明确表达的信息；不确定的非关键字段使用克制默认值：最近3天、10条、手动生成、启用任务；时区使用请求提供的用户时区。
-- 用户提到每天/每周/星期和时间时使用 scheduled，并解析星期、时间、时区；未提到生成节奏时使用 manual。
-- 只有关注对象缺失，或用户明确要求定时但星期/时间无法判断时，才在 questions 中提出最少问题；否则 questions 为空。
+- 一次性收集、查找、研究、汇总、了解或分析是合法完整任务；这些动词不表示持续订阅。用户未明确表达每天、每周、持续、定期等周期意图时，必须使用 manual 且 scheduleConfig=null。
+- 用户明确提出周期执行时才使用 scheduled，并解析星期、时间、时区；若周期任务确实缺少执行所必需的星期或时间，只提出一个最少必要问题。
+- 用户已经描述了明确研究对象或问题时，即使 topics/entities 为空也不得追问；questions 只用于真正缺少执行所需信息，不用于填满结构化字段。
+- 明确日期范围使用 custom lookbackPeriod，并保留用户的研究意图与输出要求（包括字数限制）。
 - topics 只放行业、技术、赛道或关注主题，例如“AI大模型”“创新药”“商业航天”；不要放“资本动态”“融资动态”“政策动态”“最新消息”等事件类型。
 - entities 只放具体可识别的公司、机构、基金、政府部门或项目；不要放“中国AI大模型企业”“创新药公司”“商业航天企业”等泛化类别。
 - keywords 可放融资、投资、并购、估值、IPO、授权交易等事件动作和检索提示。

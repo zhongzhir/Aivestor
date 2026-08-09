@@ -12,7 +12,7 @@ const templates = [
   { label: "基金与机构动态", text: "每周一上午9点，整理最近一周重点基金与投资机构的投资和募资动态，不超过10条。" },
   { label: "政策与监管变化", text: "每周一上午9点，整理最近一周国内AI相关政策与监管变化，突出对项目判断的影响，不超过10条。" },
   { label: "AI赛事监测", text: "每周一上午9点，整理最近一周国内AI赛事，重点北京、有奖金、适合我的项目参赛，同一赛事合并，不超过20条。" },
-  { label: "自定义关注", text: "我想持续关注一个行业或主题，请按重要性整理相关事实和趋势，每周生成一次，不超过10条。" },
+  { label: "一次性研究", text: "研究最近一周我关注行业的关键变化，区分重要事实和趋势，不超过10条。" },
 ];
 
 const listValue = (value: unknown) => Array.isArray(value) ? value.join(", ") : "";
@@ -63,7 +63,7 @@ export default function IntelligenceSubscriptions() {
   useEffect(() => { load().catch(() => setError("暂时无法加载内容，请刷新页面重试。")); }, []);
 
   async function parseDescription() {
-    if (!description.trim()) { setError("请先写下你想持续关注的内容。 "); return; }
+    if (!description.trim()) { setError("请先写下你想收集或研究的内容。 "); return; }
     setBusy(true); setError("");
     const response = await fetch("/api/data-apps/intelligence-subscriptions/parse", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description, timezone: browserTimezone }) });
     const data = await response.json().catch(() => ({}));
@@ -145,10 +145,10 @@ export default function IntelligenceSubscriptions() {
     {error && <div className="mt-4 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"><p>{error}</p>{quotaBlocked && <div className="mt-3 flex flex-wrap gap-2"><a href="/settings/ai" className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs">配置 AI</a><a href="/org/workspace" className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs">升级机构版</a><a href="#my-intelligence-tasks" className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs">停用任务</a></div>}</div>}
 
     <section className="mt-6 rounded-lg border border-line bg-white p-5 sm:p-7">
-      <h2 className="text-lg font-semibold text-ink">你想持续关注什么？</h2>
-      <p className="mt-2 text-sm text-ink-soft">用一句话描述关注内容、频率和筛选要求，我们会帮你整理成情报任务。</p>
-      <textarea ref={descriptionRef} value={description} onChange={(event) => setDescription(event.target.value)} className="mt-5 min-h-32 w-full rounded-md border border-line px-4 py-3 text-sm outline-none focus:border-[#0D1B3E]" placeholder="例如：每周一上午9点，整理最近一周国内AI赛事，重点北京、有奖金、适合我的项目参赛，同一赛事合并，不超过20条。" />
-      <div className="mt-3 flex flex-wrap items-center gap-3"><button onClick={parseDescription} disabled={busy} className="rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">生成订制方案</button><button onClick={() => openAdvanced()} className="rounded-md border border-line px-4 py-2 text-sm text-ink-soft">高级设置</button></div>
+      <h2 className="text-lg font-semibold text-ink">你想了解什么？</h2>
+      <p className="mt-2 text-sm text-ink-soft">直接描述你想收集或研究的内容。可以是一次性研究，也可以设置持续跟踪。</p>
+      <textarea ref={descriptionRef} value={description} onChange={(event) => setDescription(event.target.value)} className="mt-5 min-h-32 w-full rounded-md border border-line px-4 py-3 text-sm outline-none focus:border-[#0D1B3E]" placeholder="例如：研究最近一周中国创新药海外 BD 交易，并简要分析其投资影响。" />
+      <div className="mt-3 flex flex-wrap items-center gap-3"><button onClick={parseDescription} disabled={busy} className="rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">生成任务方案</button><button onClick={() => openAdvanced()} className="rounded-md border border-line px-4 py-2 text-sm text-ink-soft">高级设置</button></div>
       <div className="mt-5"><p className="text-xs text-ink-faint">可以从这些方向开始</p><div className="mt-2 flex flex-wrap gap-2">{templates.map((template) => <button key={template.label} onClick={() => { setDescription(template.text); setPlan(null); window.setTimeout(() => descriptionRef.current?.focus(), 0); }} className="rounded-full border border-line px-3 py-1.5 text-xs text-ink-soft hover:border-[#0D1B3E]">{template.label}</button>)}</div></div>
     </section>
 
