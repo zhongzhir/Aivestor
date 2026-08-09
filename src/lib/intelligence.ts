@@ -3,7 +3,7 @@ import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenc
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider } from "@/lib/intelligenceProvider";
 import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntelligenceTaskSemantics, topicRelevance, type RelevanceDropReasons, type RelevancePhase } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
-import { runAiFirstResearch, type ResearchAgenda, type ResearchClaim, type VerificationTrace } from "@/lib/intelligenceResearchAgent";
+import { runAiFirstResearch, type AgenticResearchTelemetry, type ResearchAgenda, type ResearchClaim, type VerificationTrace } from "@/lib/intelligenceResearchAgent";
 import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
 import {
   buildEditorialOverview,
@@ -127,6 +127,8 @@ export interface BriefResult {
       supervisorAgendas: ResearchAgenda[];
       verificationTraces: VerificationTrace[];
       retrievalProviderGap: boolean;
+      executionMode?: "agentic" | "scripted-fallback";
+      agent?: AgenticResearchTelemetry;
     };
   };
 }

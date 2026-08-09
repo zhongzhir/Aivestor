@@ -1,4 +1,4 @@
-import { streamChat, type AIProvider } from "@/lib/ai";
+import { completeChatWithTools, streamChat, type AIProvider, type ChatToolDefinition, type ToolCall, type ToolChatMessage } from "@/lib/ai";
 import type { UserCredentials } from "@/lib/report";
 import type { IntelligenceTaskInput } from "@/lib/intelligence";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
@@ -7,6 +7,7 @@ import { createBailianRetrievalProvider } from "@/lib/intelligenceBailianAdapter
 export interface IntelligenceProviderCapabilities {
   generation: boolean;
   nativeWebSearch: boolean;
+  agenticToolUse?: boolean;
 }
 
 export interface RetrievalRequest {
@@ -21,6 +22,17 @@ export interface IntelligenceGenerationRequest {
   prompt: string;
 }
 
+export interface IntelligenceAgentTurnRequest {
+  messages: ToolChatMessage[];
+  tools: ChatToolDefinition[];
+}
+
+export interface IntelligenceAgentTurnResult {
+  content: string | null;
+  reasoningContent: string | null;
+  toolCalls: ToolCall[];
+}
+
 export interface RetrievalRunResult {
   status: "success" | "partial" | "failed";
   results: WebSearchItem[];
@@ -32,6 +44,7 @@ export interface IntelligenceProvider {
   id: string;
   capabilities: IntelligenceProviderCapabilities;
   generate?: (request: IntelligenceGenerationRequest) => Promise<string>;
+  runAgentTurn?: (request: IntelligenceAgentTurnRequest) => Promise<IntelligenceAgentTurnResult>;
   searchWeb?: (request: RetrievalRequest) => Promise<RetrievalRunResult>;
 }
 
@@ -65,9 +78,12 @@ export function createIntelligenceGenerationProvider(
   credentials?: Pick<UserCredentials, "provider" | "baseURL" | "apiKey">,
 ): IntelligenceProvider {
   const nativeWebSearch = !!credentials && isDashScopeQwen(credentials);
+  // First production adapter: DeepSeek's OpenAI-compatible multi-turn tool protocol.
+  // Other providers stay on the retained scripted fallback until their real protocol is validated.
+  const agenticToolUse = !!credentials?.apiKey && credentials.provider === "deepseek";
   return {
     id: credentials?.provider ?? "unknown",
-    capabilities: { generation: !!credentials, nativeWebSearch },
+    capabilities: { generation: !!credentials, nativeWebSearch, agenticToolUse },
     ...(credentials?.apiKey
       ? {
           generate: async ({ system, prompt }: IntelligenceGenerationRequest) => {
@@ -84,6 +100,17 @@ export function createIntelligenceGenerationProvider(
             }
             return output.trim();
           },
+        }
+      : {}),
+    ...(agenticToolUse && credentials?.apiKey
+      ? {
+          runAgentTurn: (request: IntelligenceAgentTurnRequest) => completeChatWithTools({
+            provider: credentials.provider,
+            apiKey: credentials.apiKey,
+            baseURL: credentials.baseURL,
+            messages: request.messages,
+            tools: request.tools,
+          }),
         }
       : {}),
     ...(nativeWebSearch

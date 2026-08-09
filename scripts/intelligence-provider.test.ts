@@ -18,11 +18,14 @@ async function main() {
 const deepseek = createIntelligenceGenerationProvider({ provider: "deepseek", apiKey: "secret" });
 assert.equal(deepseek.capabilities.generation, true);
 assert.equal(deepseek.capabilities.nativeWebSearch, false);
+assert.equal(deepseek.capabilities.agenticToolUse, true, "首个真实 Agent adapter 应暴露原生多轮工具能力");
+assert.equal(typeof deepseek.runAgentTurn, "function");
 const deepseekOrchestrator = new IntelligenceRetrievalOrchestrator([{ ...deepseek, searchWeb: undefined }], [provider("independent-web", { status: "success", results: [item], queryCount: 1 })]);
 assert.equal((await deepseekOrchestrator.retrieve(request)).results.length, 1, "DeepSeek 应自动使用独立检索");
 
 const qwen = createIntelligenceGenerationProvider({ provider: "qwen", apiKey: "secret", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1" });
 assert.equal(qwen.capabilities.nativeWebSearch, true, "Qwen DashScope 适配器应暴露原生检索能力");
+assert.equal(qwen.capabilities.agenticToolUse, false, "未完成真实协议验收的模型继续走保留的 scripted fallback");
 const qwenFallback = new IntelligenceRetrievalOrchestrator([{ ...qwen, searchWeb: async () => ({ status: "success", results: [item], queryCount: 1 }) }]);
 assert.equal((await qwenFallback.retrieve(request)).providers[0]?.provider, "qwen");
 

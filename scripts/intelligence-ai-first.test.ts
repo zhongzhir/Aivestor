@@ -212,7 +212,82 @@ async function main() {
   });
   assert.equal(emptyResult.overview, "本期未发现符合条件、且可核验的新增事实。");
 
-  console.log("intelligence ai-first 04 tests passed");
+  let agentTurn = 0;
+  let reasoningRoundTripped = false;
+  const agentProvider: IntelligenceProvider = {
+    id: "mock-agent",
+    capabilities: { generation: true, nativeWebSearch: false, agenticToolUse: true },
+    async runAgentTurn({ messages }) {
+      agentTurn++;
+      if (agentTurn === 1) return {
+        content: null,
+        reasoningContent: "internal reasoning must not enter telemetry",
+        toolCalls: [{ id: "search-1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ queries: ["目标赛道 企业资本事项"], unresolvedGaps: ["需要发现窗口内直接资本动作"] }) } }],
+      };
+      reasoningRoundTripped = messages.some((message) => message.role === "assistant" && message.reasoning_content === "internal reasoning must not enter telemetry");
+      if (agentTurn === 2) return {
+        content: null,
+        reasoningContent: "select evidence",
+        toolCalls: [{ id: "read-1", type: "function", function: { name: "read_url", arguments: JSON.stringify({ urls: ["https://official.example/event"], unresolvedGaps: ["核对交易日期和金额"] }) } }],
+      };
+      return {
+        content: JSON.stringify({
+          findings: [{ claim: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", sourceUrls: ["https://official.example/event"], confidence: "high" }],
+          searchedAreas: ["目标赛道窗口内直接资本事项"], unresolvedGaps: [], confidence: "high",
+        }),
+        reasoningContent: null,
+        toolCalls: [],
+      };
+    },
+    async generate({ system }) {
+      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [{ url: "https://official.example/event", relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-07" }] }] });
+      if (system.includes("[PHASE:agentic-claim-verification]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", confidence: "high", classification: "fact", relevanceToResearch: "high" }] });
+      if (system.includes("[PHASE:agentic-evidence-entailment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportedStatement: "甲公司于8月7日完成新一轮融资", unsupportedDetails: [], classification: "fact" }] });
+      if (system.includes("[PHASE:agentic-final-synthesis]")) return JSON.stringify({ sentences: [{ text: "甲公司于8月7日完成新一轮融资。", mode: "fact", supportingClaimIds: ["claim-1"] }, { text: "后续应关注资金用途与交割进度。", mode: "analysis", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "甲公司完成新一轮融资", editorial: "后续应关注资金用途。" }], trends: [] });
+      throw new Error(`unexpected agentic phase: ${system}`);
+    },
+  };
+  const agentResult = await runAiFirstResearch(input, coverage, {
+    generationProvider: agentProvider,
+    retrieval: {
+      async retrieve(request) {
+        const query = request.queries?.[0] || "";
+        return {
+          status: "success" as const,
+          providers: [{ provider: "mock-web", attempted: true, succeeded: true, queryCount: 1, resultCount: 1 }],
+          results: [{ title: "甲公司融资公告", url: "https://official.example/event", siteName: "官方公告", snippet: "甲公司披露融资事项。", publishedAt: "2026-08-07", sourceTier: "S" as const, domain: "official.example", query }],
+        };
+      },
+    },
+    acquireEvidence: (async (candidates: any[]) => {
+      candidates[0].evidenceStatus = "full";
+      candidates[0].content = "甲公司于8月7日完成新一轮融资。";
+      candidates[0].evidencePublishedAt = "2026-08-07";
+      return { candidates, stats: { attempted: 1, full: 1, partial: 0, unavailable: 0 } };
+    }) as any,
+  });
+  assert.equal(agentResult.research.executionMode, "agentic");
+  assert.equal(agentResult.research.supervisorAgendas.length, 0, "Agentic 主链不得再由 Supervisor 状态机控制");
+  assert.deepEqual(agentResult.research.agent?.turns.map((turn) => turn.action), ["web_search", "read_url", "final"]);
+  assert.equal(agentResult.research.agent?.searchCalls, 1);
+  assert.equal(agentResult.research.agent?.readUrls, 1);
+  assert.deepEqual(agentResult.research.agent?.failureCodes, []);
+  assert.equal(agentResult.importantFacts.length, 1);
+  assert.equal(agentResult.importantFacts[0]?.sourceUrl, "https://official.example/event");
+  assert.equal(reasoningRoundTripped, true, "thinking-mode 多轮工具调用必须回传 reasoning_content");
+  assert.equal(JSON.stringify(agentResult.research.agent).includes("internal reasoning"), false, "telemetry 不得暴露 reasoning_content");
+
+  const noSearchProvider: IntelligenceProvider = {
+    id: "mock-agent-no-search",
+    capabilities: { generation: true, nativeWebSearch: false, agenticToolUse: true },
+    async runAgentTurn() { return { content: JSON.stringify({ findings: [], searchedAreas: [], unresolvedGaps: ["尚未检索"], confidence: "low" }), reasoningContent: null, toolCalls: [] }; },
+    async generate() { throw new Error("无 findings 时不得进入发布生成"); },
+  };
+  const noSearchResult = await runAiFirstResearch(input, coverage, { generationProvider: noSearchProvider, retrieval });
+  assert.equal(noSearchResult.overview, "本期联网检索未成功完成，请稍后重新生成。");
+  assert.deepEqual(noSearchResult.research.agent?.failureCodes, ["SEARCH_NOT_ATTEMPTED"]);
+
+  console.log("intelligence ai-first 05 tests passed");
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });

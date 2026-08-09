@@ -35,6 +35,46 @@ export interface ChatRequest {
   };
 }
 
+export interface ToolCallFunction {
+  name: string;
+  arguments: string;
+}
+
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: ToolCallFunction;
+}
+
+export type ToolChatMessage =
+  | { role: "system" | "user"; content: string }
+  | { role: "assistant"; content: string | null; reasoning_content?: string | null; tool_calls?: ToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: string };
+
+export interface ChatToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface ToolChatRequest {
+  provider: AIProvider;
+  apiKey: string;
+  baseURL?: string;
+  model?: string;
+  messages: ToolChatMessage[];
+  tools: ChatToolDefinition[];
+}
+
+export interface ToolChatResponse {
+  content: string | null;
+  reasoningContent: string | null;
+  toolCalls: ToolCall[];
+}
+
 // OpenAI 兼容协议的服务商配置（DeepSeek / 通义千问 / 天翼 Token 均兼容 OpenAI 接口）
 const OPENAI_COMPATIBLE: Record<
   Exclude<AIProvider, "claude">,
@@ -147,6 +187,40 @@ export function isValidProvider(v: string): v is AIProvider {
 export function defaultBaseURL(provider: AIProvider): string | null {
   if (provider === "claude") return null;
   return OPENAI_COMPATIBLE[provider]?.baseURL ?? null;
+}
+
+/**
+ * OpenAI-compatible non-streaming tool turn. The caller owns the multi-turn
+ * loop and must pass the returned assistant message (including DeepSeek's
+ * reasoning_content) back on the next request.
+ */
+export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolChatResponse> {
+  if (req.provider === "claude") throw new Error("tool calling is not configured for this provider");
+  const cfg = OPENAI_COMPATIBLE[req.provider];
+  const controller = new AbortController();
+  const client = new OpenAI({ apiKey: req.apiKey, baseURL: req.baseURL?.trim() || cfg.baseURL });
+  const response = await awaitWithTimeout(
+    client.chat.completions.create({
+      model: req.model || cfg.defaultModel,
+      stream: false,
+      messages: req.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+      tools: req.tools as OpenAI.Chat.Completions.ChatCompletionTool[],
+      tool_choice: "auto",
+    }, { signal: controller.signal }),
+    () => controller.abort(),
+  );
+  const message = response.choices[0]?.message;
+  if (!message) throw new Error("AI tool response missing message");
+  const raw = message as typeof message & { reasoning_content?: string | null };
+  const toolCalls: ToolCall[] = (message.tool_calls || []).flatMap((call) => {
+    if (call.type !== "function" || !call.id || !call.function?.name) return [];
+    return [{ id: call.id, type: "function" as const, function: { name: call.function.name, arguments: call.function.arguments || "{}" } }];
+  });
+  return {
+    content: typeof message.content === "string" ? message.content : null,
+    reasoningContent: typeof raw.reasoning_content === "string" ? raw.reasoning_content : null,
+    toolCalls,
+  };
 }
 
 // 流式聊天补全：返回文本增量的异步迭代器。
