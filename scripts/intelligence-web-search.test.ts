@@ -4,7 +4,7 @@ import { normalizeWebResults, planIntelligenceQueries, buildIntelligenceSearchRu
 import { normalizeTaskInput } from "@/lib/intelligence";
 import { sourceQualityForDomain } from "@/lib/intelligenceSourceQuality";
 import { topicRelevance } from "@/lib/intelligenceTopicRelevance";
-import { buildEditorialCommentary, enrichCandidate, isClueQualityEligible, mergeEventCandidates, partitionBriefItems } from "@/lib/intelligenceBriefQuality";
+import { buildEditorialCommentary, buildEditorialOverview, enrichCandidate, isClueQualityEligible, mergeEventCandidates, partitionBriefItems } from "@/lib/intelligenceBriefQuality";
 
 const themes = [
   normalizeTaskInput({ name: "中国 AI 大模型企业资本新闻监测", topics: ["AI 大模型"], entities: ["中国企业"], keywords: ["资本", "融资"] }),
@@ -100,15 +100,28 @@ const genericCommentary = enrichCandidate({ ...relevantBd, id: "generic-commenta
 assert.equal(genericCommentary.isClue, false, "泛化资本评论不得保留为具体线索");
 assert.equal(isClueQualityEligible(genericCommentary), true, "泛化评论可以作为低权重背景材料");
 assert.equal(genericCommentary.importance, "low");
-assert.equal(partitionBriefItems([genericCommentary]).otherItems.length, 1);
+const genericPartition = partitionBriefItems([genericCommentary]);
+assert.equal(genericPartition.otherItems.length, 0, "背景材料不得成为事件卡");
+assert.equal(genericPartition.editorialBackground.length, 1);
+assert.equal(genericPartition.trendSignals.length, 0);
 const genericHype = enrichCandidate({ ...relevantBd, id: "generic-hype", title: "AI融资热潮持续", content: "AI融资热潮持续，市场关注度上升。", sourceTier: "A", evidenceStatus: "unavailable" }, aiCapital);
 assert.equal(genericHype.isClue, false);
 assert.equal(isClueQualityEligible(genericHype), true);
-assert.equal(partitionBriefItems([genericHype]).otherItems.length, 1);
+assert.equal(partitionBriefItems([genericHype]).editorialBackground.length, 1);
 const titleOnlyClue = enrichCandidate({ ...relevantBd, id: "title-only-clue", title: "DeepSeek重启第二轮融资", content: "", sourceTier: "C", evidenceStatus: "unavailable" }, aiCapital);
 assert.equal(titleOnlyClue.summary, "", "没有摘要正文时不得输出空壳线索前缀");
 assert.match(titleOnlyClue.investmentNote || "", /若融资消息得到确认/);
 assert.match(buildEditorialCommentary(moonClue) || "", /若融资消息得到确认/);
+const separated = partitionBriefItems([moonClue, deepseekClue, genericCommentary, genericHype]);
+const displayedClues = separated.otherItems.filter((item) => item.isClue);
+assert.equal(displayedClues.length, 2, "最终 Clue 数必须等于实际展示的具体线索数");
+assert.equal(separated.editorialBackground.length, 2);
+assert.equal(separated.trendSignals.length, 0, "Background 不得形成 Trend");
+const separatedOverview = buildEditorialOverview([...separated.importantFacts, ...separated.otherItems], aiCapital, separated.editorialBackground);
+assert.match(separatedOverview, /月之暗面35亿美元融资/);
+assert.match(separatedOverview, /DeepSeek重启第二轮融资/);
+assert.doesNotMatch(separatedOverview, /值得继续核实：[^。]*(资本仍在涌入AI|AI融资热潮持续)/);
+assert.match(separatedOverview, /简评：若相关融资消息后续得到确认/);
 const verified = enrichCandidate({ ...relevantBd, id: "verified", sourceTier: "A", evidenceStatus: "full", content: "公司公告披露与海外买方达成 license-out，包含授权区域与交易进度。" }, pharma);
 assert.equal(verified.isClue, false, "正文充分支持的候选可以成为事实");
 const unavailableTrend = partitionBriefItems([

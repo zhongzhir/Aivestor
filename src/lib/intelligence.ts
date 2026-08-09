@@ -122,8 +122,8 @@ export function mergeCandidates(candidates: Candidate[]): Candidate[] {
   return mergeEventCandidates(candidates);
 }
 
-export function buildRetrievalOverview(status: "success" | "partial" | "failed", items: Candidate[], input: IntelligenceTaskInput): string {
-  return status === "failed" ? "本期联网检索未成功完成，请稍后重新生成。" : buildEditorialOverview(items, input);
+export function buildRetrievalOverview(status: "success" | "partial" | "failed", items: Candidate[], input: IntelligenceTaskInput, editorialBackground: Candidate[] = []): string {
+  return status === "failed" ? "本期联网检索未成功完成，请稍后重新生成。" : buildEditorialOverview(items, input, editorialBackground);
 }
 
 export function validateTaskInput(input: IntelligenceTaskInput, now = new Date()): string | null {
@@ -385,9 +385,10 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   ).slice(0, Math.max(1, Math.min(50, input.maxItems)));
   const partitioned = partitionBriefItems(enriched);
   const orderedForOverview = [...partitioned.importantFacts, ...partitioned.trendSignals, ...partitioned.otherItems];
-  const origins = [...new Set(enriched.map((candidate) => candidate.origin ?? "trusted-source"))];
-  const overview = buildRetrievalOverview(retrievalResult.status, orderedForOverview, normalizedInput);
-  const clues = enriched.filter((candidate) => candidate.isClue).length;
+  const concreteItems = [...partitioned.importantFacts, ...partitioned.otherItems];
+  const origins = [...new Set([...concreteItems, ...partitioned.editorialBackground].map((candidate) => candidate.origin ?? "trusted-source"))];
+  const overview = buildRetrievalOverview(retrievalResult.status, orderedForOverview, normalizedInput, partitioned.editorialBackground);
+  const clues = partitioned.otherItems.filter((candidate) => candidate.isClue).length;
   const retrievalMetadata = safeRetrievalMetadata(retrievalResult, {
     searchCandidates: retrievalResult.results.length,
     relevancePassed: postEvidencePassed,
@@ -403,11 +404,11 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
     coverageStart: coverage.start.toISOString(),
     coverageEnd: coverage.end.toISOString(),
     generatedAt: now.toISOString(),
-    itemCount: enriched.length,
+    itemCount: concreteItems.length,
     importantFacts: partitioned.importantFacts,
     trendSignals: partitioned.trendSignals,
     otherItems: partitioned.otherItems,
-    sourceList: enriched.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
+    sourceList: concreteItems.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
     metadata: { overview, origins, generationProvider: generationProvider.id, retrieval: retrievalMetadata },
   };
   const rows = await query<{ id: string }>(

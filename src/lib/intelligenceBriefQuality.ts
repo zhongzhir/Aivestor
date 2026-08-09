@@ -392,13 +392,19 @@ export function partitionBriefItems(candidates: Candidate[]): {
   importantFacts: Candidate[];
   trendSignals: Candidate[];
   otherItems: Candidate[];
+  editorialBackground: Candidate[];
 } {
   const facts: Candidate[] = [];
   const others: Candidate[] = [];
+  const editorialBackground: Candidate[] = [];
   for (const item of candidates) {
     if (!isClueQualityEligible(item)) continue;
+    if (item.origin === "web-search" && item.evidenceStatus === "unavailable" && isGenericWebCommentary(item)) {
+      editorialBackground.push({ ...item, kind: "other", isClue: false, followUpReason: undefined, importance: "low" });
+      continue;
+    }
     if (!isWebEvidenceVerified(item) || item.isClue || item.importance === "low" || item.kind === "other" || isHypeTitle(item.title) || isOpinionTitle(item.title)) {
-      others.push({ ...item, kind: item.kind === "trend" ? "other" : item.kind, isClue: item.isClue || !isWebEvidenceVerified(item) || isHypeTitle(item.title) || isOpinionTitle(item.title) });
+      others.push({ ...item, kind: item.kind === "trend" ? "other" : item.kind, isClue: item.isClue || (!isWebEvidenceVerified(item) && hasConcreteUnavailableEvent(item)) || isHypeTitle(item.title) || isOpinionTitle(item.title) });
     } else {
       facts.push(item);
     }
@@ -465,6 +471,7 @@ export function partitionBriefItems(candidates: Candidate[]): {
     importantFacts,
     trendSignals,
     otherItems: [...others, ...leftover],
+    editorialBackground,
   };
 }
 
@@ -477,10 +484,10 @@ function trendTitleFor(theme: string, group: Candidate[]): string {
   return `${sanitizeFactTitle(group[0]!.title)}等动态形成组合观察`;
 }
 
-export function buildEditorialOverview(candidates: Candidate[], input: IntelligenceTaskInput): string {
+export function buildEditorialOverview(candidates: Candidate[], input: IntelligenceTaskInput, editorialBackground: Candidate[] = []): string {
   if (!candidates.length) return "本期未发现符合条件、且可核验的新增事实。";
   const top = candidates
-    .filter((item) => item.kind !== "trend" && !item.isClue && !isHypeTitle(item.title) && !isOpinionTitle(item.title))
+    .filter((item) => item.kind === "fact" && !item.isClue && !isHypeTitle(item.title) && !isOpinionTitle(item.title))
     .slice(0, 3);
   const names = top.map((item) => sanitizeFactTitle(item.title, item.summary ?? item.content)).filter((name) => !isHypeTitle(name));
   const themes = [...new Set(top.map((item) => eventThemeKey(item.title, item.summary ?? item.content)))];
@@ -496,7 +503,10 @@ export function buildEditorialOverview(candidates: Candidate[], input: Intellige
     if (clues.length) {
       parts.push(`值得继续核实：${clues.join("；")}。`);
       const clue = candidates.find((item) => item.isClue)!;
-      const commentary = buildEditorialCommentary({ ...clue, isClue: true });
+      const hasCapitalBackground = editorialBackground.some((item) => /资本|融资|投资|估值|并购|收购|IPO|上市/.test(`${item.title} ${item.content}`));
+      const commentary = hasCapitalBackground && /融资|募资|估值/.test(`${clue.title} ${clue.content}`)
+        ? "若相关融资消息后续得到确认，相关企业持续高强度融资的资本特征值得关注；仍需核对金额、轮次和投资方。"
+        : buildEditorialCommentary({ ...clue, isClue: true });
       if (commentary) parts.push(`简评：${commentary}`);
     }
   }
