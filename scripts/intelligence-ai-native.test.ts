@@ -105,6 +105,8 @@ async function main() {
   assert.equal(result.telemetry.provider, "synthetic-agent");
   assert.equal(result.telemetry.model, "synthetic-model");
   assert.equal(result.telemetry.finalization, "direct");
+  assert.equal(result.telemetry.finalRepairAttempted, false);
+  assert.equal(result.telemetry.finalRepairSucceeded, false);
   assert.doesNotMatch(JSON.stringify(result.telemetry), /must never enter telemetry|hidden/);
 
   const brief = buildAiNativeBriefResult(input, coverage, new Date("2026-08-09T12:00:00.000Z"), provider, result);
@@ -114,22 +116,80 @@ async function main() {
   assert.notEqual(brief.metadata.overview, "本期未发现符合条件、且可核验的新增事实。");
 
   let repairTurn = 0;
+  let finalRepairCalls = 0;
+  let forcedFinalizationCalls = 0;
+  let repairSearchCalls = 0;
+  let repairReadCalls = 0;
   const repairedProvider: IntelligenceProvider = {
     ...provider,
     async runAgentTurn() {
       repairTurn++;
       if (repairTurn === 1) return toolCall("web_search", { queries: ["产业事项"] }, "search-repair");
-      return { content: "not-json", reasoningContent: null, toolCalls: [] };
+      if (repairTurn === 2) return toolCall("read_url", { urls: [readUrl] }, "read-repair");
+      return { content: "{'answer':'保留 Agent 原判断但 JSON 引号损坏','items':[],'searchedAreas':['产业事项'],'unresolvedGaps':[],'confidence':'low'}", reasoningContent: null, toolCalls: [] };
     },
-    async generate() {
-      return JSON.stringify({ answer: "修复后的完整研究回答。", items: [], searchedAreas: ["产业事项"], unresolvedGaps: [], confidence: "low" });
+    async generate({ system, prompt }) {
+      if (system.includes("Final JSON Repair")) {
+        finalRepairCalls++;
+        assert.match(prompt, /保留 Agent 原判断但 JSON 引号损坏/);
+        return JSON.stringify({
+          answer: "保留 Agent 原判断但 JSON 引号损坏",
+          items: [{ headline: "甲公司事项", summary: "公告支持。", eventDate: "2026-08-07", entities: ["甲公司"], status: "confirmed", sourceUrls: [readUrl, illegalUrl] }],
+          searchedAreas: ["产业事项"], unresolvedGaps: [], confidence: "low",
+        });
+      }
+      forcedFinalizationCalls++;
+      throw new Error("forced finalization must not run after successful repair");
     },
   };
-  const repaired = await runAiNativeResearch(input, coverage, { generationProvider: repairedProvider, retrieval: retrieval(), acquireEvidence: acquire });
-  assert.equal(repaired.report.answer, "修复后的完整研究回答。");
-  assert.equal(repaired.telemetry.finalization, "forced", "malformed final JSON gets exactly one forced finalization");
+  const repairRetrieval = retrieval();
+  const repaired = await runAiNativeResearch(input, coverage, {
+    generationProvider: repairedProvider,
+    retrieval: { async retrieve(request) { repairSearchCalls++; return repairRetrieval.retrieve(request); } },
+    acquireEvidence: async (candidates) => { repairReadCalls++; return acquire(candidates); },
+  });
+  assert.equal(repaired.report.answer, "保留 Agent 原判断但 JSON 引号损坏");
+  assert.equal(repaired.report.items[0]?.sourceUrls.includes(illegalUrl), false, "repair 后仍必须执行 allowed URLs 约束");
+  assert.equal(repaired.telemetry.finalization, "repaired");
+  assert.equal(repaired.telemetry.finalRepairAttempted, true);
+  assert.equal(repaired.telemetry.finalRepairSucceeded, true);
+  assert.equal(finalRepairCalls, 1, "损坏的最终 JSON 只 repair 一次");
+  assert.equal(forcedFinalizationCalls, 0, "repair 成功后不得触发 forced finalization");
+  assert.equal(repairSearchCalls, 1, "Final JSON Repair 不得追加搜索");
+  assert.equal(repairReadCalls, 1, "Final JSON Repair 不得追加正文读取");
 
-  const failedProvider: IntelligenceProvider = { ...repairedProvider, async generate() { throw new Error("repair failed"); } };
+  let fallbackTurn = 0;
+  let failedRepairCalls = 0;
+  let fallbackForcedCalls = 0;
+  const fallbackProvider: IntelligenceProvider = {
+    ...provider,
+    async runAgentTurn() {
+      fallbackTurn++;
+      if (fallbackTurn === 1) return toolCall("web_search", { queries: ["产业事项"] }, "search-fallback");
+      return { content: "broken-final", reasoningContent: null, toolCalls: [] };
+    },
+    async generate({ system }) {
+      if (system.includes("Final JSON Repair")) {
+        failedRepairCalls++;
+        return "still-broken";
+      }
+      fallbackForcedCalls++;
+      return JSON.stringify({ answer: "forced 收口回答。", items: [], searchedAreas: ["产业事项"], unresolvedGaps: [], confidence: "low" });
+    },
+  };
+  const forced = await runAiNativeResearch(input, coverage, { generationProvider: fallbackProvider, retrieval: retrieval(), acquireEvidence: acquire });
+  assert.equal(forced.report.answer, "forced 收口回答。");
+  assert.equal(forced.telemetry.finalization, "forced");
+  assert.equal(forced.telemetry.finalRepairAttempted, true);
+  assert.equal(forced.telemetry.finalRepairSucceeded, false);
+  assert.equal(failedRepairCalls, 1);
+  assert.equal(fallbackForcedCalls, 1, "repair 失败后才允许 forced finalization");
+
+  const failedProvider: IntelligenceProvider = {
+    ...fallbackProvider,
+    async runAgentTurn() { return { content: "not-json", reasoningContent: null, toolCalls: [] }; },
+    async generate() { throw new Error("finalization unavailable"); },
+  };
   await assert.rejects(
     runAiNativeResearch(input, coverage, { generationProvider: failedProvider, retrieval: retrieval(), acquireEvidence: acquire }),
     /AI_NATIVE_FINALIZATION_FAILED/,

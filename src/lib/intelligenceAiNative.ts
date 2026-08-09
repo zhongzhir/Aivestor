@@ -236,6 +236,7 @@ export async function runAiNativeResearch(input: IntelligenceTaskInput, coverage
     systemInstruction: `${AI_NATIVE_SYSTEM}\n${REPORT_CONTRACT}`,
     taskPrompt: taskPrompt(input, coverage.start, coverage.end),
     finalizationInstruction: `研究阶段已结束，不再提供工具。只基于已收集来源与正文修复/形成最终 ResearchReport。${REPORT_CONTRACT}`,
+    finalRepairInstruction: `只修复以下 Agent 最终输出的 JSON 语法与 ResearchReport schema，保持原 answer、items、状态、判断和顺序，不得重新研究。${REPORT_CONTRACT}`,
     parseFinal: (raw, allowedUrls) => {
       const report = parseAiNativeResearchReport(raw, allowedUrls);
       return { value: report, searchedAreas: report.searchedAreas, unresolvedGaps: report.unresolvedGaps, confidence: report.confidence, itemCount: report.items.length };

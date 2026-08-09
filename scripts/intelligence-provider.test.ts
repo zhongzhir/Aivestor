@@ -54,6 +54,15 @@ const partial = await new IntelligenceRetrievalOrchestrator([], [provider("faile
 assert.equal(partial.status, "partial");
 assert.equal(partial.results.length, 1);
 
+const secondItem: WebSearchItem = { ...item, title: "AI 公司发布交易公告", url: "https://second.example/announcement", domain: "second.example" };
+const multiSource = await new IntelligenceRetrievalOrchestrator([], [
+  provider("web-a", { status: "success", results: [item], queryCount: 1 }),
+  provider("web-b", { status: "success", results: [secondItem], queryCount: 1 }),
+]).retrieve(request);
+assert.equal(multiSource.status, "success");
+assert.deepEqual(multiSource.providers.map((entry) => entry.provider), ["web-a", "web-b"], "Search Router 应保留每个 provider 的 diagnostics");
+assert.deepEqual(multiSource.results.map((entry) => entry.url), [item.url, secondItem.url], "Search Router 应合并多个独立 provider 的统一结果");
+
 const failed = await new IntelligenceRetrievalOrchestrator([], [provider("failed-a", { status: "failed", results: [], queryCount: 1, errorCode: "timeout" })]).retrieve(request);
 assert.equal(failed.status, "failed");
 assert.equal(buildRetrievalOverview(failed.status, [], input), "本期联网检索未成功完成，请稍后重新生成。", "全量检索失败不得伪装成无新闻");

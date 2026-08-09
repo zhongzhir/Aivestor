@@ -1144,6 +1144,8 @@ async function runAgenticResearch(
       sourceCount: allResults.length,
       reportItemCount: claims.length,
       finalization: finalizationFailed ? "failed" as const : "direct" as const,
+      finalRepairAttempted: false,
+      finalRepairSucceeded: false,
       durationMs: Date.now() - startedAt,
     },
   });

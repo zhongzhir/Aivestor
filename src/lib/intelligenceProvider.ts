@@ -71,6 +71,14 @@ export interface RetrievalResult {
   results: WebSearchItem[];
 }
 
+/**
+ * Research Infrastructure 的 Search Router 契约。
+ * Router 只编排 provider、聚合 diagnostics 并按 URL 去重，不负责研究语义判断。
+ */
+export interface IntelligenceSearchRouter {
+  retrieve(request: RetrievalRequest): Promise<RetrievalResult>;
+}
+
 function isDashScopeQwen(credentials: Pick<UserCredentials, "provider" | "baseURL" | "apiKey">): boolean {
   return credentials.provider === "qwen" &&
     !!credentials.apiKey &&
@@ -137,7 +145,7 @@ export function createIntelligenceGenerationProvider(
   };
 }
 
-export class IntelligenceRetrievalOrchestrator {
+export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRouter {
   constructor(
     private readonly generationProviders: IntelligenceProvider[] = [],
     private readonly independentProviders: RetrievalProvider[] = [createBailianRetrievalProvider()],

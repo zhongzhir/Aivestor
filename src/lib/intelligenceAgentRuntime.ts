@@ -5,7 +5,19 @@ import type { IntelligenceProvider, IntelligenceRetrievalOrchestrator, Retrieval
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
 import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
 
-export const AGENTIC_RESEARCH_LIMITS = {
+export interface ResearchBudget {
+  maxAgentTurns: number;
+  maxSearchCalls: number;
+  maxTotalQueries: number;
+  maxReadUrls: number;
+  maxDurationMs: number;
+  maxUrlsPerReadCall: number;
+  maxResultsPerSearchTool: number;
+  maxPageCharsPerRead: number;
+  maxFindings: number;
+}
+
+export const DEFAULT_RESEARCH_BUDGET: Readonly<ResearchBudget> = {
   maxAgentTurns: 8,
   maxSearchCalls: 6,
   maxTotalQueries: 20,
@@ -16,6 +28,9 @@ export const AGENTIC_RESEARCH_LIMITS = {
   maxPageCharsPerRead: 5_000,
   maxFindings: 30,
 } as const;
+
+/** @deprecated 使用 DEFAULT_RESEARCH_BUDGET；保留该名称兼容旧研究实现和测试。 */
+export const AGENTIC_RESEARCH_LIMITS = DEFAULT_RESEARCH_BUDGET;
 
 export type AgenticFailureCode =
   | "SEARCH_NOT_ATTEMPTED"
@@ -66,7 +81,9 @@ export interface AgenticResearchTelemetry {
   readUrls: number;
   sourceCount: number;
   reportItemCount: number;
-  finalization: "direct" | "forced" | "failed";
+  finalization: "direct" | "repaired" | "forced" | "failed";
+  finalRepairAttempted: boolean;
+  finalRepairSucceeded: boolean;
   durationMs: number;
 }
 
@@ -98,8 +115,11 @@ export interface AgentRuntimeOptions<T> {
   systemInstruction: string;
   taskPrompt: string;
   finalizationInstruction: string;
+  /** 仅修复 Agent 原始最终输出的 JSON/schema，不重新研究。 */
+  finalRepairInstruction?: string;
   parseFinal: (raw: string, allowedUrls: Set<string>) => ParsedAgentFinal<T>;
   finalizationFailureCode?: "AGENT_FINALIZATION_FAILED" | "AI_NATIVE_FINALIZATION_FAILED";
+  budget?: Partial<ResearchBudget>;
 }
 
 export const INTELLIGENCE_AGENT_TOOLS: ChatToolDefinition[] = [
@@ -245,6 +265,7 @@ function aggregateRetrieval(runs: RetrievalResult[]): Pick<RetrievalResult, "sta
 export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOptions<T>): Promise<AgentRuntimeResult<T>> {
   const { generationProvider, retrieval } = options;
   if (!generationProvider.runAgentTurn || !generationProvider.generate) throw new Error("agentic research requires tool use and generation");
+  const budget: ResearchBudget = { ...DEFAULT_RESEARCH_BUDGET, ...options.budget };
 
   const messages: ToolChatMessage[] = [
     { role: "system", content: options.systemInstruction },
@@ -267,16 +288,18 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
   let closureRequested = false;
   let lastTurn = 0;
   let finalization: AgenticResearchTelemetry["finalization"] = "direct";
+  let finalRepairAttempted = false;
+  let finalRepairSucceeded = false;
   const startedAt = Date.now();
 
-  for (let turn = 1; turn <= AGENTIC_RESEARCH_LIMITS.maxAgentTurns; turn++) {
+  for (let turn = 1; turn <= budget.maxAgentTurns; turn++) {
     lastTurn = turn;
-    if (Date.now() - startedAt >= AGENTIC_RESEARCH_LIMITS.maxDurationMs) {
+    if (Date.now() - startedAt >= budget.maxDurationMs) {
       turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "AGENT_TIMEOUT" });
       break;
     }
-    const nearingDeadline = AGENTIC_RESEARCH_LIMITS.maxDurationMs - (Date.now() - startedAt) <= 30_000;
-    if (!closureRequested && (searchCalls >= AGENTIC_RESEARCH_LIMITS.maxSearchCalls || turn === AGENTIC_RESEARCH_LIMITS.maxAgentTurns || nearingDeadline)) {
+    const nearingDeadline = budget.maxDurationMs - (Date.now() - startedAt) <= 30_000;
+    if (!closureRequested && (searchCalls >= budget.maxSearchCalls || turn === budget.maxAgentTurns || nearingDeadline)) {
       messages.push({ role: "user", content: "研究工具预算即将结束。请停止扩展研究，基于当前已搜索和已阅读资料形成最终 ResearchReport JSON；不要再重复搜索。" });
       closureRequested = true;
     }
@@ -298,6 +321,30 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
         turns.push({ turn, action: "final", unresolvedGaps: parsed.unresolvedGaps });
       } catch {
         turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "INVALID_FINAL_JSON" });
+        finalRepairAttempted = true;
+        try {
+          generationCalls++;
+          const repairedRaw = await generationProvider.generate({
+            system: "你只负责 Final JSON Repair。只修复 JSON 语法和既定 schema；最大限度保持原 answer、items、事实状态、判断和重要性顺序。不得搜索、读取 URL、重新研究、增加事实或重新排序。",
+            prompt: [
+              options.finalRepairInstruction || options.finalizationInstruction,
+              "allowed source URLs：",
+              JSON.stringify([...sourcePool.keys()]),
+              "需要修复的 Agent 原始最终输出：",
+              response.content || "",
+              "只输出修复后的严格 JSON。",
+            ].join("\n"),
+          });
+          const repaired = options.parseFinal(repairedRaw, new Set(sourcePool.keys()));
+          report = repaired.value;
+          parsedTelemetry = { searchedAreas: repaired.searchedAreas, unresolvedGaps: repaired.unresolvedGaps, confidence: repaired.confidence, itemCount: repaired.itemCount };
+          finalReceived = true;
+          finalRepairSucceeded = true;
+          finalization = "repaired";
+          turns.push({ turn: turn + 1, action: "final", unresolvedGaps: repaired.unresolvedGaps });
+        } catch {
+          // 保留原 forced finalization 作为最后收口手段。
+        }
       }
       break;
     }
@@ -308,14 +355,14 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       unresolvedGaps.forEach((gap) => runtimeGaps.add(gap));
 
       if (call.function.name === "web_search") {
-        const requested = strings(args.queries, AGENTIC_RESEARCH_LIMITS.maxTotalQueries);
+        const requested = strings(args.queries, budget.maxTotalQueries);
         if (!requested.length) {
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "invalid_tool_arguments" }) });
           turns.push({ turn, action: "invalid", unresolvedGaps, invalidReason: "INVALID_TOOL_ARGUMENTS" });
           continue;
         }
-        const remainingCalls = AGENTIC_RESEARCH_LIMITS.maxSearchCalls - searchCalls;
-        const remainingQueries = AGENTIC_RESEARCH_LIMITS.maxTotalQueries - totalQueries;
+        const remainingCalls = budget.maxSearchCalls - searchCalls;
+        const remainingQueries = budget.maxTotalQueries - totalQueries;
         if (remainingCalls <= 0 || remainingQueries <= 0) {
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "search_budget_exhausted" }) });
           turns.push({ turn, action: "invalid", unresolvedGaps, invalidReason: "SEARCH_BUDGET_EXHAUSTED" });
@@ -327,7 +374,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
         totalQueries += queries.length;
         const run = await retrieval.retrieve({ input: options.input, start: options.start, queries });
         retrievalRuns.push(run);
-        const packed = packAgentSearchResults(queries, run.results, AGENTIC_RESEARCH_LIMITS.maxResultsPerSearchTool);
+        const packed = packAgentSearchResults(queries, run.results, budget.maxResultsPerSearchTool);
         packed.forEach((item) => sourcePool.set(item.url, item));
         const telemetry = queryTelemetry(queries, packed);
         turns.push({ turn, action: "web_search", searchQueries: queries, searchTopResults: telemetry, unresolvedGaps });
@@ -340,7 +387,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       }
 
       if (call.function.name === "read_url") {
-        const requested = strings(args.urls, AGENTIC_RESEARCH_LIMITS.maxReadUrls);
+        const requested = strings(args.urls, budget.maxReadUrls);
         if (!requested.length) {
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "invalid_tool_arguments" }) });
           turns.push({ turn, action: "invalid", unresolvedGaps, invalidReason: "INVALID_TOOL_ARGUMENTS" });
@@ -358,8 +405,8 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
           turns.push({ turn, action: "invalid", unresolvedGaps, invalidReason: "READ_ALREADY_ACQUIRED" });
           continue;
         }
-        const remaining = AGENTIC_RESEARCH_LIMITS.maxReadUrls - readUrls;
-        const urls = unread.slice(0, Math.min(remaining, AGENTIC_RESEARCH_LIMITS.maxUrlsPerReadCall));
+        const remaining = budget.maxReadUrls - readUrls;
+        const urls = unread.slice(0, Math.min(remaining, budget.maxUrlsPerReadCall));
         if (!urls.length) {
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "read_budget_exhausted" }) });
           turns.push({ turn, action: "invalid", unresolvedGaps, invalidReason: "INVALID_TOOL_ARGUMENTS" });
@@ -382,7 +429,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
             title: cleanExternal(item.title, 300),
             publishedAt: normalizePublicTimestamp(item.evidencePublishedAt || item.publishedAt),
             evidenceStatus: item.evidenceStatus || "unavailable",
-            content: cleanExternal(item.content, AGENTIC_RESEARCH_LIMITS.maxPageCharsPerRead),
+            content: cleanExternal(item.content, budget.maxPageCharsPerRead),
           })),
         }) });
         continue;
@@ -401,7 +448,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
     }
   }
 
-  if (!finalReceived && lastTurn >= AGENTIC_RESEARCH_LIMITS.maxAgentTurns && !turns.some((turn) => turn.invalidReason === "AGENT_TIMEOUT" || turn.invalidReason === "INVALID_FINAL_JSON")) {
+  if (!finalReceived && lastTurn >= budget.maxAgentTurns && !turns.some((turn) => turn.invalidReason === "AGENT_TIMEOUT" || turn.invalidReason === "INVALID_FINAL_JSON")) {
     turns.push({ turn: lastTurn, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "AGENT_TURN_LIMIT" });
   }
 
@@ -414,7 +461,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
         url: item.sourceUrl,
         publishedAt: normalizePublicTimestamp(item.evidencePublishedAt || item.publishedAt),
         evidenceStatus: item.evidenceStatus || "unavailable",
-        content: cleanExternal(item.content, AGENTIC_RESEARCH_LIMITS.maxPageCharsPerRead),
+        content: cleanExternal(item.content, budget.maxPageCharsPerRead),
       })),
       unresolvedGaps: [...runtimeGaps],
       consumedBudget: { agentTurns: lastTurn, searchCalls, totalQueries, readUrls, elapsedMs: Date.now() - startedAt },
@@ -469,6 +516,8 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       sourceCount: sourcePool.size,
       reportItemCount: parsedTelemetry.itemCount,
       finalization,
+      finalRepairAttempted,
+      finalRepairSucceeded,
       durationMs: Date.now() - startedAt,
     },
   };
