@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildAiNativeBriefResult, normalizeTaskInput } from "@/lib/intelligence";
-import { runAiNativeResearch } from "@/lib/intelligenceAiNative";
+import { AI_NATIVE_PUBLICATION_SELF_AUDIT, answerCharacterCount, enforceAiNativePublicationConstraint, explicitAnswerCharacterLimit, runAiNativeResearch, type AiNativeResearchReport } from "@/lib/intelligenceAiNative";
 import type { IntelligenceAgentTurnResult, IntelligenceProvider, RetrievalRequest, RetrievalResult } from "@/lib/intelligenceProvider";
 import type { EvidenceCandidate } from "@/lib/intelligenceEvidence";
 
@@ -42,6 +42,34 @@ function toolCall(name: string, args: object, id: string): IntelligenceAgentTurn
 }
 
 async function main() {
+  const baseReport: AiNativeResearchReport = { answer: "短".repeat(420), items: [], searchedAreas: [], unresolvedGaps: [], confidence: "medium" };
+  let publicationRepairCalls = 0;
+  const publicationProvider: IntelligenceProvider = {
+    id: "publication-provider", model: "publication-model",
+    capabilities: { generation: true, nativeWebSearch: false },
+    async generate() { publicationRepairCalls++; return JSON.stringify({ answer: "修复后的精炼回答。" }); },
+  };
+  assert.equal(explicitAnswerCharacterLimit(input), 500);
+  const unchanged = await enforceAiNativePublicationConstraint(input, baseReport, publicationProvider, new Set());
+  assert.equal(unchanged.answer, baseReport.answer, "满足 500 字限制时 answer 必须完全不变");
+  assert.equal(publicationRepairCalls, 0, "满足限制时不得触发 repair");
+
+  const longReport: AiNativeResearchReport = { ...baseReport, answer: "甲".repeat(1_000) };
+  const repairedPublication = await enforceAiNativePublicationConstraint(input, longReport, publicationProvider, new Set());
+  assert.equal(publicationRepairCalls, 1, "超长时只允许一次 Publication Format Repair");
+  assert.equal(repairedPublication.answer, "修复后的精炼回答。");
+  assert.ok(answerCharacterCount(repairedPublication.answer) <= 500);
+  assert.notEqual(repairedPublication.answer, longReport.answer.slice(0, 500), "不得用字符串截断代替模型修复");
+
+  const stillLongProvider: IntelligenceProvider = { ...publicationProvider, async generate() { return JSON.stringify({ answer: "乙".repeat(600) }); } };
+  await assert.rejects(enforceAiNativePublicationConstraint(input, longReport, stillLongProvider, new Set()), /AI_NATIVE_PUBLICATION_CONSTRAINT_FAILED/);
+
+  const noLimitInput = normalizeTaskInput({ ...input, name: "前沿产业研究", outputInstructions: "形成研究简报。", includeRequirements: [] });
+  const noLimit = await enforceAiNativePublicationConstraint(noLimitInput, longReport, { ...publicationProvider, async generate() { throw new Error("must not run"); } }, new Set());
+  assert.equal(noLimit.answer, longReport.answer, "没有明确长度限制时不得自行创造限制");
+  assert.match(AI_NATIVE_PUBLICATION_SELF_AUDIT, /publication date != event date/i);
+  assert.match(AI_NATIVE_PUBLICATION_SELF_AUDIT, /历史事件[\s\S]*context/);
+
   let turn = 0;
   const provider: IntelligenceProvider = {
     id: "synthetic-agent",
