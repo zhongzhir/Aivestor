@@ -4,6 +4,7 @@
  */
 import type { Candidate, IntelligenceTaskInput } from "@/lib/intelligence";
 import { sourceQualityRank } from "@/lib/intelligenceSourceQuality";
+import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
 
 const HYPE_DETECT_PATTERNS = [
   /持续爆发/, /迎来新一轮/, /估值拐点/, /进入新时代/, /全面爆发/, /风口来临/,
@@ -98,7 +99,7 @@ export function resolvePublishedAt(options: {
 }): { publishedAt: string | null; timeUnconfirmed: boolean } {
   const fromSource = parseLooseDate(options.sourcePublishedAt);
   if (fromSource) return { publishedAt: fromSource, timeUnconfirmed: false };
-  const fromUrl = options.url ? dateFromUrl(options.url) : null;
+  const fromUrl = options.url ? normalizePublicTimestamp(dateFromUrl(options.url)) : null;
   if (fromUrl) return { publishedAt: fromUrl, timeUnconfirmed: false };
   // 明确忽略 collectedAt / generatedAt
   void options.collectedAt;
@@ -143,10 +144,10 @@ function parseLooseDate(value?: string | null): string | null {
   if (!value || !String(value).trim()) return null;
   const raw = String(value).trim();
   const asDate = new Date(raw);
-  if (Number.isFinite(asDate.getTime())) return asDate.toISOString();
+  if (Number.isFinite(asDate.getTime())) return normalizePublicTimestamp(asDate.toISOString());
   const match = raw.match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
   if (!match) return null;
-  return ymdToIso(Number(match[1]), Number(match[2]), Number(match[3]));
+  return normalizePublicTimestamp(ymdToIso(Number(match[1]), Number(match[2]), Number(match[3])));
 }
 
 export function formatPublishedLabel(publishedAt: string | null, timeUnconfirmed?: boolean): string {

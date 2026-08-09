@@ -3,7 +3,8 @@ import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenc
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider } from "@/lib/intelligenceProvider";
 import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntelligenceTaskSemantics, topicRelevance, type RelevanceDropReasons, type RelevancePhase } from "@/lib/intelligenceTopicRelevance";
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
-import { runAiFirstResearch, type ResearchClaim } from "@/lib/intelligenceResearchAgent";
+import { runAiFirstResearch, type ResearchAgenda, type ResearchClaim, type VerificationTrace } from "@/lib/intelligenceResearchAgent";
+import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
 import {
   buildEditorialOverview,
   enrichCandidate,
@@ -105,7 +106,7 @@ export interface BriefResult {
   importantFacts: BriefItem[];
   trendSignals: BriefItem[];
   otherItems: BriefItem[];
-  sourceList: Array<{ source: string; url: string | null; publishedAt: string; sourceTier?: "S" | "A" | "B" | "C" | "D"; origin?: string }>;
+  sourceList: Array<{ source: string; url: string | null; publishedAt: string | null; sourceTier?: "S" | "A" | "B" | "C" | "D"; origin?: string }>;
   metadata: {
     overview: string;
     origins: string[];
@@ -118,11 +119,14 @@ export interface BriefResult {
     research?: {
       mode: "ai-first";
       plan: { understanding: string; eventTypes: string[]; likelyEntities: string[]; queries: string[]; deepDiveCriteria: string[] };
-      rounds: Array<{ round: number; stage?: "discovery" | "verification"; queries: string[]; resultCount: number; followUpQueries: string[] }>;
+      rounds: Array<{ round: number; stage?: "discovery" | "gap-fill" | "verification"; queries: string[]; resultCount: number; followUpQueries: string[] }>;
       claims: number;
       generationCalls: number;
       verifiedClaims: ResearchClaim[];
-      discardedClaims: Array<{ statement: string; reason: string }>;
+      discardedClaims: Array<{ claim: ResearchClaim; reason: string }>;
+      supervisorAgendas: ResearchAgenda[];
+      verificationTraces: VerificationTrace[];
+      retrievalProviderGap: boolean;
     };
   };
 }
@@ -261,8 +265,7 @@ export function coverageFor(input: IntelligenceTaskInput, now = new Date()): { s
 }
 
 function coveragePlaceholder(value?: string | null): string {
-  const parsed = value ? Date.parse(value) : NaN;
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(0).toISOString();
+  return normalizePublicTimestamp(value) || "";
 }
 
 export async function loadCandidates(start: Date, end: Date): Promise<Candidate[]> {
