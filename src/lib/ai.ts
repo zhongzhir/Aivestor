@@ -119,7 +119,7 @@ export interface AIProviderAdapterCapabilities {
 const PROVIDER_CAPABILITIES: Record<AIProvider, AIProviderAdapterCapabilities> = {
   deepseek: { toolCalling: true, structuredOutput: true, agenticToolUse: true },
   openai: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
-  qwen: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
+  qwen: { toolCalling: true, structuredOutput: true, agenticToolUse: true },
   claude: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
   ctyun: { toolCalling: false, structuredOutput: true, agenticToolUse: false },
   zhipu: { toolCalling: false, structuredOutput: true, agenticToolUse: false },

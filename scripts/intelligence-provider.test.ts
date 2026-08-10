@@ -36,9 +36,17 @@ assert.equal((await deepseekOrchestrator.retrieve(request)).results.length, 1, "
 
 const qwen = createIntelligenceGenerationProvider({ provider: "qwen", apiKey: "secret", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1" });
 assert.equal(qwen.capabilities.nativeWebSearch, true, "Qwen DashScope 适配器应暴露原生检索能力");
-assert.equal(qwen.capabilities.agenticToolUse, false, "未完成真实协议验收的模型继续走保留的 scripted fallback");
-const qwenFallback = new IntelligenceRetrievalOrchestrator([{ ...qwen, searchWeb: async () => ({ status: "success", results: [item], queryCount: 1 }) }]);
-assert.equal((await qwenFallback.retrieve(request)).providers[0]?.provider, "qwen");
+assert.equal(qwen.capabilities.agenticToolUse, true, "Qwen 已通过真实多轮协议验收");
+assert.equal(qwen.capabilities.toolCalling, true);
+assert.equal(typeof qwen.runAgentTurn, "function", "Qwen adapter 应暴露通用 runAgentTurn");
+const qwenNative = new IntelligenceRetrievalOrchestrator([{ ...qwen, searchWeb: async () => ({ status: "success", results: [item], queryCount: 1 }) }]);
+assert.equal((await qwenNative.retrieve(request)).providers[0]?.provider, "qwen");
+
+for (const provider of ["openai", "claude", "ctyun", "zhipu", "moonshot"] as const) {
+  const unverified = createIntelligenceGenerationProvider({ provider, apiKey: "secret" });
+  assert.equal(unverified.capabilities.agenticToolUse, false, `${provider} 未经真实协议验收不得打开 agenticToolUse`);
+  assert.notEqual(typeof unverified.runAgentTurn, "function", `${provider} 不应暴露 runAgentTurn`);
+}
 
 const native: IntelligenceProvider = { id: "native-test", capabilities: { generation: true, nativeWebSearch: true }, searchWeb: async () => ({ status: "success", results: [item], queryCount: 1 }) };
 assert.equal((await new IntelligenceRetrievalOrchestrator([native], [provider("must-not-run", { status: "failed", results: [], queryCount: 1 })]).retrieve(request)).providers[0]?.provider, "native-test");
