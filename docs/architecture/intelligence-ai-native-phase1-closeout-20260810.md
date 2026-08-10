@@ -2,6 +2,96 @@
 
 日期：2026-08-10
 
+## Product Role and Phase 2 Product Constraints
+
+### 1. 第一性产品价值
+
+保持对市场的及时感知，是股权投资人的基本职业要求。
+
+股权投资工作并不只发生在收到 BP、开始尽调、进入投决这些离散项目节点。投资人还必须长期感知：
+
+- 行业和技术变化
+- 企业与竞争格局变化
+- 融资、上市、并购、资本合作
+- 政策与监管变化
+- 人才和组织变化
+- 产品与商业化进展
+- 估值和资本市场变化
+- 自己关注项目、赛道和公司的重要信号
+
+Aivestor Intelligence 的第一性产品价值是：
+
+> 帮助股权投资人持续、及时、高质量地感知与自己投资工作相关的市场变化，降低信息获取、筛选、核实和形成判断的成本。
+
+“鼓励用户频繁打开 Aivestor”不是第一目标，而是满足真实职业需求后自然产生的结果。Intelligence 不应被设计成单纯的新闻流、资讯聚合、用户活跃工具或定时推送工具。
+
+### 2. 产品定位
+
+Intelligence 的定位从“数据应用 / 情报订制工具”提升为“Aivestor 面向投资人的持续市场感知能力”。
+
+- 项目分析解决：当我已经面对一个具体项目时，帮我研究和判断。
+- Intelligence 解决：在没有具体项目输入时，持续帮助我知道市场正在发生什么，什么变化与我的投资工作有关，什么值得进一步研究和行动。
+
+二者共同构成投资工作台的重要基础能力。Intelligence 应逐步成为高频核心入口、投资情报中枢、Aivestor 持续智能层的重要组成部分，也是用户感知 Aivestor AI 研究能力的重要窗口。
+
+其差异化不是泛财经资讯，而是围绕这个投资人关心的市场、赛道、企业、项目和判断进行研究。
+
+### 3. 质量目标
+
+Intelligence 的研究质量不是普通“可用”标准。目标应持续逼近当前最强通用 Deep Research 产品水平，争取达到市场约 95 分位；可以将 ChatGPT Deep Research 等强产品作为外部质量 benchmark，但不复制其产品形态。
+
+质量评价重点：
+
+1. Recall：重要事件尽量不漏。
+2. Precision：无关信息尽量不混入。
+3. Scope Understanding：准确理解时间范围、主体范围、地域、事件类型和用户真正要解决的问题。
+4. Source Quality：尽可能获得官方披露、公司公告、交易所、监管机构、Reuters / Bloomberg 等高质量媒体、可靠专业媒体与数据库。
+5. Verification：重要事实主动交叉验证。
+6. Adaptive Research：发现缺口后自主 `search → read → assess gaps → reformulate query → search again → cross-check → final`。
+7. Investor Value：不仅说明发生了什么，还解释为什么重要、对行业和一级市场意味着什么、什么值得继续追踪；分析不得超过证据支持范围。
+8. Readability：最终结果应是投资人可以快速阅读和直接使用的成果，不暴露 Research Agent 内部工作日志。
+
+### 4. 任务体验方向
+
+当前产品仍明显受“定期订阅”模型约束。长期不应默认要求用户先选择定期任务、一次性任务或其它模式。更自然的入口是：
+
+> 你现在想了解什么？
+
+用户先用自然语言表达研究需求，AI 理解任务性质，系统只在必要时询问频率、时间等缺失信息。示例：
+
+- “查一下最近十天中国大模型企业融资动态。” → 一次性研究
+- “每周一整理一次机器人赛道融资和 IPO 动态。” → 定期简报
+- “持续关注月之暗面 IPO，有重要变化告诉我。” → 持续监测
+- “最近核聚变行业有什么重要变化？” → 开放研究
+
+长期至少自然支持 One-off Research、Recurring Intelligence、Continuous / Event Monitoring，但前端不必把三种模式做成三个显眼入口。系统的数据模型和调度模型不能先限制用户表达。
+
+### 5. Intelligence UX 方向
+
+当前 Intelligence 页面偏“任务配置后台”，Phase 2 必须同时推进 UX，不能等 Research Infrastructure 全部完成后再处理。用户打开 Aivestor 后，应先快速知道“最近发生了什么与我有关的变化”，再自然进入深入研究、查看来源、继续追问、创建持续关注、关联到项目 / 赛道 / 企业。
+
+页面信息层次优先考虑：
+
+1. 今天 / 最近值得关注什么
+2. 为什么值得关注
+3. 与我的投资方向有什么关系
+4. 事实与来源
+5. 深入研究 / 持续关注
+
+调度配置、执行模式、系统内部状态、技术字段和 Agent 工作流程可以存在，但应按需出现。
+
+Intelligence 有潜力成为促进用户反复打开 Aivestor 的核心能力，但逻辑必须是“投资人需要持续感知市场 → Aivestor 持续提供高价值市场感知 → 用户发现每天 / 每周打开都有新价值 → 自然形成使用习惯”，不能为了提高 DAU 制造新闻流和通知。
+
+未来个性化应结合用户投资偏好、关注赛道、已看项目、已投项目、项目库、用户判断、知识库以及阅读 / 反馈，从“全市场发生了什么”逐步升级为“市场发生了什么，而且哪些变化对这个投资人尤其重要”。个性化不能形成信息茧房，系统仍应保留发现重大意外变化和跨赛道机会的能力。
+
+### 6. Phase 2 三条并行 P1 主线
+
+- **P1-A — Research Quality**：Multi-source Search、Authority / Professional Sources、Adaptive Research、Model A/B，以及与强 Deep Research 产品的 benchmark。
+- **P1-B — Research Task Experience**：自然语言统一入口、One-off / Recurring / Monitoring、AI 自主理解任务形态、降低配置负担。
+- **P1-C — Intelligence Product UX**：高频市场感知入口、今日 / 近期重点变化、更友好的研究结果阅读、来源与不确定性自然呈现、深入研究与持续关注入口。
+
+三个方向应统一设计，不能把 Research Quality 和 UX 拆成互不相关的项目。
+
 ## 1. 长期架构原则
 
 Aivestor Intelligence 定位为面向股权投资场景的 Deep Research Environment，不是新闻规则处理流水线。
@@ -225,7 +315,7 @@ model=qwen3.7-max
 
 本轮不继续修复。
 
-### P2 — Publication / UX
+### P1-C — Publication / UX
 
 当前页面已经可用，但仍存在：
 
@@ -236,11 +326,11 @@ model=qwen3.7-max
 - 文风有时偏研究报告而非投资人高效情报简报
 - 需要进一步减少用户阅读负担
 
-原则：优先改善 AI 输出能力与薄发布层，不重新建设复杂规则流水线。
+这是 Phase 2 的并行 P1 主线。优先改善 AI 输出能力与薄发布层，不重新建设复杂规则流水线。
 
-## 6. 下一阶段：`RESEARCH_INFRASTRUCTURE_PHASE2`
+## 6. 下一阶段：`RESEARCH_INFRASTRUCTURE_PHASE2`（三条并行 P1 主线）
 
-### 6.1 Multi-source Search Infrastructure
+### 6.1 P1-A — Research Quality / Multi-source Search Infrastructure
 
 增加至少第二个独立 Web Search Provider。
 
@@ -257,7 +347,7 @@ Router 只负责 provider orchestration、dedupe、diagnostics 和 availability�
 
 重点提升 Recall、权威来源覆盖、搜索稳定性以及中文 / 英文跨语言检索能力。
 
-### 6.2 Authority / Professional Sources
+### 6.2 P1-A — Authority / Professional Sources
 
 逐步探索并接入：
 
@@ -272,7 +362,7 @@ Router 只负责 provider orchestration、dedupe、diagnostics 和 availability�
 
 这些均应作为 Research Tools / Sources，而不是写死进研究逻辑。
 
-### 6.3 Adaptive Deep Research
+### 6.3 P1-A — Adaptive Deep Research
 
 增强 Agent 自主研究链路：
 
@@ -289,7 +379,7 @@ first search
 
 Research Budget 长期应更偏向 time、tokens、cost，而不是固定“必须搜索几次”。
 
-### 6.4 Model A/B
+### 6.4 P1-A — Model A/B
 
 在同一 Research Infrastructure 下继续比较：
 
@@ -300,7 +390,7 @@ Research Budget 长期应更偏向 time、tokens、cost，而不是固定“必�
 
 选择默认模型的唯一核心标准是：真实投资任务结果质量 / 成本 / 延迟综合最优。不能因为品牌或 Provider 一致性而牺牲产品质量。
 
-### 6.5 `qwen3.7-max` Runtime Compatibility
+### 6.5 P1-A — `qwen3.7-max` Runtime Compatibility
 
 后续单独评估：
 
@@ -312,9 +402,9 @@ Research Budget 长期应更偏向 time、tokens、cost，而不是固定“必�
 
 不要把某一模型专属行为污染 Research Kernel。
 
-### 6.6 Publication Experience
+### 6.6 P1-C — Intelligence Product UX / Publication Experience
 
-在 Research Quality 稳定后再进行：
+与 Research Quality 并行推进，重点包括：
 
 - 简报信息架构
 - overview
