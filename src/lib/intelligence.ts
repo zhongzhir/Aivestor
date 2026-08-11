@@ -410,7 +410,13 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   if (validationError) throw new Error(validationError);
   const normalizedInput = normalizeIntelligenceTaskSemantics(input);
   const coverage = coverageFor(normalizedInput, now);
-  const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
+  const baseProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
+  const investorContext = await import("@/lib/intelligenceInvestorContext")
+    .then(({ buildInvestorResearchContext }) => buildInvestorResearchContext(userId, `${input.name}\n${input.outputInstructions}\n${[...input.topics, ...input.entities, ...input.keywords].join(" ")}`))
+    .catch(() => "");
+  const generationProvider: IntelligenceProvider = investorContext && baseProvider.generate
+    ? { ...baseProvider, generate: ({ system, prompt }) => baseProvider.generate!({ system: `${system}\n\n## 投资人相关性上下文\n${investorContext}`, prompt }) }
+    : baseProvider;
   const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
   if (generationProvider.capabilities.agenticToolUse && generationProvider.runAgentTurn && generationProvider.generate) {
     const research = await runAiNativeResearch(normalizedInput, coverage, { generationProvider, retrieval });
