@@ -33,6 +33,7 @@ export interface ChatRequest {
     userId: string;
     feature: string;
   };
+  reliability?: AIRequestReliability;
 }
 
 export interface ToolCallFunction {
@@ -67,6 +68,7 @@ export interface ToolChatRequest {
   model?: string;
   messages: ToolChatMessage[];
   tools: ChatToolDefinition[];
+  reliability?: AIRequestReliability;
 }
 
 export interface ToolChatResponse {
@@ -157,31 +159,70 @@ export function resolveAIModelSelection(options: {
   return { provider, model: defaultAIModel(provider), source: "adapter-default" };
 }
 
-// AI 空闲超时：建立连接到首个 token、以及流式过程中两次 token 之间，
-// 任意一段超过该时长无数据即中止，避免提供方挂起时把整个函数拖到
-// 平台 maxDuration（120s）才以 504 收场。每收到一块数据就重置计时。
-const AI_IDLE_TIMEOUT_MS = 60_000;
+export interface AIRequestReliability {
+  /** 建连、首个可见 token 和后续可见 token 之间允许的最大等待时间。 */
+  idleTimeoutMs: number;
+  /** 额外尝试次数；不会重试鉴权或参数错误。 */
+  maxRetries: number;
+  retryBaseDelayMs: number;
+}
+
+export type AIRequestProfile = "conversation" | "research";
+
+const DEFAULT_CONVERSATION_RELIABILITY: AIRequestReliability = {
+  idleTimeoutMs: 60_000,
+  maxRetries: 1,
+  retryBaseDelayMs: 500,
+};
+
+const DEFAULT_RESEARCH_RELIABILITY: AIRequestReliability = {
+  // Research may legitimately wait through a long reasoning/tool-planning phase.
+  // Keep-alive frames filtered by an SDK are not treated as user-visible progress.
+  idleTimeoutMs: 10 * 60_000,
+  maxRetries: 2,
+  retryBaseDelayMs: 1_000,
+};
+
+function boundedEnvNumber(value: string | undefined, fallback: number, minimum: number, maximum: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? Math.floor(parsed) : fallback;
+}
+
+/**
+ * A provider-neutral reliability profile. Research callers opt in explicitly;
+ * all other product calls retain the short interactive default.
+ */
+export function resolveAIRequestReliability(profile: AIRequestProfile = "conversation", env: Record<string, string | undefined> = process.env): AIRequestReliability {
+  const defaults = profile === "research" ? DEFAULT_RESEARCH_RELIABILITY : DEFAULT_CONVERSATION_RELIABILITY;
+  const prefix = profile === "research" ? "INTELLIGENCE_AI_" : "AI_";
+  return {
+    idleTimeoutMs: boundedEnvNumber(env[`${prefix}IDLE_TIMEOUT_MS`], defaults.idleTimeoutMs, 1_000, 30 * 60_000),
+    maxRetries: boundedEnvNumber(env[`${prefix}MAX_RETRIES`], defaults.maxRetries, 0, 4),
+    retryBaseDelayMs: boundedEnvNumber(env[`${prefix}RETRY_BASE_DELAY_MS`], defaults.retryBaseDelayMs, 0, 30_000),
+  };
+}
 
 class AITimeoutError extends Error {
-  constructor() {
+  constructor(timeoutMs: number) {
     super(
-      `AI 服务响应超时（${AI_IDLE_TIMEOUT_MS / 1000}s 无数据），请稍后重试`
+      `AI 服务响应超时（${timeoutMs / 1000}s 无数据），请稍后重试`
     );
     this.name = "AITimeoutError";
   }
 }
 
 // 给“建立连接 / 拿到流对象”这一步加超时：超时则中止上游并抛错。
-async function awaitWithTimeout<T>(
+export async function awaitWithTimeout<T>(
   p: Promise<T>,
+  timeoutMs: number,
   onTimeout: () => void
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       onTimeout();
-      reject(new AITimeoutError());
-    }, AI_IDLE_TIMEOUT_MS);
+      reject(new AITimeoutError(timeoutMs));
+    }, timeoutMs);
   });
   try {
     return await Promise.race([p, timeout]);
@@ -195,31 +236,62 @@ async function awaitWithTimeout<T>(
 }
 
 // 给任意异步可迭代流加“空闲看门狗”：两次产出间隔超时则中止上游并抛错。
-async function* withIdleTimeout<T>(
+export async function* withIdleTimeout<T>(
   stream: AsyncIterable<T>,
+  timeoutMs: number,
   onTimeout: () => void
 ): AsyncGenerator<T, void, unknown> {
   const iterator = stream[Symbol.asyncIterator]();
-  for (;;) {
-    const nextP = iterator.next();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        onTimeout();
-        reject(new AITimeoutError());
-      }, AI_IDLE_TIMEOUT_MS);
-    });
-    let result: IteratorResult<T>;
-    try {
-      result = await Promise.race([nextP, timeout]);
-    } catch (e) {
-      nextP.catch(() => {}); // 吞掉中止后上游的迟到拒绝
-      throw e;
-    } finally {
-      if (timer) clearTimeout(timer);
+  try {
+    for (;;) {
+      const nextP = iterator.next();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          onTimeout();
+          reject(new AITimeoutError(timeoutMs));
+        }, timeoutMs);
+      });
+      let result: IteratorResult<T>;
+      try {
+        result = await Promise.race([nextP, timeout]);
+      } catch (e) {
+        nextP.catch(() => {}); // 吞掉中止后上游的迟到拒绝
+        throw e;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      if (result.done) return;
+      yield result.value;
     }
-    if (result.done) return;
-    yield result.value;
+  } finally {
+    await iterator.return?.();
+  }
+}
+
+function statusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : undefined;
+}
+
+export function isRetryableAIError(error: unknown): boolean {
+  if (error instanceof AITimeoutError) return true;
+  const status = statusFromError(error);
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
+export async function runWithAIRetry<T>(operation: () => Promise<T>, reliability: AIRequestReliability, sleep: (delayMs: number) => Promise<void> = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))): Promise<T> {
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isRetryableAIError(error) || attempt >= reliability.maxRetries) throw error;
+      const delayMs = reliability.retryBaseDelayMs * 2 ** attempt;
+      attempt += 1;
+      await sleep(delayMs);
+    }
   }
 }
 
@@ -249,17 +321,22 @@ export function defaultBaseURL(provider: AIProvider): string | null {
 export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolChatResponse> {
   if (req.provider === "claude") throw new Error("tool calling is not configured for this provider");
   const cfg = OPENAI_COMPATIBLE[req.provider];
-  const controller = new AbortController();
+  const reliability = req.reliability || resolveAIRequestReliability();
   const client = new OpenAI({ apiKey: req.apiKey, baseURL: req.baseURL?.trim() || cfg.baseURL });
-  const response = await awaitWithTimeout(
-    client.chat.completions.create({
-      model: req.model || cfg.defaultModel,
-      stream: false,
-      messages: req.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-      tools: req.tools as OpenAI.Chat.Completions.ChatCompletionTool[],
-      tool_choice: "auto",
-    }, { signal: controller.signal }),
-    () => controller.abort(),
+  const response = await runWithAIRetry(async () => {
+    const controller = new AbortController();
+    return await awaitWithTimeout(
+      client.chat.completions.create({
+        model: req.model || cfg.defaultModel,
+        stream: false,
+        messages: req.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+        tools: req.tools as OpenAI.Chat.Completions.ChatCompletionTool[],
+        tool_choice: "auto",
+      }, { signal: controller.signal }),
+      reliability.idleTimeoutMs,
+      () => controller.abort(),
+    );
+  }, reliability,
   );
   const message = response.choices[0]?.message;
   if (!message) throw new Error("AI tool response missing message");
@@ -279,29 +356,45 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
 export async function* streamChat(
   req: ChatRequest
 ): AsyncGenerator<string, void, unknown> {
+  const reliability = req.reliability || resolveAIRequestReliability();
+  let retries = 0;
+  let emittedContent = false;
+  let promptTokens = 0;
+  let completionTokens = 0;
+
+  const retryOrThrow = async (error: unknown): Promise<void> => {
+    if (emittedContent || !isRetryableAIError(error) || retries >= reliability.maxRetries) throw error;
+    const delayMs = reliability.retryBaseDelayMs * 2 ** retries;
+    retries += 1;
+    await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  };
+
   if (req.provider === "claude") {
-    const client = new Anthropic({ apiKey: req.apiKey });
-    const controller = new AbortController();
-    const stream = client.messages.stream(
-      {
-        model: req.model || DEFAULT_CLAUDE_MODEL,
-        max_tokens: 8192,
-        system: req.system,
-        messages: req.messages,
-      },
-      { signal: controller.signal }
-    );
-    for await (const event of withIdleTimeout(stream, () =>
-      controller.abort()
-    )) {
-      if (
-        event.type === "content_block_delta" &&
-        event.delta.type === "text_delta"
-      ) {
-        yield event.delta.text;
+    for (;;) {
+      const client = new Anthropic({ apiKey: req.apiKey });
+      const controller = new AbortController();
+      try {
+        const stream = client.messages.stream(
+          {
+            model: req.model || DEFAULT_CLAUDE_MODEL,
+            max_tokens: 8192,
+            system: req.system,
+            messages: req.messages,
+          },
+          { signal: controller.signal }
+        );
+        for await (const event of withIdleTimeout(stream, reliability.idleTimeoutMs, () => controller.abort())) {
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            emittedContent = true;
+            yield event.delta.text;
+          }
+        }
+        return;
+      } catch (error) {
+        controller.abort();
+        await retryOrThrow(error);
       }
     }
-    return;
   }
 
   const cfg = OPENAI_COMPATIBLE[req.provider];
@@ -310,29 +403,39 @@ export async function* streamChat(
   const client = new OpenAI({ apiKey: req.apiKey, baseURL });
   // 平台代付：开启 include_usage 让最后一帧带 usage，用于扣减额度
   const wantUsage = !!req.freeQuotaMeta;
-  const controller = new AbortController();
-  const stream = await awaitWithTimeout(
-    client.chat.completions.create(
-      {
-        model: req.model || cfg.defaultModel,
-        stream: true,
-        messages: [{ role: "system", content: req.system }, ...req.messages],
-        ...(wantUsage ? { stream_options: { include_usage: true } } : {}),
-      },
-      { signal: controller.signal }
-    ),
-    () => controller.abort()
-  );
-  let promptTokens = 0;
-  let completionTokens = 0;
-  for await (const chunk of withIdleTimeout(stream, () => controller.abort())) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) yield delta;
-    // OpenAI 兼容协议：include_usage 时最后一帧 usage 字段会出现
-    const u = (chunk as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage;
-    if (u) {
-      promptTokens = u.prompt_tokens ?? promptTokens;
-      completionTokens = u.completion_tokens ?? completionTokens;
+  for (;;) {
+    const controller = new AbortController();
+    try {
+      const stream = await awaitWithTimeout(
+        client.chat.completions.create(
+          {
+            model: req.model || cfg.defaultModel,
+            stream: true,
+            messages: [{ role: "system", content: req.system }, ...req.messages],
+            ...(wantUsage ? { stream_options: { include_usage: true } } : {}),
+          },
+          { signal: controller.signal }
+        ),
+        reliability.idleTimeoutMs,
+        () => controller.abort()
+      );
+      for await (const chunk of withIdleTimeout(stream, reliability.idleTimeoutMs, () => controller.abort())) {
+        const delta = chunk.choices[0]?.delta?.content;
+        if (delta) {
+          emittedContent = true;
+          yield delta;
+        }
+        // OpenAI 兼容协议：include_usage 时最后一帧 usage 字段会出现
+        const u = (chunk as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage;
+        if (u) {
+          promptTokens = u.prompt_tokens ?? promptTokens;
+          completionTokens = u.completion_tokens ?? completionTokens;
+        }
+      }
+      break;
+    } catch (error) {
+      controller.abort();
+      await retryOrThrow(error);
     }
   }
   if (req.freeQuotaMeta && (promptTokens > 0 || completionTokens > 0)) {

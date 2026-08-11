@@ -95,6 +95,8 @@ assert.doesNotMatch(relevance, /BAILIAN_API_KEY|DashScope|qwen/);
 assert.doesNotMatch(kernel, /deepseek-v4|gpt-|claude-|qwen-|provider\s*===/i, "AI-native kernel must remain model agnostic");
 assert.doesNotMatch(runtime, /deepseek-v4|gpt-|claude-|qwen-|provider\s*===/i, "agent runtime must remain model agnostic");
 assert.doesNotMatch(providerAdapter, /catch[\s\S]{0,200}(?:deepseek|qwen|openai)/i, "provider failure must not silently switch models");
+assert.match(providerAdapter, /resolveAIRequestReliability\("research"\)/, "research generation must opt into the shared long-wait profile");
+assert.match(providerAdapter, /reliability: researchReliability/, "generation and agent turns must receive the same provider-neutral reliability profile");
 console.log("intelligence provider tests passed");
 }
 

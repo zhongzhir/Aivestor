@@ -1,4 +1,4 @@
-import { completeChatWithTools, getAIProviderAdapterCapabilities, resolveAIModelSelection, streamChat, type AIProvider, type ChatToolDefinition, type ToolCall, type ToolChatMessage } from "@/lib/ai";
+import { completeChatWithTools, getAIProviderAdapterCapabilities, resolveAIModelSelection, resolveAIRequestReliability, streamChat, type AIProvider, type ChatToolDefinition, type ToolCall, type ToolChatMessage } from "@/lib/ai";
 import type { UserCredentials } from "@/lib/report";
 import type { IntelligenceTaskInput } from "@/lib/intelligence";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
@@ -94,6 +94,7 @@ export function createIntelligenceGenerationProvider(
   });
   const adapterCapabilities = getAIProviderAdapterCapabilities(selection.provider);
   const agenticToolUse = !!credentials?.apiKey && adapterCapabilities.agenticToolUse;
+  const researchReliability = resolveAIRequestReliability("research");
   return {
     id: credentials ? selection.provider : "unknown",
     model: credentials ? selection.model : undefined,
@@ -117,6 +118,7 @@ export function createIntelligenceGenerationProvider(
               model: selection.model,
               system,
               messages: [{ role: "user", content: prompt }],
+              reliability: researchReliability,
             })) {
               output += chunk;
               if (output.length > 48_000) throw new Error("intelligence generation output too large");
@@ -134,6 +136,7 @@ export function createIntelligenceGenerationProvider(
             model: selection.model,
             messages: request.messages,
             tools: request.tools,
+            reliability: researchReliability,
           }),
         }
       : {}),
