@@ -27,7 +27,8 @@
     "db:backfill-embeddings": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/backfill-embeddings.ts",
     "db:grant-app": "node --env-file=.env.local scripts/grant-app-db-permissions.mjs",
     "db:check-production": "node --env-file=.env.local scripts/check-production-schema.mjs",
-    "intelligence:collect": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/collect-intelligence-sources.ts"
+    "intelligence:collect": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/collect-intelligence-sources.ts",
+    "test:research-live": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/research-infrastructure-live-validation.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",

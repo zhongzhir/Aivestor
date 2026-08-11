@@ -35,12 +35,12 @@ const deepseekOrchestrator = new IntelligenceRetrievalOrchestrator([{ ...deepsee
 assert.equal((await deepseekOrchestrator.retrieve(request)).results.length, 1, "DeepSeek 应自动使用独立检索");
 
 const qwen = createIntelligenceGenerationProvider({ provider: "qwen", apiKey: "secret", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1" });
-assert.equal(qwen.capabilities.nativeWebSearch, true, "Qwen DashScope 适配器应暴露原生检索能力");
+assert.equal(qwen.capabilities.nativeWebSearch, false, "检索必须由独立工具提供，不能依赖 Qwen 原生搜索");
 assert.equal(qwen.capabilities.agenticToolUse, true, "Qwen 已通过真实多轮协议验收");
 assert.equal(qwen.capabilities.toolCalling, true);
 assert.equal(typeof qwen.runAgentTurn, "function", "Qwen adapter 应暴露通用 runAgentTurn");
-const qwenNative = new IntelligenceRetrievalOrchestrator([{ ...qwen, searchWeb: async () => ({ status: "success", results: [item], queryCount: 1 }) }]);
-assert.equal((await qwenNative.retrieve(request)).providers[0]?.provider, "qwen");
+const qwenRetrieval = new IntelligenceRetrievalOrchestrator([{ ...qwen, searchWeb: undefined }], [provider("independent-web", { status: "success", results: [item], queryCount: 1 })]);
+assert.equal((await qwenRetrieval.retrieve(request)).providers[0]?.provider, "independent-web", "Qwen 与 DeepSeek 必须走同一检索工具契约");
 
 for (const provider of ["openai", "claude", "ctyun", "zhipu", "moonshot"] as const) {
   const unverified = createIntelligenceGenerationProvider({ provider, apiKey: "secret" });
@@ -61,6 +61,7 @@ assert.deepEqual(nativeFailure.providers.map((entry) => entry.provider), ["nativ
 const partial = await new IntelligenceRetrievalOrchestrator([], [provider("failed-a", { status: "failed", results: [], queryCount: 1, errorCode: "timeout" }), provider("success-b", { status: "success", results: [item], queryCount: 1 })]).retrieve(request);
 assert.equal(partial.status, "partial");
 assert.equal(partial.results.length, 1);
+assert.deepEqual(partial.providers.map((entry) => entry.provider), ["failed-a", "success-b"], "主检索失败时必须顺序切换备用检索，而不是伪装成功");
 
 const secondItem: WebSearchItem = { ...item, title: "AI 公司发布交易公告", url: "https://second.example/announcement", domain: "second.example" };
 const multiSource = await new IntelligenceRetrievalOrchestrator([], [
@@ -68,8 +69,8 @@ const multiSource = await new IntelligenceRetrievalOrchestrator([], [
   provider("web-b", { status: "success", results: [secondItem], queryCount: 1 }),
 ]).retrieve(request);
 assert.equal(multiSource.status, "success");
-assert.deepEqual(multiSource.providers.map((entry) => entry.provider), ["web-a", "web-b"], "Search Router 应保留每个 provider 的 diagnostics");
-assert.deepEqual(multiSource.results.map((entry) => entry.url), [item.url, secondItem.url], "Search Router 应合并多个独立 provider 的统一结果");
+assert.deepEqual(multiSource.providers.map((entry) => entry.provider), ["web-a"], "主检索成功后不得无故调用备用通道");
+assert.deepEqual(multiSource.results.map((entry) => entry.url), [item.url], "主检索成功时只保留已实际检索到的来源");
 
 const failed = await new IntelligenceRetrievalOrchestrator([], [provider("failed-a", { status: "failed", results: [], queryCount: 1, errorCode: "timeout" })]).retrieve(request);
 assert.equal(failed.status, "failed");
@@ -79,6 +80,8 @@ assert.notEqual(buildRetrievalOverview("success", [], input), "本期联网检�
 const metadata = JSON.stringify(safeRetrievalMetadata(partial, { searchCandidates: 1, relevancePassed: 1, relevanceDropped: 0, evidence: { full: 1, partial: 0, unavailable: 0 }, final: { facts: 1, clues: 0, trends: 0 } }));
 assert.doesNotMatch(metadata, /secret|authorization|system prompt|api[_-]?key/i);
 assert.match(metadata, /failed-a/);
+assert.match(metadata, /fetchedAt/);
+assert.match(metadata, /AI 公司完成融资/);
 
 const core = readFileSync(join(root, "src/lib/intelligence.ts"), "utf8");
 const kernel = readFileSync(join(root, "src/lib/intelligenceAiNative.ts"), "utf8");
