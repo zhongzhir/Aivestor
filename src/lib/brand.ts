@@ -9,6 +9,13 @@ export type BrandConfig = {
   legalName: string;
   website: string;
   supportEmail: string;
+  compliance: {
+    icpFiling: string;
+    publicSecurityFiling: {
+      number: string;
+      href: string;
+    } | null;
+  };
   colors: {
     deep: string;
     primary: string;
@@ -37,9 +44,16 @@ export const BRAND_CONFIGS: Record<BrandProfile, BrandConfig> = {
     englishName: "AIVESTOR",
     productName: "Aivestor 投资工作台",
     shortProductName: "Aivestor",
-    legalName: "Aivestor",
+    legalName: "北京链上文投信息技术有限公司",
     website: publicAppUrl,
     supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "Aivestor@qq.com",
+    compliance: {
+      icpFiling: "京ICP备2026011107号-3",
+      publicSecurityFiling: {
+        number: "京公网安备11010802048729号",
+        href: "https://beian.mps.gov.cn/#/query/webSearch?code=11010802048729",
+      },
+    },
     colors: {
       deep: "#0D1B3E",
       primary: "#1B6FE8",
@@ -65,6 +79,10 @@ export const BRAND_CONFIGS: Record<BrandProfile, BrandConfig> = {
     legalName: "中鉴智投（杭州）智能科技有限公司",
     website: publicAppUrl,
     supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "",
+    compliance: {
+      icpFiling: "浙ICP备2026062282号-1",
+      publicSecurityFiling: null,
+    },
     colors: {
       deep: "#0D1B3E",
       primary: "#1B6FE8",
