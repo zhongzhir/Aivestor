@@ -3,6 +3,7 @@ import type { UserCredentials } from "@/lib/report";
 import type { IntelligenceTaskInput } from "@/lib/intelligence";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
 import { createBailianRetrievalProvider } from "@/lib/intelligenceBailianAdapter";
+import { createTavilyRetrievalProvider } from "@/lib/intelligenceTavilyAdapter";
 
 export interface IntelligenceProviderCapabilities {
   generation: boolean;
@@ -69,6 +70,8 @@ export interface RetrievalResult {
   status: "success" | "partial" | "failed";
   providers: RetrievalProviderDiagnostic[];
   results: WebSearchItem[];
+  /** Present for live adapters; optional to preserve historical/test result compatibility. */
+  fetchedAt?: string;
 }
 
 /**
@@ -77,12 +80,6 @@ export interface RetrievalResult {
  */
 export interface IntelligenceSearchRouter {
   retrieve(request: RetrievalRequest): Promise<RetrievalResult>;
-}
-
-function isDashScopeQwen(credentials: Pick<UserCredentials, "provider" | "baseURL" | "apiKey">): boolean {
-  return credentials.provider === "qwen" &&
-    !!credentials.apiKey &&
-    (!credentials.baseURL || credentials.baseURL.includes("dashscope.aliyuncs.com"));
 }
 
 export function createIntelligenceGenerationProvider(
@@ -96,14 +93,15 @@ export function createIntelligenceGenerationProvider(
     useSystemConfiguration: credentials?.usingFreeQuota === true,
   });
   const adapterCapabilities = getAIProviderAdapterCapabilities(selection.provider);
-  const nativeWebSearch = !!credentials && isDashScopeQwen({ ...credentials, provider: selection.provider });
   const agenticToolUse = !!credentials?.apiKey && adapterCapabilities.agenticToolUse;
   return {
     id: credentials ? selection.provider : "unknown",
     model: credentials ? selection.model : undefined,
     capabilities: {
       generation: !!credentials,
-      nativeWebSearch,
+      // Research retrieval is supplied by independent RetrievalProvider adapters.
+      // A model's vendor-native search must not determine whether research works.
+      nativeWebSearch: false,
       agenticToolUse,
       toolCalling: adapterCapabilities.toolCalling,
       structuredOutput: adapterCapabilities.structuredOutput,
@@ -139,16 +137,13 @@ export function createIntelligenceGenerationProvider(
           }),
         }
       : {}),
-    ...(nativeWebSearch
-      ? { searchWeb: createBailianRetrievalProvider({ apiKey: credentials.apiKey, model: undefined }) .searchWeb }
-      : {}),
   };
 }
 
 export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRouter {
   constructor(
     private readonly generationProviders: IntelligenceProvider[] = [],
-    private readonly independentProviders: RetrievalProvider[] = [createBailianRetrievalProvider()],
+    private readonly independentProviders: RetrievalProvider[] = [createBailianRetrievalProvider(), createTavilyRetrievalProvider()],
   ) {}
 
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
@@ -172,14 +167,16 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
     let nativeSucceeded = false;
     for (const provider of nativeProviders) {
       const status = await run(provider);
-      if (status !== "failed") {
+      if (status === "success") {
         nativeSucceeded = true;
         break;
       }
     }
     if (nativeProviders.length === 0 || !nativeSucceeded) {
       for (const provider of this.independentProviders) {
-        await run(provider);
+        // Ordered providers are a real failover chain.  A partial result keeps
+        // its evidence, then gives the next provider a chance to fill the gap.
+        if ((await run(provider)) === "success") break;
       }
     }
 
@@ -187,7 +184,7 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
     const succeeded = diagnostics.filter((item) => item.succeeded).length;
     const failed = diagnostics.filter((item) => !item.succeeded).length;
     const status: RetrievalResult["status"] = succeeded === 0 ? "failed" : failed > 0 ? "partial" : "success";
-    return { status, providers: diagnostics, results: unique };
+    return { status, providers: diagnostics, results: unique, fetchedAt: new Date().toISOString() };
   }
 }
 
@@ -212,6 +209,7 @@ export function safeRetrievalMetadata(result: RetrievalResult, counts: {
   return {
     status: result.status,
     providers: result.providers,
+    ...(result.results.length ? { sources: result.results.map((item) => ({ url: item.url, title: item.title, fetchedAt: result.fetchedAt || null })) } : {}),
     ...counts,
   };
 }

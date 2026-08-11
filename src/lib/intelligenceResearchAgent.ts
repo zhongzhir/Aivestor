@@ -477,7 +477,7 @@ function aggregateDiagnostics(all: RetrievalResult[]): RetrievalResult {
   const succeeded = providers.some((item) => item.succeeded);
   const failed = providers.some((item) => !item.succeeded || item.errorCode);
   const results = all.flatMap((item) => item.results).filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index).slice(0, AI_RESEARCH_LIMITS.maxCandidates);
-  return { status: !succeeded ? "failed" : failed ? "partial" : "success", providers, results };
+  return { status: !succeeded ? "failed" : failed ? "partial" : "success", providers, results, fetchedAt: all.map((item) => item.fetchedAt).filter((value): value is string => !!value).sort().slice(-1)[0] || new Date().toISOString() };
 }
 
 function strongestEvidence(statuses: EvidenceStatus[]): EvidenceStatus {
