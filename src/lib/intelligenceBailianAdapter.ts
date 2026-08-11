@@ -1,7 +1,7 @@
 import type { RetrievalProvider, RetrievalRequest, RetrievalRunResult } from "@/lib/intelligenceProvider";
 import { buildIntelligenceSearchRuns, INTELLIGENCE_SEARCH_LIMITS, normalizeWebResults, planIntelligenceQueries, WEB_SEARCH_SYSTEM_PROMPT, type WebSearchItem } from "@/lib/intelligenceWebSearch";
 
-interface BailianCredentials { apiKey?: string; model?: string; }
+interface BailianCredentials { apiKey?: string; model?: string; endpoint?: string; }
 
 function errorCode(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -44,7 +44,7 @@ export class BailianRetrievalProvider implements RetrievalProvider {
   }
 
   private async searchWithDashScopeHTTP(query: string, freshnessDays: number, assigned: string[], apiKey: string): Promise<WebSearchItem[]> {
-    const response = await fetch(process.env.BAILIAN_DASHSCOPE_ENDPOINT || "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation", {
+    const response = await fetch(this.credentials.endpoint || process.env.BAILIAN_DASHSCOPE_ENDPOINT || "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
