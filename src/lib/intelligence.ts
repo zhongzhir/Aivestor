@@ -404,7 +404,15 @@ async function persistBrief(userId: string, taskId: string, brief: BriefResult, 
   return { id: rows[0].id, brief };
 }
 
-export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: Parameters<typeof createIntelligenceGenerationProvider>[0]): Promise<{ id: string; brief: BriefResult }> {
+/**
+ * Produces a complete research brief without changing business data.
+ *
+ * This is the shared production generation path: interactive/scheduled brief
+ * creation persists its result through generateBrief, while read-only quality
+ * validation can exercise exactly the same retrieval, investor-context and
+ * model-generation flow without creating an intelligence_briefs record.
+ */
+export async function generateResearchBrief(userId: string, input: IntelligenceTaskInput, now = new Date(), credentials?: Parameters<typeof createIntelligenceGenerationProvider>[0]): Promise<BriefResult> {
   if (!input.isActive) throw new Error("停用的情报任务不能执行");
   const validationError = validateTaskInput(input, now);
   if (validationError) throw new Error(validationError);
@@ -420,7 +428,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
   if (generationProvider.capabilities.agenticToolUse && generationProvider.runAgentTurn && generationProvider.generate) {
     const research = await runAiNativeResearch(normalizedInput, coverage, { generationProvider, retrieval });
-    return persistBrief(userId, taskId, buildAiNativeBriefResult(input, coverage, now, generationProvider, research), scheduledSlot);
+    return buildAiNativeBriefResult(input, coverage, now, generationProvider, research);
   }
   if (generationProvider.generate) {
     const research = await runAiFirstResearch(normalizedInput, coverage, { generationProvider, retrieval });
@@ -451,7 +459,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
         research: { mode: "ai-first", ...research.research },
       },
     };
-    return persistBrief(userId, taskId, brief, scheduledSlot);
+    return brief;
   }
   const retrievalResult = await retrieval.retrieve({ input: normalizedInput, start: coverage.start });
   const webCandidates: Candidate[] = retrievalResult.results.map((item) => {
@@ -534,6 +542,11 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
     sourceList: concreteItems.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
     metadata: { overview, origins, generationProvider: generationProvider.id, generationModel: generationProvider.model || null, retrieval: retrievalMetadata },
   };
+  return brief;
+}
+
+export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: Parameters<typeof createIntelligenceGenerationProvider>[0]): Promise<{ id: string; brief: BriefResult }> {
+  const brief = await generateResearchBrief(userId, input, now, credentials);
   return persistBrief(userId, taskId, brief, scheduledSlot);
 }
 

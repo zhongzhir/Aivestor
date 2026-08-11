@@ -30,7 +30,9 @@
     "db:check-production": "node --env-file=.env.local scripts/check-production-schema.mjs",
     "intelligence:collect": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/collect-intelligence-sources.ts",
     "research:quality": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/research-quality-ai-first-validation.ts",
-    "test:research-live": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/research-infrastructure-live-validation.ts"
+    "research:quality:personalized": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/research-quality-personalized-validation.ts",
+    "test:research-live": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/research-infrastructure-live-validation.ts",
+    "test:intelligence-research-boundary": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-research-boundary.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
