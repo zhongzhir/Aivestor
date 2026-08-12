@@ -10,6 +10,14 @@ const cases = [
   ["时间窗口", "研究最近7天商业航天资本动态，不将窗口外旧闻或回顾文章写成新增事件。"],
   ["覆盖不足", "研究最近7天中国 AI 基础设施投资动态；若来源覆盖不足，明确说明边界并给出可核实事实。"],
 ] as const;
+const validationStartedAt = Date.now();
+let activeCase: string | null = null;
+
+function persistFailure(rootCause: string, stoppedPhase = "bootstrap") {
+  const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "failed", failedCase: activeCase, failureCode: rootCause, durationMs: Date.now() - validationStartedAt, stoppedPhase, qualityFailureCodes: [rootCause], completedPhases: [], rootCause };
+  if (process.env.RESEARCH_QUALITY_OUTPUT) writeFileSync(process.env.RESEARCH_QUALITY_OUTPUT, JSON.stringify(output, null, 2));
+  return output;
+}
 
 function selectedCases() {
   const requested = new Set((process.env.RESEARCH_QUALITY_CASES || "").split(",").map((value) => value.trim()).filter(Boolean));
@@ -20,7 +28,7 @@ function selectedCases() {
 }
 
 async function main() {
-  const allStartedAt = Date.now();
+  const allStartedAt = validationStartedAt;
   const apiKey = process.env.DEEPSEEK_API_KEY || process.env.SYSTEM_DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY or SYSTEM_DEEPSEEK_API_KEY is required for ECS quality validation");
   const generationProvider = createIntelligenceGenerationProvider({ provider: "deepseek", apiKey, baseURL: "https://api.deepseek.com", model: "deepseek-v4-flash" });
@@ -33,6 +41,7 @@ async function main() {
     console.log(`[research-quality] ${JSON.stringify(row)}`);
   };
   for (const [name, instruction] of selectedCases()) {
+    activeCase = name;
     const startedAt = Date.now();
     emit({ phase: "case", outcome: "started", name });
     try {
@@ -71,7 +80,7 @@ async function main() {
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const reason = error instanceof Error ? error.message : "unknown_error";
-      const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "failed", failedCase: name, failureCode: reason, durationMs: Date.now() - allStartedAt, cases: [...results, { name, status: "failed", durationMs, reason }] };
+      const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "failed", failedCase: name, failureCode: reason, durationMs: Date.now() - allStartedAt, stoppedPhase: "research", qualityFailureCodes: [reason], completedPhases: results.map((result) => result.name), rootCause: reason, cases: [...results, { name, status: "failed", durationMs, reason }] };
       if (process.env.RESEARCH_QUALITY_OUTPUT) writeFileSync(process.env.RESEARCH_QUALITY_OUTPUT, JSON.stringify(output, null, 2));
       emit({ phase: "research", outcome: "failed", name, durationMs, failureCode: reason });
       console.error(JSON.stringify(output));
@@ -84,4 +93,4 @@ async function main() {
   console.log(JSON.stringify(output));
 }
 
-main().catch((error) => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });
+main().catch((error) => { const rootCause = error instanceof Error ? error.message : "unknown_error"; console.error(JSON.stringify(persistFailure(rootCause))); process.exitCode = 1; });

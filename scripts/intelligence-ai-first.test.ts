@@ -232,6 +232,7 @@ async function main() {
 
   let agentTurn = 0;
   let reasoningRoundTripped = false;
+  let integratedReviewCalls = 0;
   const agentProvider: IntelligenceProvider = {
     id: "mock-agent",
     capabilities: { generation: true, nativeWebSearch: false, agenticToolUse: true },
@@ -258,10 +259,7 @@ async function main() {
       };
     },
     async generate({ system }) {
-      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [{ url: "https://official.example/event", relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-07" }] }] });
-      if (system.includes("[PHASE:agentic-claim-verification]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", confidence: "high", classification: "fact", relevanceToResearch: "high" }] });
-      if (system.includes("[PHASE:agentic-evidence-entailment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportedStatement: "甲公司于8月7日完成新一轮融资", unsupportedDetails: [], classification: "fact" }] });
-      if (system.includes("[PHASE:agentic-final-synthesis]")) return JSON.stringify({ sentences: [{ text: "甲公司于8月7日完成新一轮融资。", mode: "fact", supportingClaimIds: ["claim-1"] }, { text: "后续应关注资金用途与交割进度。", mode: "analysis", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "甲公司完成新一轮融资", editorial: "后续应关注资金用途。" }], trends: [] });
+      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) { integratedReviewCalls++; return JSON.stringify({ claims: [{ id: "claim-1", statement: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", confidence: "high", classification: "fact", relevanceToResearch: "high", supportingEvidence: [{ url: "https://official.example/event", relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-07" }] }], sentences: [{ text: "甲公司于8月7日完成新一轮融资。", mode: "fact", supportingClaimIds: ["claim-1"] }, { text: "后续应关注资金用途与交割进度。", mode: "analysis", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "甲公司完成新一轮融资", editorial: "后续应关注资金用途。" }], trends: [] }); }
       throw new Error(`unexpected agentic phase: ${system}`);
     },
   };
@@ -292,6 +290,7 @@ async function main() {
   assert.deepEqual(agentResult.research.agent?.failureCodes, []);
   assert.equal(agentResult.importantFacts.length, 1);
   assert.equal(agentResult.importantFacts[0]?.sourceUrl, "https://official.example/event");
+  assert.equal(integratedReviewCalls, 1, "同一案例只能进行一次主要证据审校与发布调用");
   assert.equal(reasoningRoundTripped, true, "thinking-mode 多轮工具调用必须回传 reasoning_content");
   assert.equal(JSON.stringify(agentResult.research.agent).includes("internal reasoning"), false, "telemetry 不得暴露 reasoning_content");
 
@@ -325,10 +324,7 @@ async function main() {
       return { content: JSON.stringify({ findings: [{ claim: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", sourceUrls: [lateUrl], confidence: "high" }], searchedAreas: ["窗口内资本事项"], unresolvedGaps: [], confidence: "high" }), reasoningContent: null, toolCalls: [] };
     },
     async generate({ system }) {
-      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [{ url: lateUrl, relevantText: "丁公司于8月8日完成股权融资。", publishedAt: "2026-08-08" }] }] });
-      if (system.includes("[PHASE:agentic-claim-verification]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", confidence: "high", classification: "fact", relevanceToResearch: "high" }] });
-      if (system.includes("[PHASE:agentic-evidence-entailment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportedStatement: "丁公司于8月8日完成股权融资", unsupportedDetails: [], classification: "fact" }] });
-      if (system.includes("[PHASE:agentic-final-synthesis]")) return JSON.stringify({ sentences: [{ text: "丁公司于8月8日完成股权融资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "丁公司完成股权融资" }], trends: [] });
+      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", confidence: "high", classification: "fact", relevanceToResearch: "high", supportingEvidence: [{ url: lateUrl, relevantText: "丁公司于8月8日完成股权融资。", publishedAt: "2026-08-08" }] }], sentences: [{ text: "丁公司于8月8日完成股权融资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "丁公司完成股权融资" }], trends: [] });
       throw new Error(`unexpected late-pool phase: ${system}`);
     },
   };
@@ -373,10 +369,7 @@ async function main() {
         forcedFinalizationCalls++;
         return JSON.stringify({ findings: [{ claim: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", sourceUrls: [forcedUrl], confidence: "high" }], searchedAreas: ["窗口内股权事项"], unresolvedGaps: [], confidence: "high" });
       }
-      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [{ url: forcedUrl, relevantText: "戊公司于8月8日完成战略投资。", publishedAt: "2026-08-08" }] }] });
-      if (system.includes("[PHASE:agentic-claim-verification]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", confidence: "high", classification: "fact", relevanceToResearch: "high" }] });
-      if (system.includes("[PHASE:agentic-evidence-entailment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportedStatement: "戊公司于8月8日完成战略投资", unsupportedDetails: [], classification: "fact" }] });
-      if (system.includes("[PHASE:agentic-final-synthesis]")) return JSON.stringify({ sentences: [{ text: "戊公司于8月8日完成战略投资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "戊公司完成战略投资" }], trends: [] });
+      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", confidence: "high", classification: "fact", relevanceToResearch: "high", supportingEvidence: [{ url: forcedUrl, relevantText: "戊公司于8月8日完成战略投资。", publishedAt: "2026-08-08" }] }], sentences: [{ text: "戊公司于8月8日完成战略投资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "戊公司完成战略投资" }], trends: [] });
       throw new Error(`unexpected forced phase: ${system}`);
     },
   };

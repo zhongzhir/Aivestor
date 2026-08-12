@@ -12,4 +12,7 @@ assert.match(source, /qualityFailureCodes/, "every case must emit structured qua
 assert.match(source, /FACT_WITHOUT_BODY_EVIDENCE/, "body-evidence failures must fail acceptance");
 assert.match(source, /UNSUPPORTED_COMPARATIVE_ASSERTION/, "unsupported comparisons must fail acceptance");
 assert.match(source, /CASE_DURATION_EXCEEDED/, "slow cases must fail acceptance before the internal deadline");
+assert.match(source, /persistFailure/, "outer failures must still persist a result JSON");
+assert.match(source, /stoppedPhase/, "failed results must identify the stopped phase");
+assert.match(source, /rootCause/, "failed results must retain a sanitized root cause");
 console.log("research quality validation exit tests passed");

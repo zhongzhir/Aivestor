@@ -137,7 +137,7 @@ export interface AgentRuntimeOptions<T> {
   onEvent?: (event: ResearchRuntimeEvent) => void;
 }
 
-export type ResearchRuntimePhase = "agent_turn" | "web_search" | "evidence_read" | "forced_finalization" | "evidence_alignment" | "claim_verification" | "entailment" | "final_synthesis" | "research";
+export type ResearchRuntimePhase = "agent_turn" | "web_search" | "evidence_read" | "forced_finalization" | "evidence_alignment" | "claim_verification" | "entailment" | "final_synthesis" | "integrated_review_and_synthesis" | "publication_validation" | "research";
 export interface ResearchRuntimeEvent {
   phase: ResearchRuntimePhase;
   outcome: "started" | "completed" | "failed";
