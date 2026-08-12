@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { normalizeTaskInput } from "@/lib/intelligence";
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator } from "@/lib/intelligenceProvider";
 import { runAiFirstResearch } from "@/lib/intelligenceResearchAgent";
@@ -25,23 +25,38 @@ async function main() {
   const generationProvider = createIntelligenceGenerationProvider({ provider: "deepseek", apiKey, baseURL: "https://api.deepseek.com", model: "deepseek-v4-flash" });
   const retrieval = new IntelligenceRetrievalOrchestrator([]);
   const results = [] as unknown[];
+  const eventLog = process.env.RESEARCH_QUALITY_EVENT_LOG;
+  const emit = (event: object) => {
+    const row = { at: new Date().toISOString(), ...event };
+    if (eventLog) appendFileSync(eventLog, `${JSON.stringify(row)}\n`);
+    console.log(`[research-quality] ${JSON.stringify(row)}`);
+  };
   for (const [name, instruction] of selectedCases()) {
     const startedAt = Date.now();
-    console.log(`[research-quality] case_started name=${name}`);
+    emit({ phase: "case", outcome: "started", name });
     try {
       const input = normalizeTaskInput({ name, topics: ["AI", "创新药", "商业航天"], keywords: ["融资", "合作", "产品"], regions: ["中国"], includeRequirements: [instruction], outputInstructions: instruction, lookbackPeriod: { kind: "days", value: 14 }, maxItems: 8, executionMode: "manual", scheduleConfig: null, isActive: true });
-      const research = await runAiFirstResearch(input, { start: new Date(Date.now() - 14 * 86400000), end: new Date() }, { generationProvider, retrieval });
+      const research = await runAiFirstResearch(input, { start: new Date(Date.now() - 14 * 86400000), end: new Date() }, { generationProvider, retrieval, onEvent: emit });
       const durationMs = Date.now() - startedAt;
+      const failureCode = research.research.agent?.failureCodes?.[0];
+      const hasUsableResult = research.importantFacts.length + research.otherItems.length > 0 || /覆盖不足|未发现符合条件|检索未成功/.test(research.overview);
+      if (research.retrieval.status === "failed" || failureCode?.includes("timeout") || failureCode?.includes("FINALIZATION") || !hasUsableResult) {
+        throw new Error(failureCode || (research.retrieval.status === "failed" ? "retrieval_failed" : "no_usable_result"));
+      }
       results.push({ name, status: "completed", durationMs, retrieval: research.retrieval.status, overview: research.overview, facts: research.importantFacts.map((item) => ({ title: item.title, urls: item.sourceUrls, eventDate: item.publishedAt })), clues: research.otherItems.map((item) => ({ title: item.title, urls: item.sourceUrls })), analysis: research.importantFacts.map((item) => item.investmentNote).filter(Boolean), evidence: research.retrieval.evidence });
-      console.log(`[research-quality] case_completed name=${name} duration_ms=${durationMs} retrieval=${research.retrieval.status}`);
+      emit({ phase: "research", outcome: "completed", name, durationMs, counts: { facts: research.importantFacts.length, clues: research.otherItems.length, sources: research.sourceList.length } });
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const reason = error instanceof Error ? error.message : "unknown_error";
-      results.push({ name, status: "failed", durationMs, reason });
-      console.error(`[research-quality] case_failed name=${name} duration_ms=${durationMs} reason=${reason}`);
+      const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "failed", failedCase: name, failureCode: reason, durationMs, cases: [...results, { name, status: "failed", durationMs, reason }] };
+      if (process.env.RESEARCH_QUALITY_OUTPUT) writeFileSync(process.env.RESEARCH_QUALITY_OUTPUT, JSON.stringify(output, null, 2));
+      emit({ phase: "research", outcome: "failed", name, durationMs, failureCode: reason });
+      console.error(JSON.stringify(output));
+      process.exitCode = 1;
+      return;
     }
   }
-  const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", cases: results };
+  const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "passed", failedCase: null, failureCode: null, durationMs: 0, cases: results };
   if (process.env.RESEARCH_QUALITY_OUTPUT) writeFileSync(process.env.RESEARCH_QUALITY_OUTPUT, JSON.stringify(output, null, 2));
   console.log(JSON.stringify(output));
 }

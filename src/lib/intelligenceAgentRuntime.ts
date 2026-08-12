@@ -134,6 +134,18 @@ export interface AgentRuntimeOptions<T> {
   budget?: Partial<ResearchBudget>;
   /** Shared absolute deadline, including any post-runtime publication repair. */
   deadlineAt?: number;
+  onEvent?: (event: ResearchRuntimeEvent) => void;
+}
+
+export type ResearchRuntimePhase = "agent_turn" | "web_search" | "evidence_read" | "forced_finalization" | "evidence_alignment" | "claim_verification" | "entailment" | "final_synthesis" | "research";
+export interface ResearchRuntimeEvent {
+  phase: ResearchRuntimePhase;
+  outcome: "started" | "completed" | "failed";
+  elapsedMs: number;
+  remainingMs: number;
+  turn?: number;
+  failureCode?: string;
+  counts?: Record<string, number>;
 }
 
 export const INTELLIGENCE_AGENT_TOOLS: ChatToolDefinition[] = [
@@ -309,6 +321,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
   let deadlineExceeded = false;
   const remainingMs = () => deadlineAt - Date.now();
   const reachedDeadline = () => remainingMs() <= 0;
+  const emit = (phase: ResearchRuntimePhase, outcome: ResearchRuntimeEvent["outcome"], extra: Omit<ResearchRuntimeEvent, "phase" | "outcome" | "elapsedMs" | "remainingMs"> = {}) => options.onEvent?.({ phase, outcome, elapsedMs: Date.now() - startedAt, remainingMs: Math.max(0, remainingMs()), ...extra });
 
   for (let turn = 1; turn <= budget.maxAgentTurns; turn++) {
     lastTurn = turn;
@@ -323,6 +336,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       closureRequested = true;
     }
     let response;
+    emit("agent_turn", "started", { turn });
     try {
       response = await generationProvider.runAgentTurn({ messages, tools: INTELLIGENCE_AGENT_TOOLS, deadlineAt });
     } catch (error) {
@@ -333,6 +347,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       }
       throw error;
     }
+    emit("agent_turn", "completed", { turn, counts: { toolCalls: response.toolCalls.length } });
     generationCalls++;
     messages.push({
       role: "assistant",
@@ -407,7 +422,9 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
         queries.forEach((query) => runtimeAreas.add(query));
         searchCalls++;
         totalQueries += queries.length;
-        const run = await retrieval.retrieve({ input: options.input, start: options.start, queries });
+        emit("web_search", "started", { turn, counts: { queries: queries.length } });
+        const run = await retrieval.retrieve({ input: options.input, start: options.start, queries, deadlineAt });
+        emit("web_search", "completed", { turn, counts: { queries: queries.length, results: run.results.length } });
         retrievalRuns.push(run);
         const packed = packAgentSearchResults(queries, run.results, budget.maxResultsPerSearchTool);
         packed.forEach((item) => sourcePool.set(item.url, item));
@@ -452,7 +469,9 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
           const source = sourcePool.get(url)!;
           return { title: source.title, publishedAt: source.publishedAt || undefined, sourceUrl: url, origin: "web-search", content: source.snippet, evidenceStatus: "unavailable" };
         });
-        const acquired = await (options.acquireEvidence || acquireEvidence)(candidates, { maxUrls: urls.length });
+        emit("evidence_read", "started", { turn, counts: { urls: urls.length } });
+        const acquired = await (options.acquireEvidence || acquireEvidence)(candidates, { maxUrls: urls.length, deadlineAt });
+        emit("evidence_read", "completed", { turn, counts: { urls: urls.length, full: acquired.stats.full, partial: acquired.stats.partial } });
         for (const key of Object.keys(evidence) as Array<keyof EvidenceAcquisitionStats>) evidence[key] += acquired.stats[key];
         acquired.candidates.forEach((item) => { if (item.sourceUrl) evidenceByUrl.set(item.sourceUrl, item); });
         const readResults = acquired.candidates.map((item) => ({ url: item.sourceUrl!, evidenceStatus: item.evidenceStatus || "unavailable" }));
@@ -489,6 +508,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
 
   if (!finalReceived && !deadlineExceeded && !reachedDeadline()) {
     finalization = "forced";
+    emit("forced_finalization", "started", { turn: lastTurn });
     const payload = {
       task: options.taskPrompt,
       sources: searchMaterials([...sourcePool.values()]).map((item) => ({ ...item, snippet: cleanExternal(item.snippet, 500) })),
@@ -512,10 +532,12 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       report = parsed.value;
       parsedTelemetry = { searchedAreas: parsed.searchedAreas, unresolvedGaps: parsed.unresolvedGaps, confidence: parsed.confidence, itemCount: parsed.itemCount };
       finalReceived = true;
+      emit("forced_finalization", "completed", { turn: lastTurn });
       turns.push({ turn: lastTurn + 1, action: "final", unresolvedGaps: parsed.unresolvedGaps });
     } catch (error) {
       if (reachedDeadline() || (error instanceof Error && error.message.includes("research_total_timeout"))) deadlineExceeded = true;
       finalization = "failed";
+      emit("forced_finalization", "failed", { turn: lastTurn, failureCode: error instanceof Error ? error.message : "unknown_error" });
       turns.push({ turn: lastTurn + 1, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "FINALIZATION_FAILED" });
     }
   }
@@ -531,6 +553,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
     finalization = "failed";
     failureCodes.add("research_total_timeout");
   } else if (finalization === "failed") failureCodes.add(options.finalizationFailureCode || "AGENT_FINALIZATION_FAILED");
+  emit("research", deadlineExceeded || finalization === "failed" ? "failed" : "completed", { failureCode: deadlineExceeded ? "research_total_timeout" : finalization === "failed" ? options.finalizationFailureCode || "AGENT_FINALIZATION_FAILED" : undefined, counts: { generations: generationCalls, sources: sourcePool.size } });
   const searchedAreas = [...new Set([...runtimeAreas, ...parsedTelemetry.searchedAreas])];
   const unresolvedGaps = [...new Set([...runtimeGaps, ...parsedTelemetry.unresolvedGaps])];
   const successfulReadUrls = new Set([...evidenceByUrl.entries()].filter(([, item]) => item.evidenceStatus === "full" || item.evidenceStatus === "partial").map(([url]) => url));

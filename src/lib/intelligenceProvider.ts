@@ -18,6 +18,8 @@ export interface RetrievalRequest {
   start: Date;
   /** AI Researcher 自主生成的查询；为空时 Retrieval Provider 保持 legacy 规划兼容。 */
   queries?: string[];
+  deadlineAt?: number;
+  signal?: AbortSignal;
 }
 
 export interface IntelligenceGenerationRequest {

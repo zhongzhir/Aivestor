@@ -143,10 +143,12 @@ function contentType(headers: http.IncomingHttpHeaders): string {
   return String(headers["content-type"] ?? "").split(";", 1)[0]!.trim().toLowerCase();
 }
 
-function requestOnce(url: URL, address: string): Promise<RawResponse> {
+function requestOnce(url: URL, address: string, deadlineAt?: number, signal?: AbortSignal): Promise<RawResponse> {
   const transport = url.protocol === "https:" ? https : http;
   const normalizedHostname = normalizeHostname(url.hostname);
   return new Promise((resolve, reject) => {
+    const remainingMs = deadlineAt === undefined ? EVIDENCE_LIMITS.timeoutMs : Math.min(EVIDENCE_LIMITS.timeoutMs, deadlineAt - Date.now());
+    if (remainingMs <= 0) { reject(new Error("research_total_timeout:evidence_read")); return; }
     const request = transport.request({
       protocol: url.protocol,
       hostname: address,
@@ -155,8 +157,9 @@ function requestOnce(url: URL, address: string): Promise<RawResponse> {
       method: "GET",
       headers: { Accept: "text/html, text/plain;q=0.9", "User-Agent": USER_AGENT, Host: url.host },
       servername: net.isIP(normalizedHostname) ? undefined : normalizedHostname,
-      timeout: EVIDENCE_LIMITS.timeoutMs,
+      timeout: remainingMs,
       rejectUnauthorized: true,
+      signal,
     }, (response) => {
       const expected = Number(response.headers["content-length"] ?? 0);
       if (expected > EVIDENCE_LIMITS.maxResponseBytes) {
@@ -177,7 +180,7 @@ function requestOnce(url: URL, address: string): Promise<RawResponse> {
       response.on("end", () => resolve({ statusCode: response.statusCode ?? 0, headers: response.headers, body: Buffer.concat(chunks), location: response.headers.location }));
       response.on("error", reject);
     });
-    request.on("timeout", () => request.destroy(new Error("timeout")));
+    request.on("timeout", () => request.destroy(new Error(deadlineAt !== undefined && Date.now() >= deadlineAt ? "research_total_timeout:evidence_read" : "timeout")));
     request.on("error", reject);
     request.end();
   });
@@ -253,13 +256,14 @@ function unavailable(url: string, finalUrl: string, reason: unknown): EvidenceRe
   return { url, finalUrl, text: "", evidenceStatus: "unavailable", failureReason: reason instanceof Error ? reason.message : String(reason) };
 }
 
-export async function fetchPublicEvidence(value: string, options: { resolveAddresses?: AddressResolver; request?: EvidenceRequester } = {}): Promise<EvidenceResult> {
+export async function fetchPublicEvidence(value: string, options: { resolveAddresses?: AddressResolver; request?: EvidenceRequester; deadlineAt?: number; signal?: AbortSignal } = {}): Promise<EvidenceResult> {
   const original = value;
   let current = value;
   try {
     for (let redirect = 0; redirect <= EVIDENCE_LIMITS.maxRedirects; redirect += 1) {
+      if (options.signal?.aborted || (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt)) return unavailable(original, current, "research_total_timeout:evidence_read");
       const { url, addresses } = await validatePublicHttpUrl(current, options.resolveAddresses);
-      const response = await (options.request || requestOnce)(url, addresses[0]!);
+      const response = await (options.request ? options.request(url, addresses[0]!) : requestOnce(url, addresses[0]!, options.deadlineAt, options.signal));
       if (Number(response.headers["content-length"] ?? 0) > EVIDENCE_LIMITS.maxResponseBytes || response.body.length > EVIDENCE_LIMITS.maxResponseBytes) return unavailable(original, current, "response_too_large");
       if (response.statusCode >= 300 && response.statusCode < 400 && response.location) {
         if (redirect === EVIDENCE_LIMITS.maxRedirects) return unavailable(original, current, "too_many_redirects");
@@ -284,15 +288,16 @@ export async function fetchPublicEvidence(value: string, options: { resolveAddre
   }
 }
 
-export async function acquireEvidence<T extends EvidenceCandidate>(candidates: T[], options: { maxUrls?: number; concurrency?: number } = {}): Promise<{ candidates: T[]; stats: EvidenceAcquisitionStats }> {
+export async function acquireEvidence<T extends EvidenceCandidate>(candidates: T[], options: { maxUrls?: number; concurrency?: number; deadlineAt?: number; signal?: AbortSignal } = {}): Promise<{ candidates: T[]; stats: EvidenceAcquisitionStats }> {
   const targets = candidates.filter((candidate) => candidate.origin === "web-search" && !!candidate.sourceUrl).slice(0, options.maxUrls ?? EVIDENCE_LIMITS.maxUrls);
   const stats: EvidenceAcquisitionStats = { attempted: targets.length, full: 0, partial: 0, unavailable: 0 };
   let cursor = 0;
   const worker = async () => {
     while (cursor < targets.length) {
+      if (options.signal?.aborted || (options.deadlineAt !== undefined && Date.now() >= options.deadlineAt)) break;
       const index = cursor++;
       const candidate = targets[index]!;
-      const evidence = await fetchPublicEvidence(candidate.sourceUrl!);
+      const evidence = await fetchPublicEvidence(candidate.sourceUrl!, { deadlineAt: options.deadlineAt, signal: options.signal });
       candidate.evidenceStatus = evidence.evidenceStatus;
       if (evidence.evidenceStatus !== "unavailable") candidate.content = evidence.text;
       if (evidence.title && candidate.title.length < 12) candidate.title = evidence.title;
