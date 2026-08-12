@@ -1,7 +1,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { normalizeTaskInput } from "@/lib/intelligence";
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator } from "@/lib/intelligenceProvider";
-import { runAiFirstResearch } from "@/lib/intelligenceResearchAgent";
+import { hasIncompletePublicationText, hasUnsupportedComparativeAssertion, runAiFirstResearch } from "@/lib/intelligenceResearchAgent";
 
 const cases = [
   ["行业近期动态", "研究最近7天中国创新药海外 BD 与融资动态，事实摘要后给出简要投资分析。"],
@@ -20,11 +20,12 @@ function selectedCases() {
 }
 
 async function main() {
+  const allStartedAt = Date.now();
   const apiKey = process.env.DEEPSEEK_API_KEY || process.env.SYSTEM_DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("DEEPSEEK_API_KEY or SYSTEM_DEEPSEEK_API_KEY is required for ECS quality validation");
   const generationProvider = createIntelligenceGenerationProvider({ provider: "deepseek", apiKey, baseURL: "https://api.deepseek.com", model: "deepseek-v4-flash" });
   const retrieval = new IntelligenceRetrievalOrchestrator([]);
-  const results = [] as unknown[];
+  const results: Array<Record<string, unknown>> = [];
   const eventLog = process.env.RESEARCH_QUALITY_EVENT_LOG;
   const emit = (event: object) => {
     const row = { at: new Date().toISOString(), ...event };
@@ -40,15 +41,37 @@ async function main() {
       const durationMs = Date.now() - startedAt;
       const failureCode = research.research.agent?.failureCodes?.[0];
       const hasUsableResult = research.importantFacts.length + research.otherItems.length > 0 || /覆盖不足|未发现符合条件|检索未成功/.test(research.overview);
-      if (research.retrieval.status === "failed" || failureCode?.includes("timeout") || failureCode?.includes("FINALIZATION") || !hasUsableResult) {
-        throw new Error(failureCode || (research.retrieval.status === "failed" ? "retrieval_failed" : "no_usable_result"));
+      const items = [...research.importantFacts, ...research.otherItems, ...research.trendSignals];
+      const incompleteFactCount = items.filter((item) => [item.title, item.summary, item.investmentNote].filter((text): text is string => !!text).some(hasIncompletePublicationText)).length + (hasIncompletePublicationText(research.overview) ? 1 : 0);
+      const facts = research.research.verifiedClaims.filter((claim) => claim.classification === "fact");
+      const factWithoutBodyEvidenceCount = facts.filter((claim) => claim.evidenceStatus === "unavailable" || claim.supportingEvidence.length === 0).length;
+      const unsupportedComparativeCount = facts.filter(hasUnsupportedComparativeAssertion).length;
+      const sourceTierByUrl = new Map(research.sourceList.filter((source): source is typeof source & { url: string } => !!source.url).map((source) => [source.url, source.sourceTier]));
+      const factsWithPrimaryEvidence = facts.filter((claim) => claim.supportingEvidence.some((evidence) => sourceTierByUrl.get(evidence.url) === "S")).length;
+      const independentSourceCount = new Set(research.sourceList.map((source) => source.url ? new URL(source.url).hostname.replace(/^www\./, "") : "").filter(Boolean)).size;
+      const clueRestatedAsFact = research.research.verifiedClaims.filter((claim) => claim.classification === "clue").some((claim) => research.overview.includes(claim.statement) && !/待核实|据报道|若获确认/.test(research.overview));
+      const qualityFailureCodes = [
+        ...(incompleteFactCount ? ["INCOMPLETE_PUBLICATION_TEXT"] : []),
+        ...(factWithoutBodyEvidenceCount ? ["FACT_WITHOUT_BODY_EVIDENCE"] : []),
+        ...(unsupportedComparativeCount ? ["UNSUPPORTED_COMPARATIVE_ASSERTION"] : []),
+        ...(clueRestatedAsFact ? ["CLUE_RESTATED_AS_FACT"] : []),
+        ...(durationMs > 480000 ? ["CASE_DURATION_EXCEEDED"] : []),
+      ];
+      const quality = {
+        incompleteFactCount, factWithoutBodyEvidenceCount, unsupportedComparativeCount, factsWithPrimaryEvidence,
+        independentSourceCount, evidenceReadAttempted: research.retrieval.evidence.attempted, evidenceReadFull: research.retrieval.evidence.full,
+        evidenceReadPartial: research.retrieval.evidence.partial, evidenceReadUnavailable: research.retrieval.evidence.unavailable,
+        durationMs, qualityFailureCodes,
+      };
+      if (research.retrieval.status === "failed" || failureCode?.includes("timeout") || failureCode?.includes("FINALIZATION") || !hasUsableResult || qualityFailureCodes.length) {
+        throw new Error(qualityFailureCodes[0] || failureCode || (research.retrieval.status === "failed" ? "retrieval_failed" : "no_usable_result"));
       }
-      results.push({ name, status: "completed", durationMs, retrieval: research.retrieval.status, overview: research.overview, facts: research.importantFacts.map((item) => ({ title: item.title, urls: item.sourceUrls, eventDate: item.publishedAt })), clues: research.otherItems.map((item) => ({ title: item.title, urls: item.sourceUrls })), analysis: research.importantFacts.map((item) => item.investmentNote).filter(Boolean), evidence: research.retrieval.evidence });
+      results.push({ name, status: "completed", durationMs, retrieval: research.retrieval.status, overview: research.overview, facts: research.importantFacts.map((item) => ({ title: item.title, urls: item.sourceUrls, eventDate: item.publishedAt })), clues: research.otherItems.map((item) => ({ title: item.title, urls: item.sourceUrls })), analysis: research.importantFacts.map((item) => item.investmentNote).filter(Boolean), evidence: research.retrieval.evidence, quality });
       emit({ phase: "research", outcome: "completed", name, durationMs, counts: { facts: research.importantFacts.length, clues: research.otherItems.length, sources: research.sourceList.length } });
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const reason = error instanceof Error ? error.message : "unknown_error";
-      const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "failed", failedCase: name, failureCode: reason, durationMs, cases: [...results, { name, status: "failed", durationMs, reason }] };
+      const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "failed", failedCase: name, failureCode: reason, durationMs: Date.now() - allStartedAt, cases: [...results, { name, status: "failed", durationMs, reason }] };
       if (process.env.RESEARCH_QUALITY_OUTPUT) writeFileSync(process.env.RESEARCH_QUALITY_OUTPUT, JSON.stringify(output, null, 2));
       emit({ phase: "research", outcome: "failed", name, durationMs, failureCode: reason });
       console.error(JSON.stringify(output));
@@ -56,7 +79,7 @@ async function main() {
       return;
     }
   }
-  const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "passed", failedCase: null, failureCode: null, durationMs: 0, cases: results };
+  const output = { generatedAt: new Date().toISOString(), sha: process.env.GIT_COMMIT || "unknown", overallStatus: "passed", failedCase: null, failureCode: null, durationMs: Date.now() - allStartedAt, cases: results };
   if (process.env.RESEARCH_QUALITY_OUTPUT) writeFileSync(process.env.RESEARCH_QUALITY_OUTPUT, JSON.stringify(output, null, 2));
   console.log(JSON.stringify(output));
 }

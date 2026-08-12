@@ -3,6 +3,9 @@ import { normalizeTaskInput } from "@/lib/intelligence";
 import { resolvePublishedAt } from "@/lib/intelligenceBriefQuality";
 import {
   enforceClaimPublicationGate,
+  cleanPublicationText,
+  hasIncompletePublicationText,
+  hasUnsupportedComparativeAssertion,
   hasRetrievalProviderGap,
   packAgentSearchResults,
   renderPublicationContract,
@@ -191,6 +194,20 @@ async function main() {
   assert.ok(!bounded || bounded.endsWith("。"), "超长文本只能按完整 FinalSentence 删除，不得截断半句");
   const unsupported = enforceClaimPublicationGate({ ...clue, classification: "fact", confidence: "high", statement: "甲公司完成100亿元融资" });
   assert.equal(unsupported.classification, "clue");
+  const completeFact = "甲公司完成由乙机构领投的B轮融资，融资金额达到12亿元，其中8亿元用于研发。后续还将拓展海外市场。";
+  assert.equal(cleanPublicationText(completeFact, 45), "甲公司完成由乙机构领投的B轮融资，融资金额达到12亿元，其中8亿元用于研发。", "压缩应删除次要完整句，不得截断主体、金额、轮次或交易方");
+  assert.equal(hasIncompletePublicationText("甲公司完成融资以及"), true);
+  assert.equal(hasIncompletePublicationText("甲公司完成融资。"), false);
+  const comparisonClaim: ResearchClaim = { ...clue, id: "comparison", statement: "甲公司完成第四笔且金额最大的一轮融资", evidenceStatus: "full", classification: "fact", supportingEvidence: [{ url: "https://one.example/a", relevantText: "甲公司完成一轮融资。", publishedAt: null }] };
+  assert.equal(hasUnsupportedComparativeAssertion(comparisonClaim), true);
+  assert.equal(enforceClaimPublicationGate(comparisonClaim, [{ title: "报道", url: "https://one.example/a", siteName: "可靠媒体", snippet: "", publishedAt: null, sourceTier: "A", domain: "one.example", query: "" }]).classification, "clue", "无正文依据的比较性结论必须降级");
+  const supportedComparison: ResearchClaim = { ...comparisonClaim, supportingEvidence: [{ url: "https://official.example/a", relevantText: "公告确认这是甲公司第四笔且金额最大的融资。", publishedAt: null }] };
+  assert.equal(enforceClaimPublicationGate(supportedComparison, [{ title: "公告", url: "https://official.example/a", siteName: "官方公告", snippet: "", publishedAt: null, sourceTier: "S", domain: "official.example", query: "" }]).classification, "fact", "明确公告可以支持比较性结论");
+  const syndicated: ResearchClaim = { ...clue, id: "syndicated", statement: "甲公司完成B轮融资，金额12亿元", evidenceStatus: "full", classification: "fact", supportingEvidence: [{ url: "https://same.example/a", relevantText: "甲公司完成B轮融资，金额12亿元。", publishedAt: null }, { url: "https://same.example/b", relevantText: "甲公司完成B轮融资，金额12亿元。", publishedAt: null }] };
+  assert.equal(enforceClaimPublicationGate(syndicated, [{ title: "转载甲", url: "https://same.example/a", siteName: "可靠媒体", snippet: "", publishedAt: null, sourceTier: "A", domain: "same.example", query: "" }, { title: "转载乙", url: "https://same.example/b", siteName: "可靠媒体", snippet: "", publishedAt: null, sourceTier: "A", domain: "same.example", query: "" }]).classification, "clue", "同域转载不得视为独立交叉验证");
+  const independent: ResearchClaim = { ...syndicated, supportingEvidence: [{ url: "https://one.example/a", relevantText: "甲公司完成B轮融资，金额12亿元。", publishedAt: null }, { url: "https://two.example/b", relevantText: "甲公司完成B轮融资，金额12亿元。", publishedAt: null }] };
+  assert.equal(enforceClaimPublicationGate(independent, [{ title: "可靠媒体甲", url: "https://one.example/a", siteName: "可靠媒体", snippet: "", publishedAt: null, sourceTier: "A", domain: "one.example", query: "" }, { title: "可靠媒体乙", url: "https://two.example/b", siteName: "可靠媒体", snippet: "", publishedAt: null, sourceTier: "B", domain: "two.example", query: "" }]).classification, "fact");
+  assert.equal(enforceClaimPublicationGate({ ...independent, evidenceStatus: "unavailable" }, [{ title: "可靠媒体甲", url: "https://one.example/a", siteName: "可靠媒体", snippet: "", publishedAt: null, sourceTier: "A", domain: "one.example", query: "" }, { title: "可靠媒体乙", url: "https://two.example/b", siteName: "可靠媒体", snippet: "", publishedAt: null, sourceTier: "B", domain: "two.example", query: "" }]).classification, "clue", "无正文来源不能支持 fact");
   assert.equal(resolvePublishedAt({ sourcePublishedAt: "1970-01-01", url: null }).publishedAt, null);
   assert.equal(resolvePublishedAt({ sourcePublishedAt: "2069-08-08", url: null }).publishedAt, null);
 

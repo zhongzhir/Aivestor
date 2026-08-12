@@ -20,6 +20,9 @@ export const AI_RESEARCH_LIMITS = {
   maxEvidenceSpansPerClaim: 4,
 } as const;
 
+// Keep enough of the shared deadline for evidence alignment, verification and final synthesis.
+const FINALIZATION_RESERVE_MS = 90_000;
+
 export interface ResearchPlan {
   understanding: string;
   eventTypes: string[];
@@ -190,6 +193,54 @@ function cleanExternal(value: unknown, max = 4_000): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, max);
+}
+
+const INCOMPLETE_PUBLICATION_ENDING = /(?:以及|并|其中|包括|达到|融资|投资|合作|宣布|完成|为|与)$/u;
+const COMPARATIVE_ASSERTION = /(?:首次|唯一|最大|最小|第[一二三四五六七八九十\d]+(?:笔|次|家|名|位)?|连续第[一二三四五六七八九十\d]+次|行业第[一二三四五六七八九十\d]+|行业第一)/gu;
+const MATERIAL_TRANSACTION_DETAIL = /(?:\d+(?:\.\d+)?(?:亿|万)?(?:元|美元|港元)|估值|[A-H](?:\+)?轮|Pre-[A-Z]|投资方|领投|跟投|交易对手|收购方|被投方)/iu;
+
+/** Preserve a complete semantic unit for user-visible research text. */
+export function cleanPublicationText(value: unknown, max = 500): string {
+  const text = cleanExternal(value, 8_000);
+  if (text.length <= max) return text;
+  const units = text.match(/[^。！？；;]+[。！？；;]?/gu)?.map((unit) => unit.trim()).filter(Boolean) || [text];
+  const kept: string[] = [];
+  for (const unit of units) {
+    if (kept.join("").length + unit.length > max) break;
+    kept.push(unit);
+  }
+  // A single atomic statement must remain intact rather than become a fragment.
+  return kept.length ? kept.join("") : text;
+}
+
+export function hasIncompletePublicationText(value: string): boolean {
+  const text = String(value || "").trim();
+  return !text || /[…]{1,3}$/.test(text) || /[（(\[【{]$/.test(text) || INCOMPLETE_PUBLICATION_ENDING.test(text);
+}
+
+function comparativeTerms(value: string): string[] {
+  return [...value.matchAll(COMPARATIVE_ASSERTION)].map((match) => match[0]).filter(Boolean);
+}
+
+function evidenceMetadata(claim: ResearchClaim, results: WebSearchItem[]) {
+  const byUrl = new Map(results.map((result) => [result.url, result]));
+  return claim.supportingEvidence.map((evidence) => ({ evidence, source: byUrl.get(evidence.url) })).filter(({ evidence }) => !!evidence.relevantText.trim());
+}
+
+export function hasUnsupportedComparativeAssertion(claim: ResearchClaim): boolean {
+  const terms = comparativeTerms(claim.statement);
+  return terms.length > 0 && terms.some((term) => !claim.supportingEvidence.some((evidence) => evidence.relevantText.includes(term)));
+}
+
+function hasSufficientMaterialEvidence(claim: ResearchClaim, results: WebSearchItem[]): boolean {
+  if (!MATERIAL_TRANSACTION_DETAIL.test(claim.statement)) return true;
+  const evidence = evidenceMetadata(claim, results);
+  if (evidence.some(({ source }) => source?.sourceTier === "S")) return true;
+  const independentReliableDomains = new Set(evidence
+    .filter(({ source }) => source?.sourceTier === "A" || source?.sourceTier === "B")
+    .map(({ source }) => source?.domain)
+    .filter(Boolean));
+  return independentReliableDomains.size >= 2;
 }
 
 export function renderPublicationContract(sentences: FinalSentence[], claims: ResearchClaim[]): string {
@@ -485,13 +536,21 @@ function strongestEvidence(statuses: EvidenceStatus[]): EvidenceStatus {
   return statuses.includes("full") ? "full" : statuses.includes("partial") ? "partial" : "unavailable";
 }
 
-export function enforceClaimPublicationGate(claim: ResearchClaim): ResearchClaim {
+export function enforceClaimPublicationGate(claim: ResearchClaim, results: WebSearchItem[] = []): ResearchClaim {
+  const hasBodyEvidence = claim.evidenceStatus !== "unavailable" && claim.supportingEvidence.length > 0;
+  const comparisonUnsupported = hasUnsupportedComparativeAssertion(claim);
+  const materialEvidenceSufficient = hasSufficientMaterialEvidence(claim, results);
   const classification: ResearchClaimClass = claim.relevanceToResearch === "low" || claim.classification === "background"
     ? "background"
-    : claim.classification === "fact" && claim.evidenceStatus !== "unavailable" && claim.supportingEvidence.length > 0
+    : claim.classification === "fact" && hasBodyEvidence && !comparisonUnsupported && materialEvidenceSufficient
       ? "fact"
       : "clue";
-  return { ...claim, classification, confidence: classification === "fact" ? claim.confidence : claim.confidence === "high" ? "medium" : claim.confidence };
+  const unsupportedDetails = [
+    ...(claim.unsupportedDetails || []),
+    ...(comparisonUnsupported ? ["比较性断言缺少正文证据"] : []),
+    ...(!materialEvidenceSufficient ? ["关键交易细节缺少一手或独立可靠来源"] : []),
+  ].filter((item, index, list) => list.indexOf(item) === index);
+  return { ...claim, classification, unsupportedDetails, confidence: classification === "fact" ? claim.confidence : claim.confidence === "high" ? "medium" : claim.confidence };
 }
 
 function sourceForClaim(claim: ResearchClaim, results: WebSearchItem[]): WebSearchItem | undefined {
@@ -509,10 +568,10 @@ function candidateFromClaim(claim: ResearchClaim, synthesis: SynthesisOutput, re
   const clueBody = claim.classification === "clue" ? `据公开报道，以下信息尚待进一步核实：${summary || claim.statement}` : summary || claim.statement;
   return {
     id: `research:${claim.id}`,
-    title: `${cluePrefix}${cleanExternal(claim.statement, 160)}`,
-    content: cleanExternal(clueBody, 800),
-    summary: claim.classification === "clue" ? cleanExternal(clueBody, 500) : summary,
-    investmentNote: cleanExternal(item?.editorial || claim.significance, 500) || undefined,
+    title: `${cluePrefix}${cleanPublicationText(claim.statement, 300)}`,
+    content: cleanPublicationText(clueBody, 800),
+    summary: claim.classification === "clue" ? cleanPublicationText(clueBody, 500) : cleanPublicationText(summary, 500),
+    investmentNote: cleanPublicationText(item?.editorial || claim.significance, 500) || undefined,
     source: source?.siteName || "联网来源",
     sourceUrl: sourceUrls[0] || null,
     sourceUrls,
@@ -799,7 +858,7 @@ async function runScriptedAiFirstResearch(
       classification: claim.classification === "background" ? "background" : mayPublishFact ? "fact" : "clue",
       unsupportedDetails: asStrings(rewritten?.unsupportedDetails, 20),
     };
-    return enforceClaimPublicationGate(next);
+    return enforceClaimPublicationGate(next, allResults);
   });
 
   const synthesisClaims = claims.filter((claim) => claim.classification !== "background" || claim.supportingEvidence.length > 0);
@@ -960,7 +1019,7 @@ async function runAgenticResearch(
       turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeUnresolvedGaps], invalidReason: "AGENT_TIMEOUT" });
       break;
     }
-    const nearingDeadline = deadlineAt - Date.now() <= 30_000;
+    const nearingDeadline = deadlineAt - Date.now() <= FINALIZATION_RESERVE_MS;
     if (!closureRequested && (searchCalls >= budget.maxSearchCalls || turn === budget.maxAgentTurns || nearingDeadline)) {
       messages.push({ role: "user", content: "研究工具预算即将结束。请停止扩展研究，基于当前已搜索和已阅读资料形成最终 Research Findings JSON；不要再重复搜索。" });
       closureRequested = true;
@@ -1268,7 +1327,7 @@ async function runAgenticResearch(
         statement: mayPublishFact || (requested === "background" && supportedStatement) ? supportedStatement : claim.statement,
         classification: claim.classification === "background" ? "background" : mayPublishFact ? "fact" : "clue",
         unsupportedDetails: asStrings(rewrite?.unsupportedDetails, 20),
-      });
+      }, allResults);
     });
   }
 
