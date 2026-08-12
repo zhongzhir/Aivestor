@@ -14,7 +14,23 @@ await assert.rejects(() => validatePublicHttpUrl("http://localhost/"), /private_
 await assert.rejects(() => validatePublicHttpUrl("http://127.0.0.1/"), /private_or_reserved_address/);
 await assert.rejects(() => validatePublicHttpUrl("http://192.168.1.1/"), /private_or_reserved_address/);
 await assert.rejects(() => validatePublicHttpUrl("http://[::1]/"), /private_or_reserved_address/);
+await assert.rejects(() => validatePublicHttpUrl("http://[::]/"), /private_or_reserved_address/);
+await assert.rejects(() => validatePublicHttpUrl("http://[::ffff:127.0.0.1]/"), /private_or_reserved_address/);
 await assert.rejects(() => validatePublicHttpUrl("http://127.0.0.1/redirect-to-private"), /private_or_reserved_address/);
+
+let ipv6ResolverCalls = 0;
+let ipv6RequestCalls = 0;
+await assert.rejects(
+  () => validatePublicHttpUrl("http://[::1]/", async () => { ipv6ResolverCalls += 1; return ["93.184.216.34"]; }),
+  /private_or_reserved_address/,
+);
+const ipv6Fetch = await fetchPublicEvidence("http://[::1]/", {
+  resolveAddresses: async () => { ipv6ResolverCalls += 1; return ["93.184.216.34"]; },
+  request: async () => { ipv6RequestCalls += 1; throw new Error("must_not_request"); },
+});
+assert.equal(ipv6ResolverCalls, 0, "IPv6 loopback must be rejected before DNS resolution");
+assert.equal(ipv6RequestCalls, 0, "IPv6 loopback must be rejected before a network request");
+assert.equal(ipv6Fetch.failureReason, "private_or_reserved_address");
 
 const html = `<!doctype html><html><head><title>合作公告</title><script>print secret</script><script type="application/ld+json">{"@type":"NewsArticle","datePublished":"2026-08-08T09:00:00+08:00"}</script></head><body><nav>菜单</nav><main><h1>公司与乙方达成合作</h1><p>公司与乙方就某管线达成海外授权合作。</p><p>交易金额为 1 亿美元。</p></main><footer>页脚</footer></body></html>`;
 const extracted = extractHtmlEvidence(html);

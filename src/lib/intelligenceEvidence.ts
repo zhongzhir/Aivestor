@@ -107,14 +107,20 @@ function isBlockedIp(value: string): boolean {
     || first >= 0xff00 && first <= 0xffff;
 }
 
+function normalizeHostname(hostname: string): string {
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/, "");
+  return normalized.startsWith("[") && normalized.endsWith("]") ? normalized.slice(1, -1) : normalized;
+}
+
 function hostnameIsBlocked(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const host = normalizeHostname(hostname);
   return host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host === "metadata.google.internal";
 }
 
 async function lookupAddresses(hostname: string): Promise<string[]> {
-  if (net.isIP(hostname)) return [hostname];
-  return (await dns.lookup(hostname, { all: true, verbatim: true })).map((entry) => entry.address);
+  const normalized = normalizeHostname(hostname);
+  if (net.isIP(normalized)) return [normalized];
+  return (await dns.lookup(normalized, { all: true, verbatim: true })).map((entry) => entry.address);
 }
 
 export async function validatePublicHttpUrl(value: string, resolver: AddressResolver = lookupAddresses): Promise<{ url: URL; addresses: string[] }> {
@@ -122,8 +128,13 @@ export async function validatePublicHttpUrl(value: string, resolver: AddressReso
   try { url = new URL(value); } catch { throw new Error("invalid_url"); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported_protocol");
   if (url.username || url.password) throw new Error("url_credentials_not_allowed");
-  if (hostnameIsBlocked(url.hostname)) throw new Error("private_hostname");
-  const addresses = await resolver(url.hostname);
+  const hostname = normalizeHostname(url.hostname);
+  if (hostnameIsBlocked(hostname)) throw new Error("private_hostname");
+  // Node 20 exposes IPv6 URL.hostname as "[::1]". Normalize and reject the
+  // literal before DNS so a loopback/mapped private address cannot become an
+  // ENOTFOUND path that bypasses the intended SSRF reason.
+  if (net.isIP(hostname) && isBlockedIp(hostname)) throw new Error("private_or_reserved_address");
+  const addresses = (await resolver(hostname)).map(normalizeHostname);
   if (!addresses.length || addresses.some(isBlockedIp)) throw new Error("private_or_reserved_address");
   return { url, addresses };
 }
@@ -134,6 +145,7 @@ function contentType(headers: http.IncomingHttpHeaders): string {
 
 function requestOnce(url: URL, address: string): Promise<RawResponse> {
   const transport = url.protocol === "https:" ? https : http;
+  const normalizedHostname = normalizeHostname(url.hostname);
   return new Promise((resolve, reject) => {
     const request = transport.request({
       protocol: url.protocol,
@@ -142,7 +154,7 @@ function requestOnce(url: URL, address: string): Promise<RawResponse> {
       path: `${url.pathname || "/"}${url.search}`,
       method: "GET",
       headers: { Accept: "text/html, text/plain;q=0.9", "User-Agent": USER_AGENT, Host: url.host },
-      servername: net.isIP(url.hostname) ? undefined : url.hostname,
+      servername: net.isIP(normalizedHostname) ? undefined : normalizedHostname,
       timeout: EVIDENCE_LIMITS.timeoutMs,
       rejectUnauthorized: true,
     }, (response) => {
