@@ -23,11 +23,13 @@ export interface RetrievalRequest {
 export interface IntelligenceGenerationRequest {
   system: string;
   prompt: string;
+  deadlineAt?: number;
 }
 
 export interface IntelligenceAgentTurnRequest {
   messages: ToolChatMessage[];
   tools: ChatToolDefinition[];
+  deadlineAt?: number;
 }
 
 export interface IntelligenceAgentTurnResult {
@@ -109,7 +111,7 @@ export function createIntelligenceGenerationProvider(
     },
     ...(credentials?.apiKey
       ? {
-          generate: async ({ system, prompt }: IntelligenceGenerationRequest) => {
+          generate: async ({ system, prompt, deadlineAt }: IntelligenceGenerationRequest) => {
             let output = "";
             for await (const chunk of streamChat({
               provider: selection.provider,
@@ -118,7 +120,7 @@ export function createIntelligenceGenerationProvider(
               model: selection.model,
               system,
               messages: [{ role: "user", content: prompt }],
-              reliability: researchReliability,
+              reliability: { ...researchReliability, deadlineAt },
             })) {
               output += chunk;
               if (output.length > 48_000) throw new Error("intelligence generation output too large");
@@ -136,7 +138,7 @@ export function createIntelligenceGenerationProvider(
             model: selection.model,
             messages: request.messages,
             tools: request.tools,
-            reliability: researchReliability,
+            reliability: { ...researchReliability, deadlineAt: request.deadlineAt },
           }),
         }
       : {}),

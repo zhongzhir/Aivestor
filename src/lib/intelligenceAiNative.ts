@@ -1,5 +1,5 @@
 import type { Candidate, IntelligenceTaskInput } from "@/lib/intelligence";
-import { runIntelligenceAgentRuntime, type AgenticResearchTelemetry } from "@/lib/intelligenceAgentRuntime";
+import { resolveResearchBudget, runIntelligenceAgentRuntime, type AgenticResearchTelemetry } from "@/lib/intelligenceAgentRuntime";
 import type { EvidenceAcquisitionStats, EvidenceStatus } from "@/lib/intelligenceEvidence";
 import type { IntelligenceProvider, IntelligenceRetrievalOrchestrator, RetrievalResult } from "@/lib/intelligenceProvider";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
@@ -110,6 +110,7 @@ export async function enforceAiNativePublicationConstraint(
   report: AiNativeResearchReport,
   generationProvider: IntelligenceProvider,
   allowedUrls: Set<string>,
+  deadlineAt?: number,
 ): Promise<AiNativeResearchReport> {
   const maxChars = explicitAnswerCharacterLimit(input);
   if (maxChars === null || answerCharacterCount(report.answer) <= maxChars) return report;
@@ -127,13 +128,15 @@ export async function enforceAiNativePublicationConstraint(
         JSON.stringify(report),
         `只输出严格 JSON：{\"answer\":\"压缩后的完整回答\"}。不得截断半句话；不得新增任何事实；压缩后必须不超过 ${maxChars} 字。`,
       ].filter(Boolean).join("\n"),
+      deadlineAt,
     });
     const parsed = parseJson(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid repair");
     const answer = cleanText((parsed as Record<string, unknown>).answer, 20_000);
     if (!answer || answerHasUnknownUrl(answer, allowedUrls) || answerCharacterCount(answer) > maxChars) throw new Error("invalid repair");
     return { ...report, answer };
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("research_total_timeout")) throw error;
     throw new Error("AI_NATIVE_PUBLICATION_CONSTRAINT_FAILED");
   }
 }
@@ -229,6 +232,7 @@ function candidateFromItem(item: AiNativeResearchItem, index: number, sources: M
 }
 
 export async function runAiNativeResearch(input: IntelligenceTaskInput, coverage: { start: Date; end: Date }, dependencies: Dependencies): Promise<AiNativeResearchResult> {
+  const deadlineAt = Date.now() + resolveResearchBudget().maxDurationMs;
   const runtime = await runIntelligenceAgentRuntime<AiNativeResearchReport>({
     input,
     start: coverage.start,
@@ -242,9 +246,13 @@ export async function runAiNativeResearch(input: IntelligenceTaskInput, coverage
       return { value: report, searchedAreas: report.searchedAreas, unresolvedGaps: report.unresolvedGaps, confidence: report.confidence, itemCount: report.items.length };
     },
     finalizationFailureCode: "AI_NATIVE_FINALIZATION_FAILED",
+    deadlineAt,
   });
 
-  if (!runtime.report) throw new Error("AI_NATIVE_FINALIZATION_FAILED");
+  if (!runtime.report) {
+    if (runtime.telemetry.failureCodes.includes("research_total_timeout")) throw new Error("research_total_timeout / AGENT_TIMEOUT");
+    throw new Error("AI_NATIVE_FINALIZATION_FAILED");
+  }
   if (runtime.retrieval.status === "failed") throw new Error("AI_NATIVE_SEARCH_FAILED");
 
   const guardedItems = runtime.report.items.map((item) => ({
@@ -252,7 +260,7 @@ export async function runAiNativeResearch(input: IntelligenceTaskInput, coverage
     status: item.status === "confirmed" && !item.sourceUrls.some((url) => runtime.successfulReadUrls.has(url)) ? "reported" as const : item.status,
   }));
   const guardedReport: AiNativeResearchReport = { ...runtime.report, items: guardedItems };
-  const report = await enforceAiNativePublicationConstraint(input, guardedReport, dependencies.generationProvider, new Set(runtime.sources.map((source) => source.url)));
+  const report = await enforceAiNativePublicationConstraint(input, guardedReport, dependencies.generationProvider, new Set(runtime.sources.map((source) => source.url)), deadlineAt);
   const sources = new Map(runtime.sources.map((source) => [source.url, source]));
   const cards = report.items.filter((item) => item.status !== "context").map((item, index) => candidateFromItem(item, index, sources, runtime.evidenceByUrl));
   const importantFacts = cards.filter((item) => !item.isClue);

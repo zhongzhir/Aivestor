@@ -22,7 +22,9 @@ export const DEFAULT_RESEARCH_BUDGET: Readonly<ResearchBudget> = {
   maxSearchCalls: 6,
   maxTotalQueries: 20,
   maxReadUrls: 20,
-  maxDurationMs: 240_000,
+  // This is the single end-to-end deadline for all agent turns, retries and
+  // finalization. It intentionally matches the default research request wait.
+  maxDurationMs: 10 * 60_000,
   maxUrlsPerReadCall: 5,
   maxResultsPerSearchTool: 24,
   maxPageCharsPerRead: 5_000,
@@ -32,6 +34,15 @@ export const DEFAULT_RESEARCH_BUDGET: Readonly<ResearchBudget> = {
 /** @deprecated 使用 DEFAULT_RESEARCH_BUDGET；保留该名称兼容旧研究实现和测试。 */
 export const AGENTIC_RESEARCH_LIMITS = DEFAULT_RESEARCH_BUDGET;
 
+function configuredDuration(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 30_000 && parsed <= 30 * 60_000 ? Math.floor(parsed) : fallback;
+}
+
+export function resolveResearchBudget(env: Record<string, string | undefined> = process.env): ResearchBudget {
+  return { ...DEFAULT_RESEARCH_BUDGET, maxDurationMs: configuredDuration(env.INTELLIGENCE_RESEARCH_TOTAL_TIMEOUT_MS, DEFAULT_RESEARCH_BUDGET.maxDurationMs) };
+}
+
 export type AgenticFailureCode =
   | "SEARCH_NOT_ATTEMPTED"
   | "SEARCH_PROVIDER_MISS"
@@ -39,7 +50,8 @@ export type AgenticFailureCode =
   | "EVIDENCE_FETCH_FAILED"
   | "CLAIM_NOT_PUBLISHED"
   | "AGENT_FINALIZATION_FAILED"
-  | "AI_NATIVE_FINALIZATION_FAILED";
+  | "AI_NATIVE_FINALIZATION_FAILED"
+  | "research_total_timeout";
 
 export type AgenticInvalidReason =
   | "SEARCH_BUDGET_EXHAUSTED"
@@ -120,6 +132,8 @@ export interface AgentRuntimeOptions<T> {
   parseFinal: (raw: string, allowedUrls: Set<string>) => ParsedAgentFinal<T>;
   finalizationFailureCode?: "AGENT_FINALIZATION_FAILED" | "AI_NATIVE_FINALIZATION_FAILED";
   budget?: Partial<ResearchBudget>;
+  /** Shared absolute deadline, including any post-runtime publication repair. */
+  deadlineAt?: number;
 }
 
 export const INTELLIGENCE_AGENT_TOOLS: ChatToolDefinition[] = [
@@ -265,7 +279,7 @@ function aggregateRetrieval(runs: RetrievalResult[]): Pick<RetrievalResult, "sta
 export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOptions<T>): Promise<AgentRuntimeResult<T>> {
   const { generationProvider, retrieval } = options;
   if (!generationProvider.runAgentTurn || !generationProvider.generate) throw new Error("agentic research requires tool use and generation");
-  const budget: ResearchBudget = { ...DEFAULT_RESEARCH_BUDGET, ...options.budget };
+  const budget: ResearchBudget = { ...resolveResearchBudget(), ...options.budget };
 
   const messages: ToolChatMessage[] = [
     { role: "system", content: options.systemInstruction },
@@ -291,10 +305,15 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
   let finalRepairAttempted = false;
   let finalRepairSucceeded = false;
   const startedAt = Date.now();
+  const deadlineAt = options.deadlineAt ?? startedAt + budget.maxDurationMs;
+  let deadlineExceeded = false;
+  const remainingMs = () => deadlineAt - Date.now();
+  const reachedDeadline = () => remainingMs() <= 0;
 
   for (let turn = 1; turn <= budget.maxAgentTurns; turn++) {
     lastTurn = turn;
-    if (Date.now() - startedAt >= budget.maxDurationMs) {
+    if (reachedDeadline()) {
+      deadlineExceeded = true;
       turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "AGENT_TIMEOUT" });
       break;
     }
@@ -303,7 +322,17 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       messages.push({ role: "user", content: "研究工具预算即将结束。请停止扩展研究，基于当前已搜索和已阅读资料形成最终 ResearchReport JSON；不要再重复搜索。" });
       closureRequested = true;
     }
-    const response = await generationProvider.runAgentTurn({ messages, tools: INTELLIGENCE_AGENT_TOOLS });
+    let response;
+    try {
+      response = await generationProvider.runAgentTurn({ messages, tools: INTELLIGENCE_AGENT_TOOLS, deadlineAt });
+    } catch (error) {
+      if (reachedDeadline() || (error instanceof Error && error.message.includes("research_total_timeout"))) {
+        deadlineExceeded = true;
+        turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "AGENT_TIMEOUT" });
+        break;
+      }
+      throw error;
+    }
     generationCalls++;
     messages.push({
       role: "assistant",
@@ -322,6 +351,10 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       } catch {
         turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "INVALID_FINAL_JSON" });
         finalRepairAttempted = true;
+        if (reachedDeadline()) {
+          deadlineExceeded = true;
+          break;
+        }
         try {
           generationCalls++;
           const repairedRaw = await generationProvider.generate({
@@ -334,6 +367,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
               response.content || "",
               "只输出修复后的严格 JSON。",
             ].join("\n"),
+            deadlineAt,
           });
           const repaired = options.parseFinal(repairedRaw, new Set(sourcePool.keys()));
           report = repaired.value;
@@ -342,7 +376,8 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
           finalRepairSucceeded = true;
           finalization = "repaired";
           turns.push({ turn: turn + 1, action: "final", unresolvedGaps: repaired.unresolvedGaps });
-        } catch {
+        } catch (error) {
+          if (reachedDeadline() || (error instanceof Error && error.message.includes("research_total_timeout"))) deadlineExceeded = true;
           // 保留原 forced finalization 作为最后收口手段。
         }
       }
@@ -452,7 +487,7 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
     turns.push({ turn: lastTurn, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "AGENT_TURN_LIMIT" });
   }
 
-  if (!finalReceived) {
+  if (!finalReceived && !deadlineExceeded && !reachedDeadline()) {
     finalization = "forced";
     const payload = {
       task: options.taskPrompt,
@@ -471,13 +506,15 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
       const raw = await generationProvider.generate({
         system: `${options.systemInstruction}\n研究工具阶段已经结束。只执行结果收口，不进行新研究。`,
         prompt: `${options.finalizationInstruction}\n\n已收集资料：\n${JSON.stringify(payload)}`,
+        deadlineAt,
       });
       const parsed = options.parseFinal(raw, new Set(sourcePool.keys()));
       report = parsed.value;
       parsedTelemetry = { searchedAreas: parsed.searchedAreas, unresolvedGaps: parsed.unresolvedGaps, confidence: parsed.confidence, itemCount: parsed.itemCount };
       finalReceived = true;
       turns.push({ turn: lastTurn + 1, action: "final", unresolvedGaps: parsed.unresolvedGaps });
-    } catch {
+    } catch (error) {
+      if (reachedDeadline() || (error instanceof Error && error.message.includes("research_total_timeout"))) deadlineExceeded = true;
       finalization = "failed";
       turns.push({ turn: lastTurn + 1, action: "invalid", unresolvedGaps: [...runtimeGaps], invalidReason: "FINALIZATION_FAILED" });
     }
@@ -489,7 +526,11 @@ export async function runIntelligenceAgentRuntime<T>(options: AgentRuntimeOption
   else if (!sourcePool.size) failureCodes.add("SEARCH_PROVIDER_MISS");
   if (sourcePool.size && readUrls === 0) failureCodes.add("RESULT_NOT_SELECTED");
   if (readUrls > 0 && evidence.full + evidence.partial === 0) failureCodes.add("EVIDENCE_FETCH_FAILED");
-  if (finalization === "failed") failureCodes.add(options.finalizationFailureCode || "AGENT_FINALIZATION_FAILED");
+  if (deadlineExceeded || reachedDeadline()) {
+    deadlineExceeded = true;
+    finalization = "failed";
+    failureCodes.add("research_total_timeout");
+  } else if (finalization === "failed") failureCodes.add(options.finalizationFailureCode || "AGENT_FINALIZATION_FAILED");
   const searchedAreas = [...new Set([...runtimeAreas, ...parsedTelemetry.searchedAreas])];
   const unresolvedGaps = [...new Set([...runtimeGaps, ...parsedTelemetry.unresolvedGaps])];
   const successfulReadUrls = new Set([...evidenceByUrl.entries()].filter(([, item]) => item.evidenceStatus === "full" || item.evidenceStatus === "partial").map(([url]) => url));

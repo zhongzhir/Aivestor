@@ -165,6 +165,8 @@ export interface AIRequestReliability {
   /** 额外尝试次数；不会重试鉴权或参数错误。 */
   maxRetries: number;
   retryBaseDelayMs: number;
+  /** Absolute deadline shared by a multi-step caller, when applicable. */
+  deadlineAt?: number;
 }
 
 export type AIRequestProfile = "conversation" | "research";
@@ -269,6 +271,24 @@ export async function* withIdleTimeout<T>(
   }
 }
 
+export class AIRequestDeadlineError extends Error {
+  readonly code = "research_total_timeout";
+  constructor() {
+    super("research_total_timeout");
+    this.name = "AIRequestDeadlineError";
+  }
+}
+
+export function remainingAIRequestTime(reliability: AIRequestReliability, now = Date.now()): number {
+  return reliability.deadlineAt === undefined ? Number.POSITIVE_INFINITY : reliability.deadlineAt - now;
+}
+
+function reliabilityForAttempt(reliability: AIRequestReliability): AIRequestReliability {
+  const remaining = remainingAIRequestTime(reliability);
+  if (remaining <= 0) throw new AIRequestDeadlineError();
+  return { ...reliability, idleTimeoutMs: Math.min(reliability.idleTimeoutMs, remaining) };
+}
+
 function statusFromError(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined;
   const status = (error as { status?: unknown }).status;
@@ -281,14 +301,16 @@ export function isRetryableAIError(error: unknown): boolean {
   return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
 }
 
-export async function runWithAIRetry<T>(operation: () => Promise<T>, reliability: AIRequestReliability, sleep: (delayMs: number) => Promise<void> = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))): Promise<T> {
+export async function runWithAIRetry<T>(operation: (attemptReliability: AIRequestReliability) => Promise<T>, reliability: AIRequestReliability, sleep: (delayMs: number) => Promise<void> = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs))): Promise<T> {
   let attempt = 0;
   for (;;) {
     try {
-      return await operation();
+      return await operation(reliabilityForAttempt(reliability));
     } catch (error) {
+      if (error instanceof AIRequestDeadlineError) throw error;
       if (!isRetryableAIError(error) || attempt >= reliability.maxRetries) throw error;
       const delayMs = reliability.retryBaseDelayMs * 2 ** attempt;
+      if (remainingAIRequestTime(reliability) <= delayMs) throw new AIRequestDeadlineError();
       attempt += 1;
       await sleep(delayMs);
     }
@@ -323,7 +345,7 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
   const cfg = OPENAI_COMPATIBLE[req.provider];
   const reliability = req.reliability || resolveAIRequestReliability();
   const client = new OpenAI({ apiKey: req.apiKey, baseURL: req.baseURL?.trim() || cfg.baseURL });
-  const response = await runWithAIRetry(async () => {
+  const response = await runWithAIRetry(async (attemptReliability) => {
     const controller = new AbortController();
     return await awaitWithTimeout(
       client.chat.completions.create({
@@ -333,7 +355,7 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
         tools: req.tools as OpenAI.Chat.Completions.ChatCompletionTool[],
         tool_choice: "auto",
       }, { signal: controller.signal }),
-      reliability.idleTimeoutMs,
+      attemptReliability.idleTimeoutMs,
       () => controller.abort(),
     );
   }, reliability,
@@ -363,14 +385,17 @@ export async function* streamChat(
   let completionTokens = 0;
 
   const retryOrThrow = async (error: unknown): Promise<void> => {
+    if (error instanceof AIRequestDeadlineError) throw error;
     if (emittedContent || !isRetryableAIError(error) || retries >= reliability.maxRetries) throw error;
     const delayMs = reliability.retryBaseDelayMs * 2 ** retries;
+    if (remainingAIRequestTime(reliability) <= delayMs) throw new AIRequestDeadlineError();
     retries += 1;
     await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
   };
 
   if (req.provider === "claude") {
     for (;;) {
+      const attemptReliability = reliabilityForAttempt(reliability);
       const client = new Anthropic({ apiKey: req.apiKey });
       const controller = new AbortController();
       try {
@@ -383,7 +408,7 @@ export async function* streamChat(
           },
           { signal: controller.signal }
         );
-        for await (const event of withIdleTimeout(stream, reliability.idleTimeoutMs, () => controller.abort())) {
+        for await (const event of withIdleTimeout(stream, attemptReliability.idleTimeoutMs, () => controller.abort())) {
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
             emittedContent = true;
             yield event.delta.text;
@@ -404,6 +429,7 @@ export async function* streamChat(
   // 平台代付：开启 include_usage 让最后一帧带 usage，用于扣减额度
   const wantUsage = !!req.freeQuotaMeta;
   for (;;) {
+    const attemptReliability = reliabilityForAttempt(reliability);
     const controller = new AbortController();
     try {
       const stream = await awaitWithTimeout(
@@ -416,10 +442,10 @@ export async function* streamChat(
           },
           { signal: controller.signal }
         ),
-        reliability.idleTimeoutMs,
+        attemptReliability.idleTimeoutMs,
         () => controller.abort()
       );
-      for await (const chunk of withIdleTimeout(stream, reliability.idleTimeoutMs, () => controller.abort())) {
+      for await (const chunk of withIdleTimeout(stream, attemptReliability.idleTimeoutMs, () => controller.abort())) {
         const delta = chunk.choices[0]?.delta?.content;
         if (delta) {
           emittedContent = true;

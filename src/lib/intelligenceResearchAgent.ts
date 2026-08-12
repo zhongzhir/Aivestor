@@ -4,7 +4,7 @@ import type { IntelligenceProvider, IntelligenceRetrievalOrchestrator, Retrieval
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
 import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
 import type { ToolChatMessage } from "@/lib/ai";
-import { AGENTIC_RESEARCH_LIMITS, INTELLIGENCE_AGENT_TOOLS as AGENTIC_TOOLS, packAgentSearchResults, parseAgentToolArguments as parseToolArguments, type AgenticFailureCode, type AgenticResearchTelemetry, type AgenticTurnTelemetry } from "@/lib/intelligenceAgentRuntime";
+import { AGENTIC_RESEARCH_LIMITS, INTELLIGENCE_AGENT_TOOLS as AGENTIC_TOOLS, packAgentSearchResults, parseAgentToolArguments as parseToolArguments, resolveResearchBudget, type AgenticFailureCode, type AgenticResearchTelemetry, type AgenticTurnTelemetry } from "@/lib/intelligenceAgentRuntime";
 export { AGENTIC_RESEARCH_LIMITS, packAgentSearchResults } from "@/lib/intelligenceAgentRuntime";
 export type { AgenticFailureCode, AgenticInvalidReason, AgenticResearchTelemetry, AgenticTurnTelemetry } from "@/lib/intelligenceAgentRuntime";
 
@@ -904,8 +904,17 @@ async function runAgenticResearch(
   coverage: { start: Date; end: Date },
   dependencies: ResearchAgentDependencies,
 ): Promise<AiFirstResearchResult> {
-  const { generationProvider, retrieval } = dependencies;
-  if (!generationProvider.runAgentTurn || !generationProvider.generate) throw new Error("agentic research requires tool use and generation");
+  const { generationProvider: rawGenerationProvider, retrieval } = dependencies;
+  if (!rawGenerationProvider.runAgentTurn || !rawGenerationProvider.generate) throw new Error("agentic research requires tool use and generation");
+  const budget = resolveResearchBudget();
+  const startedAt = Date.now();
+  const deadlineAt = startedAt + budget.maxDurationMs;
+  const deadlineProvider: IntelligenceProvider = {
+    ...rawGenerationProvider,
+    generate: (request) => rawGenerationProvider.generate!({ ...request, deadlineAt }),
+    runAgentTurn: (request) => rawGenerationProvider.runAgentTurn!({ ...request, deadlineAt }),
+  };
+  const generationProvider = deadlineProvider;
 
   const messages: ToolChatMessage[] = [
     { role: "system", content: AGENTIC_RESEARCH_SYSTEM },
@@ -923,25 +932,36 @@ async function runAgenticResearch(
   let totalQueries = 0;
   let readUrls = 0;
   let generationCalls = 0;
-  const startedAt = Date.now();
+  let deadlineExceeded = false;
   let finalOutput: AgentFinalOutput = { findings: [], searchedAreas: [], unresolvedGaps: [], confidence: "low" };
   let finalReceived = false;
   let finalizationFailed = false;
   let closureRequested = false;
   let lastAgentTurn = 0;
 
-  for (let turn = 1; turn <= AGENTIC_RESEARCH_LIMITS.maxAgentTurns; turn++) {
+  for (let turn = 1; turn <= budget.maxAgentTurns; turn++) {
     lastAgentTurn = turn;
-    if (Date.now() - startedAt >= AGENTIC_RESEARCH_LIMITS.maxDurationMs) {
+    if (Date.now() >= deadlineAt) {
+      deadlineExceeded = true;
       turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeUnresolvedGaps], invalidReason: "AGENT_TIMEOUT" });
       break;
     }
-    const nearingDeadline = AGENTIC_RESEARCH_LIMITS.maxDurationMs - (Date.now() - startedAt) <= 30_000;
-    if (!closureRequested && (searchCalls >= AGENTIC_RESEARCH_LIMITS.maxSearchCalls || turn === AGENTIC_RESEARCH_LIMITS.maxAgentTurns || nearingDeadline)) {
+    const nearingDeadline = deadlineAt - Date.now() <= 30_000;
+    if (!closureRequested && (searchCalls >= budget.maxSearchCalls || turn === budget.maxAgentTurns || nearingDeadline)) {
       messages.push({ role: "user", content: "研究工具预算即将结束。请停止扩展研究，基于当前已搜索和已阅读资料形成最终 Research Findings JSON；不要再重复搜索。" });
       closureRequested = true;
     }
-    const response = await generationProvider.runAgentTurn({ messages, tools: AGENTIC_TOOLS });
+    let response;
+    try {
+      response = await generationProvider.runAgentTurn!({ messages, tools: AGENTIC_TOOLS, deadlineAt });
+    } catch (error) {
+      if (Date.now() >= deadlineAt || (error instanceof Error && error.message.includes("research_total_timeout"))) {
+        deadlineExceeded = true;
+        turns.push({ turn, action: "invalid", unresolvedGaps: [...runtimeUnresolvedGaps], invalidReason: "AGENT_TIMEOUT" });
+        break;
+      }
+      throw error;
+    }
     generationCalls++;
     messages.push({
       role: "assistant",
@@ -1062,11 +1082,11 @@ async function runAgenticResearch(
     }
   }
 
-  if (!finalReceived && lastAgentTurn >= AGENTIC_RESEARCH_LIMITS.maxAgentTurns && !turns.some((turn) => turn.invalidReason === "AGENT_TIMEOUT" || turn.invalidReason === "INVALID_FINAL_JSON")) {
+  if (!finalReceived && lastAgentTurn >= budget.maxAgentTurns && !turns.some((turn) => turn.invalidReason === "AGENT_TIMEOUT" || turn.invalidReason === "INVALID_FINAL_JSON")) {
     turns.push({ turn: lastAgentTurn, action: "invalid", unresolvedGaps: [...runtimeUnresolvedGaps], invalidReason: "AGENT_TURN_LIMIT" });
   }
 
-  if (!finalReceived) {
+  if (!finalReceived && !deadlineExceeded && Date.now() < deadlineAt) {
     const forcedPayload = {
       task: taskIntent(input, coverage.start, coverage.end),
       sources: [...agentSourcePool.values()].map((item) => ({
@@ -1107,7 +1127,8 @@ async function runAgenticResearch(
   else if (!allResults.length) failureCodes.add("SEARCH_PROVIDER_MISS");
   if (allResults.length && readUrls === 0) failureCodes.add("RESULT_NOT_SELECTED");
   if (readUrls > 0 && evidenceStats.full + evidenceStats.partial === 0) failureCodes.add("EVIDENCE_FETCH_FAILED");
-  if (finalizationFailed) failureCodes.add("AGENT_FINALIZATION_FAILED");
+  if (deadlineExceeded || Date.now() >= deadlineAt) failureCodes.add("research_total_timeout");
+  else if (finalizationFailed) failureCodes.add("AGENT_FINALIZATION_FAILED");
 
   const telemetrySearchedAreas = [...new Set([...runtimeSearchedAreas, ...finalOutput.searchedAreas])];
   const telemetryUnresolvedGaps = [...new Set([...runtimeUnresolvedGaps, ...finalOutput.unresolvedGaps])];
