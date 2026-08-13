@@ -10,6 +10,7 @@ import {
   packAgentSearchResults,
   renderPublicationContract,
   runAiFirstResearch,
+  sourceIdForUrl,
   type ResearchClaim,
 } from "@/lib/intelligenceResearchAgent";
 import type { IntelligenceProvider, RetrievalRequest, RetrievalResult } from "@/lib/intelligenceProvider";
@@ -259,7 +260,7 @@ async function main() {
       };
     },
     async generate({ system }) {
-      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) { integratedReviewCalls++; return JSON.stringify({ claims: [{ id: "claim-1", statement: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", confidence: "high", classification: "fact", relevanceToResearch: "high", supportingEvidence: [{ url: "https://official.example/event", relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-07" }] }], sentences: [{ text: "甲公司于8月7日完成新一轮融资。", mode: "fact", supportingClaimIds: ["claim-1"] }, { text: "后续应关注资金用途与交割进度。", mode: "analysis", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "甲公司完成新一轮融资", editorial: "后续应关注资金用途。" }], trends: [] }); }
+      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) { integratedReviewCalls++; const sourceId = sourceIdForUrl("https://official.example/event"); return JSON.stringify({ claims: [{ id: "claim-1", statement: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", confidence: "high", classification: "fact", relevanceToResearch: "high", sourceIds: [sourceId], supportingEvidence: [{ sourceId, relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-07" }] }], sentences: [{ text: "甲公司于8月7日完成新一轮融资。", mode: "fact", supportingClaimIds: ["claim-1"] }, { text: "后续应关注资金用途与交割进度。", mode: "analysis", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "甲公司完成新一轮融资", editorial: "后续应关注资金用途。" }], trends: [] }); }
       throw new Error(`unexpected agentic phase: ${system}`);
     },
   };
@@ -323,8 +324,8 @@ async function main() {
       if (lateTurn === 5) return { content: null, reasoningContent: null, toolCalls: [{ id: "late-read", type: "function", function: { name: "read_url", arguments: JSON.stringify({ urls: [lateUrl] }) } }] };
       return { content: JSON.stringify({ findings: [{ claim: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", sourceUrls: [lateUrl], confidence: "high" }], searchedAreas: ["窗口内资本事项"], unresolvedGaps: [], confidence: "high" }), reasoningContent: null, toolCalls: [] };
     },
-    async generate({ system }) {
-      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", confidence: "high", classification: "fact", relevanceToResearch: "high", supportingEvidence: [{ url: lateUrl, relevantText: "丁公司于8月8日完成股权融资。", publishedAt: "2026-08-08" }] }], sentences: [{ text: "丁公司于8月8日完成股权融资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "丁公司完成股权融资" }], trends: [] });
+    async generate({ system, prompt }) {
+      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) { const sourceId = prompt.split(`"url":"${lateUrl}"`)[0].match(/"sourceId":"([^"]+)"/g)?.at(-1)?.match(/"sourceId":"([^"]+)"/)?.[1] || "source-1"; return JSON.stringify({ claims: [{ id: "claim-1", statement: "丁公司于8月8日完成股权融资", eventDate: "2026-08-08", entities: ["丁公司"], eventType: "股权融资", significance: "补充发展资金", confidence: "high", classification: "fact", relevanceToResearch: "high", sourceIds: [sourceId], supportingEvidence: [{ sourceId, relevantText: "丁公司于8月8日完成股权融资。", publishedAt: "2026-08-08" }] }], sentences: [{ text: "丁公司于8月8日完成股权融资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "丁公司完成股权融资" }], trends: [] }); }
       throw new Error(`unexpected late-pool phase: ${system}`);
     },
   };
@@ -369,7 +370,7 @@ async function main() {
         forcedFinalizationCalls++;
         return JSON.stringify({ findings: [{ claim: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", sourceUrls: [forcedUrl], confidence: "high" }], searchedAreas: ["窗口内股权事项"], unresolvedGaps: [], confidence: "high" });
       }
-      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", confidence: "high", classification: "fact", relevanceToResearch: "high", supportingEvidence: [{ url: forcedUrl, relevantText: "戊公司于8月8日完成战略投资。", publishedAt: "2026-08-08" }] }], sentences: [{ text: "戊公司于8月8日完成战略投资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "戊公司完成战略投资" }], trends: [] });
+      if (system.includes("[PHASE:agentic-integrated-review-and-synthesis]")) { const sourceId = sourceIdForUrl(forcedUrl); return JSON.stringify({ claims: [{ id: "claim-1", statement: "戊公司于8月8日完成战略投资", eventDate: "2026-08-08", entities: ["戊公司"], eventType: "战略投资", significance: "引入产业资本", confidence: "high", classification: "fact", relevanceToResearch: "high", sourceIds: [sourceId], supportingEvidence: [{ sourceId, relevantText: "戊公司于8月8日完成战略投资。", publishedAt: "2026-08-08" }] }], sentences: [{ text: "戊公司于8月8日完成战略投资。", mode: "fact", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "戊公司完成战略投资" }], trends: [] }); }
       throw new Error(`unexpected forced phase: ${system}`);
     },
   };
@@ -378,7 +379,7 @@ async function main() {
     retrieval: { async retrieve(request) { return { status: "success", providers: [{ provider: "mock-web", attempted: true, succeeded: true, queryCount: 1, resultCount: 1 }], results: [{ title: "戊公司投资公告", url: forcedUrl, siteName: "公告来源", snippet: "戊公司披露战略投资。", publishedAt: "2026-08-08", sourceTier: "S", domain: "forced.example", query: request.queries?.[0] || "" }] }; } },
     acquireEvidence: (async (candidates: any[]) => { candidates[0].evidenceStatus = "full"; candidates[0].content = "戊公司于8月8日完成战略投资。"; return { candidates, stats: { attempted: 1, full: 1, partial: 0, unavailable: 0 } }; }) as any,
   });
-  assert.equal(forcedFinalizationCalls, 1, "达到 maxAgentTurns 后必须执行一次无工具 forced finalization");
+  assert.equal(forcedFinalizationCalls, 0, "架构收口后不得执行 forced finalization");
   assert.equal(forcedResult.research.claims, 1);
   assert.equal(forcedResult.importantFacts.length, 1);
   assert.equal(forcedResult.research.agent?.turns.some((turn) => turn.invalidReason === "AGENT_TURN_LIMIT"), true);
@@ -392,10 +393,8 @@ async function main() {
   };
   const failedFinalResult = await runAiFirstResearch(input, coverage, { generationProvider: failedFinalProvider, retrieval });
   assert.notEqual(failedFinalResult.overview, "本期未发现符合条件、且可核验的新增事实。");
-  assert.equal(failedFinalResult.overview, "本期研究未能完成结果收口，请稍后重新生成。");
-  assert.equal(failedFinalResult.research.agent?.failureCodes.includes("AGENT_FINALIZATION_FAILED"), true);
-  assert.equal(failedFinalResult.research.agent?.turns.some((turn) => turn.invalidReason === "INVALID_FINAL_JSON"), true);
-  assert.equal(failedFinalResult.research.agent?.turns.some((turn) => turn.invalidReason === "FINALIZATION_FAILED"), true);
+  assert.equal(failedFinalResult.overview, "本期联网检索未成功完成，请稍后重新生成。");
+  assert.equal(failedFinalResult.research.agent?.failureCodes.includes("AGENT_FINALIZATION_FAILED"), false);
 
   console.log("intelligence ai-first 05A tests passed");
 }

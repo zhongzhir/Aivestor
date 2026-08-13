@@ -26,12 +26,14 @@ export interface IntelligenceGenerationRequest {
   system: string;
   prompt: string;
   deadlineAt?: number;
+  signal?: AbortSignal;
 }
 
 export interface IntelligenceAgentTurnRequest {
   messages: ToolChatMessage[];
   tools: ChatToolDefinition[];
   deadlineAt?: number;
+  signal?: AbortSignal;
 }
 
 export interface IntelligenceAgentTurnResult {
@@ -113,7 +115,7 @@ export function createIntelligenceGenerationProvider(
     },
     ...(credentials?.apiKey
       ? {
-          generate: async ({ system, prompt, deadlineAt }: IntelligenceGenerationRequest) => {
+          generate: async ({ system, prompt, deadlineAt, signal }: IntelligenceGenerationRequest) => {
             let output = "";
             for await (const chunk of streamChat({
               provider: selection.provider,
@@ -123,6 +125,7 @@ export function createIntelligenceGenerationProvider(
               system,
               messages: [{ role: "user", content: prompt }],
               reliability: { ...researchReliability, deadlineAt },
+              signal,
             })) {
               output += chunk;
               if (output.length > 48_000) throw new Error("intelligence generation output too large");
@@ -133,7 +136,7 @@ export function createIntelligenceGenerationProvider(
       : {}),
     ...(agenticToolUse && credentials?.apiKey
       ? {
-          runAgentTurn: (request: IntelligenceAgentTurnRequest) => completeChatWithTools({
+        runAgentTurn: (request: IntelligenceAgentTurnRequest) => completeChatWithTools({
             provider: selection.provider,
             apiKey: credentials.apiKey,
             baseURL: credentials.baseURL,
@@ -141,6 +144,7 @@ export function createIntelligenceGenerationProvider(
             messages: request.messages,
             tools: request.tools,
             reliability: { ...researchReliability, deadlineAt: request.deadlineAt },
+            signal: request.signal,
           }),
         }
       : {}),

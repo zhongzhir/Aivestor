@@ -33,6 +33,7 @@ export interface ChatRequest {
     userId: string;
     feature: string;
   };
+  signal?: AbortSignal;
   reliability?: AIRequestReliability;
 }
 
@@ -68,6 +69,7 @@ export interface ToolChatRequest {
   model?: string;
   messages: ToolChatMessage[];
   tools: ChatToolDefinition[];
+  signal?: AbortSignal;
   reliability?: AIRequestReliability;
 }
 
@@ -279,6 +281,13 @@ export class AIRequestDeadlineError extends Error {
   }
 }
 
+function linkedAbortController(signal?: AbortSignal): AbortController {
+  const controller = new AbortController();
+  if (signal?.aborted) controller.abort(signal.reason);
+  else signal?.addEventListener("abort", () => controller.abort(signal.reason), { once: true });
+  return controller;
+}
+
 export function remainingAIRequestTime(reliability: AIRequestReliability, now = Date.now()): number {
   return reliability.deadlineAt === undefined ? Number.POSITIVE_INFINITY : reliability.deadlineAt - now;
 }
@@ -346,7 +355,8 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
   const reliability = req.reliability || resolveAIRequestReliability();
   const client = new OpenAI({ apiKey: req.apiKey, baseURL: req.baseURL?.trim() || cfg.baseURL });
   const response = await runWithAIRetry(async (attemptReliability) => {
-    const controller = new AbortController();
+    if (req.signal?.aborted) throw new AIRequestDeadlineError();
+    const controller = linkedAbortController(req.signal);
     return await awaitWithTimeout(
       client.chat.completions.create({
         model: req.model || cfg.defaultModel,
@@ -385,6 +395,7 @@ export async function* streamChat(
   let completionTokens = 0;
 
   const retryOrThrow = async (error: unknown): Promise<void> => {
+    if (req.signal?.aborted) throw new AIRequestDeadlineError();
     if (error instanceof AIRequestDeadlineError) throw error;
     if (emittedContent || !isRetryableAIError(error) || retries >= reliability.maxRetries) throw error;
     const delayMs = reliability.retryBaseDelayMs * 2 ** retries;
@@ -397,7 +408,7 @@ export async function* streamChat(
     for (;;) {
       const attemptReliability = reliabilityForAttempt(reliability);
       const client = new Anthropic({ apiKey: req.apiKey });
-      const controller = new AbortController();
+      const controller = linkedAbortController(req.signal);
       try {
         const stream = client.messages.stream(
           {
@@ -430,7 +441,8 @@ export async function* streamChat(
   const wantUsage = !!req.freeQuotaMeta;
   for (;;) {
     const attemptReliability = reliabilityForAttempt(reliability);
-    const controller = new AbortController();
+    if (req.signal?.aborted) throw new AIRequestDeadlineError();
+    const controller = linkedAbortController(req.signal);
     try {
       const stream = await awaitWithTimeout(
         client.chat.completions.create(
