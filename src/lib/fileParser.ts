@@ -3,6 +3,8 @@
 
 import * as XLSX from "xlsx";
 import { parseDocument } from "@/lib/parser";
+import { extractDocumentImages } from "@/lib/imageExtract";
+import { describeImage, isQwenVLAvailable } from "@/lib/qwenVL";
 
 export type ParsableType = "pdf" | "docx" | "pptx" | "xlsx" | "xls";
 
@@ -13,6 +15,9 @@ export interface ParseFileResult {
 
 const EXCEL_WARNING =
   "Excel文件已提取文本，财务数据建议使用专项解析功能";
+
+const OCR_WARNING =
+  "该 PDF 原本没有可提取的文字，系统已通过 OCR 尝试识别页面内容；请抽查数字、表格和专有名词。";
 
 // NUL 字符（U+0000）。用 fromCharCode 构造，避免源码里直接出现 NUL 字节。
 const NUL_CHAR = String.fromCharCode(0);
@@ -67,6 +72,23 @@ export async function parseFile(
     case "docx": {
       // 复用现有 unpdf / mammoth 解析逻辑
       ({ text } = await parseDocument(buffer, fileType));
+      if (fileType === "pdf" && !text.trim() && isQwenVLAvailable()) {
+        const detected = await extractDocumentImages(buffer, fileType, {
+          // 扫描型 BP 常见为每页一张图片，OCR 上限略高于普通图片分析上限。
+          maxImages: 30,
+        });
+        const ocrParts: string[] = [];
+        for (const image of detected.images) {
+          const result = await describeImage(image.base64, image.mimeType, "ocr");
+          if (result?.description) {
+            ocrParts.push(`[${image.position}]\n${result.description}`);
+          }
+        }
+        if (ocrParts.length > 0) {
+          text = ocrParts.join("\n\n");
+          warning = OCR_WARNING;
+        }
+      }
       break;
     }
     case "pptx": {

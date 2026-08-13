@@ -147,7 +147,12 @@ export async function POST(
 
   if (parsed.text.length === 0) {
     return NextResponse.json(
-      { error: "未能从文档中提取到文字，请确认文件非扫描件/纯图片，或转换为可选中文字的格式后重试" },
+      {
+        error:
+          "未能从文档中提取到可用文字。该文件可能是扫描件、图片型 PDF，或文字编码不兼容。请先进行 OCR，或用 Word/WPS 另存为可选中文字的 PDF 后重试。",
+        code: "TEXT_EXTRACTION_EMPTY",
+        ocrAvailable: isQwenVLAvailable(),
+      },
       { status: 422 }
     );
   }

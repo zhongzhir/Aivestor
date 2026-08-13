@@ -16,6 +16,10 @@ const IMAGE_PROMPT = `你正在协助分析一份商业计划书（BP），请�
 - 如果是团队照片、装饰图等无信息量内容：一句话简要说明即可，不要详细描述人物外观
 直接输出描述内容，不要客套语。`;
 
+const OCR_PROMPT = `请对这张商业计划书页面做 OCR，尽可能逐字识别页面上的中文和英文文字、数字、表格内容及标题。
+保留原有阅读顺序；表格可用“字段：值”的形式输出；无法确认的字符不要猜测。
+只输出识别到的文字，不要描述图片，不要添加客套语。`;
+
 export interface ImageDescription {
   description: string;
   tokensIn: number;
@@ -29,7 +33,8 @@ export function isQwenVLAvailable(): boolean {
 // 单张图片识别。失败返回 null（调用方跳过该图，不阻断整体流程）。
 export async function describeImage(
   base64: string,
-  mimeType: string
+  mimeType: string,
+  mode: "describe" | "ocr" = "describe"
 ): Promise<ImageDescription | null> {
   const apiKey = process.env.BAILIAN_API_KEY;
   if (!apiKey) return null;
@@ -54,7 +59,7 @@ export async function describeImage(
                 type: "image_url",
                 image_url: { url: `data:${mimeType};base64,${base64}` },
               },
-              { type: "text", text: IMAGE_PROMPT },
+              { type: "text", text: mode === "ocr" ? OCR_PROMPT : IMAGE_PROMPT },
             ],
           },
         ],

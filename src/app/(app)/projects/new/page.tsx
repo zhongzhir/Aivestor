@@ -18,6 +18,7 @@ export default function NewProjectPage() {
   const [charCount, setCharCount] = useState(0);
   const [projectId, setProjectId] = useState("");
   const [error, setError] = useState("");
+  const [errorHint, setErrorHint] = useState("");
 
   // 仅用于完成页提示文案：本文档含几张图片（识别本身改到项目页按需触发）
   const [imageCount, setImageCount] = useState(0);
@@ -35,6 +36,7 @@ export default function NewProjectPage() {
       return;
     }
     setError("");
+    setErrorHint("");
     setFile(f);
   }
 
@@ -92,6 +94,13 @@ export default function NewProjectPage() {
 
     if (!res.ok) {
       const data = await res.json();
+      if (data.code === "TEXT_EXTRACTION_EMPTY") {
+        setErrorHint(
+          data.ocrAvailable
+            ? "系统已尝试 OCR 但仍未识别到文字。建议使用清晰度更高的 PDF，或先在 WPS/Adobe Acrobat 中完成 OCR。"
+            : "当前环境未启用自动 OCR。请在 WPS/Adobe Acrobat 中执行 OCR，保存为可搜索 PDF 后重新上传。"
+        );
+      }
       throw new Error(data.error || "解析失败");
     }
     return res.json();
@@ -281,12 +290,17 @@ export default function NewProjectPage() {
               />
             </div>
             <p className="mt-1.5 text-xs text-ink-faint">
-              {progress < 100 ? `上传中 ${progress}%` : "正在解析文档…"}
+              {progress < 100 ? `上传中 ${progress}%` : "正在解析文档（必要时尝试 OCR）…"}
             </p>
           </div>
         )}
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p>{error}</p>
+            {errorHint && <p className="mt-1 text-xs leading-5 text-red-600">{errorHint}</p>}
+          </div>
+        )}
 
         <button
           onClick={handleSubmit}
