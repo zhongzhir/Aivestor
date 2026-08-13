@@ -35,7 +35,20 @@ export function planIntelligenceQueries(input: IntelligenceTaskInput): string[] 
 
 function freshness(input: IntelligenceTaskInput): number { return input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 1 ? 7 : input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 7 ? 30 : 365; }
 function domainOf(value: string): string { try { return new URL(value).hostname.replace(/^www\./, ""); } catch { return ""; } }
-function normalizeUrl(value: string): string | null { try { const url = new URL(value); if (url.protocol !== "http:" && url.protocol !== "https:") return null; ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "gclid"].forEach((key) => url.searchParams.delete(key)); url.hash = ""; return url.toString().replace(/\/$/, ""); } catch { return null; } }
+export function normalizeUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "gclid"].forEach((key) => url.searchParams.delete(key));
+    url.hostname = url.hostname.toLowerCase();
+    if ((url.protocol === "https:" && url.port === "443") || (url.protocol === "http:" && url.port === "80")) url.port = "";
+    url.hash = "";
+    const params = [...url.searchParams.entries()].sort(([a], [b]) => a.localeCompare(b));
+    url.search = "";
+    for (const [key, value] of params) url.searchParams.append(key, value);
+    return url.toString().replace(/\/$/, "");
+  } catch { return null; }
+}
 function sourceName(value: unknown, domain: string): string {
   const name = String(value ?? "").trim();
   return !name || /^(无|未知|unknown|n\/a)$/i.test(name) ? domain : name;

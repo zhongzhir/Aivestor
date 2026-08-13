@@ -49,7 +49,8 @@ async function main() {
       const research = await runAiFirstResearch(input, { start: new Date(Date.now() - 14 * 86400000), end: new Date() }, { generationProvider, retrieval, onEvent: emit });
       const durationMs = Date.now() - startedAt;
       const failureCode = research.research.agent?.failureCodes?.[0];
-      const hasUsableResult = research.importantFacts.length + research.otherItems.length > 0 || /覆盖不足|未发现符合条件|检索未成功/.test(research.overview);
+      const diagnostics = research.research.diagnostics;
+      const hasUsableResult = research.importantFacts.length + research.otherItems.length > 0 || diagnostics?.emptyResultClassification === "legitimate_empty" || (diagnostics?.emptyResultClassification === "coverage_insufficient" && research.otherItems.length > 0 && /覆盖不足|尚待核实|待核实/.test(research.overview));
       const items = [...research.importantFacts, ...research.otherItems, ...research.trendSignals];
       const incompleteFactCount = items.filter((item) => [item.title, item.summary, item.investmentNote].filter((text): text is string => !!text).some(hasIncompletePublicationText)).length + (hasIncompletePublicationText(research.overview) ? 1 : 0);
       const facts = research.research.verifiedClaims.filter((claim) => claim.classification === "fact");
@@ -65,18 +66,25 @@ async function main() {
         ...(unsupportedComparativeCount ? ["UNSUPPORTED_COMPARATIVE_ASSERTION"] : []),
         ...(clueRestatedAsFact ? ["CLUE_RESTATED_AS_FACT"] : []),
         ...(durationMs > 480000 ? ["CASE_DURATION_EXCEEDED"] : []),
+        ...(diagnostics && diagnostics.candidateClaimCount > 0 && diagnostics.integratedReviewedClaimCount === 0 ? ["INTEGRATED_REVIEW_EMPTY"] : []),
+        ...(diagnostics && diagnostics.integratedUnknownClaimIdCount > 0 ? ["CLAIM_ID_MAPPING_FAILED"] : []),
+        ...(diagnostics && diagnostics.unmappedEvidenceCount > 0 ? ["EVIDENCE_MAPPING_FAILED"] : []),
+        ...(diagnostics && diagnostics.discardedClaimsByReason["AI 未提供排除理由"] ? ["CANDIDATE_SILENTLY_DROPPED"] : []),
+        ...(diagnostics && diagnostics.publishedFactCount === 0 && diagnostics.publishedClueCount === 0 && diagnostics.emptyResultClassification !== "legitimate_empty" ? ["UNEXPLAINED_EMPTY_RESULT"] : []),
+        ...(diagnostics && diagnostics.emptyResultClassification === "coverage_insufficient" && diagnostics.publishedClueCount === 0 ? ["UNEXPLAINED_EMPTY_RESULT"] : []),
+        ...(diagnostics && research.retrieval.status === "success" && research.retrieval.evidence.full + research.retrieval.evidence.partial > 0 && diagnostics.publishedFactCount === 0 && diagnostics.publishedClueCount === 0 && diagnostics.emptyResultClassification !== "legitimate_empty" ? ["UNEXPLAINED_EMPTY_RESULT"] : []),
       ];
       const quality = {
         incompleteFactCount, factWithoutBodyEvidenceCount, unsupportedComparativeCount, factsWithPrimaryEvidence,
         independentSourceCount, evidenceReadAttempted: research.retrieval.evidence.attempted, evidenceReadFull: research.retrieval.evidence.full,
         evidenceReadPartial: research.retrieval.evidence.partial, evidenceReadUnavailable: research.retrieval.evidence.unavailable,
-        durationMs, qualityFailureCodes,
+        durationMs, qualityFailureCodes, diagnostics: diagnostics || null,
       };
-      if (research.retrieval.status === "failed" || failureCode?.includes("timeout") || failureCode?.includes("FINALIZATION") || !hasUsableResult || qualityFailureCodes.length) {
+      if (research.retrieval.status === "failed" || failureCode?.includes("timeout") || failureCode?.includes("FINALIZATION") || !hasUsableResult || qualityFailureCodes.length || diagnostics?.emptyResultClassification === "pipeline_empty") {
         throw new Error(qualityFailureCodes[0] || failureCode || (research.retrieval.status === "failed" ? "retrieval_failed" : "no_usable_result"));
       }
       results.push({ name, status: "completed", durationMs, retrieval: research.retrieval.status, overview: research.overview, facts: research.importantFacts.map((item) => ({ title: item.title, urls: item.sourceUrls, eventDate: item.publishedAt })), clues: research.otherItems.map((item) => ({ title: item.title, urls: item.sourceUrls })), analysis: research.importantFacts.map((item) => item.investmentNote).filter(Boolean), evidence: research.retrieval.evidence, quality });
-      emit({ phase: "research", outcome: "completed", name, durationMs, counts: { facts: research.importantFacts.length, clues: research.otherItems.length, sources: research.sourceList.length } });
+      emit({ phase: "research", outcome: "completed", name, durationMs, counts: { facts: research.importantFacts.length, clues: research.otherItems.length, sources: research.sourceList.length }, diagnostics: diagnostics || null });
     } catch (error) {
       const durationMs = Date.now() - startedAt;
       const reason = error instanceof Error ? error.message : "unknown_error";
