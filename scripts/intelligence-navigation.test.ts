@@ -11,7 +11,8 @@ const middleware = read(`${root}/src/middleware.ts`);
 
 assert.match(layout, /getOrgContext/);
 assert.match(layout, /<Sidebar hasOrganization=\{!!orgContext\} \/>/);
-assert.doesNotMatch(sidebar, /href: "\/data-apps\/intelligence-subscriptions"/);
+assert.match(sidebar, /href: "\/data-apps\/intelligence-subscriptions"/);
+assert.match(sidebar, /href: "\/data-apps"/);
 assert.match(sidebar, /hasOrganization/);
 assert.doesNotMatch(sidebar, /session\.user\.orgId/);
 assert.match(dataApps, /const accessibleApps = DATA_APPS\.filter/);
