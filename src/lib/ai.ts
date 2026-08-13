@@ -67,6 +67,7 @@ export interface ToolChatRequest {
   model?: string;
   messages: ToolChatMessage[];
   tools: ChatToolDefinition[];
+  signal?: AbortSignal;
 }
 
 export interface ToolChatResponse {
@@ -258,7 +259,7 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
       messages: req.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools: req.tools as OpenAI.Chat.Completions.ChatCompletionTool[],
       tool_choice: "auto",
-    }, { signal: controller.signal }),
+    }, { signal: req.signal ?? controller.signal }),
     () => controller.abort(),
   );
   const message = response.choices[0]?.message;

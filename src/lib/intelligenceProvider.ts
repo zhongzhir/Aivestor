@@ -18,6 +18,7 @@ export interface RetrievalRequest {
   start: Date;
   /** AI Researcher 自主生成的查询；为空时 Retrieval Provider 保持 legacy 规划兼容。 */
   queries?: string[];
+  signal?: AbortSignal;
 }
 
 export interface IntelligenceGenerationRequest {
@@ -28,6 +29,7 @@ export interface IntelligenceGenerationRequest {
 export interface IntelligenceAgentTurnRequest {
   messages: ToolChatMessage[];
   tools: ChatToolDefinition[];
+  signal?: AbortSignal;
 }
 
 export interface IntelligenceAgentTurnResult {
@@ -134,6 +136,7 @@ export function createIntelligenceGenerationProvider(
             model: selection.model,
             messages: request.messages,
             tools: request.tools,
+            signal: request.signal,
           }),
         }
       : {}),

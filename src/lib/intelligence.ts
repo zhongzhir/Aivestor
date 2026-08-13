@@ -5,6 +5,8 @@ import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntell
 import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import { runAiFirstResearch, type AgenticResearchTelemetry, type ResearchAgenda, type ResearchClaim, type VerificationTrace } from "@/lib/intelligenceResearchAgent";
 import { runAiNativeResearch, type AiNativeResearchReport, type AiNativeResearchResult } from "@/lib/intelligenceAiNative";
+import { runNativeDeepResearch } from "@/lib/deepResearchNative";
+import { formatProfileForPrompt, getUserProfile } from "@/lib/user-profile";
 import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
 import {
   buildEditorialOverview,
@@ -413,8 +415,41 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
   const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
   if (generationProvider.capabilities.agenticToolUse && generationProvider.runAgentTurn && generationProvider.generate) {
-    const research = await runAiNativeResearch(normalizedInput, coverage, { generationProvider, retrieval });
-    return persistBrief(userId, taskId, buildAiNativeBriefResult(input, coverage, now, generationProvider, research), scheduledSlot);
+    let investmentContext = "";
+    try {
+      const profile = await getUserProfile(userId);
+      investmentContext = profile ? formatProfileForPrompt(profile) : "";
+    } catch {
+      investmentContext = "";
+    }
+    const research = await runNativeDeepResearch(normalizedInput, { generationProvider, retrieval, investmentContext });
+    const brief: BriefResult = {
+      taskName: input.name,
+      coverageStart: coverage.start.toISOString(),
+      coverageEnd: coverage.end.toISOString(),
+      generatedAt: now.toISOString(),
+      itemCount: research.importantFacts.length + research.otherItems.length,
+      importantFacts: research.importantFacts,
+      trendSignals: [],
+      otherItems: research.otherItems,
+      sourceList: research.sourceList,
+      metadata: {
+        overview: research.answer,
+        origins: ["web-search"],
+        generationProvider: generationProvider.id,
+        generationModel: generationProvider.model || null,
+        retrieval: {
+          status: research.retrieval.status,
+          providers: research.retrieval.providers as never,
+          searchCandidates: research.retrieval.searchCandidates,
+          relevancePassed: research.importantFacts.length,
+          relevanceDropped: 0,
+          evidence: research.retrieval.evidence,
+          final: research.retrieval.final,
+        },
+      },
+    };
+    return persistBrief(userId, taskId, brief, scheduledSlot);
   }
   if (generationProvider.generate) {
     const research = await runAiFirstResearch(normalizedInput, coverage, { generationProvider, retrieval });
