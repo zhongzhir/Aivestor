@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { ExportDownloadButton } from "@/components/shared/ExportDownloadButton";
 
 interface PostReport {
   id: string;
@@ -106,8 +107,8 @@ export function PostInvestmentReports({ projectId }: { projectId: string }) {
                   {Object.entries(REVIEW_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
                 <Link href={`/projects/${projectId}/report?reportId=${report.id}`} className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface">查看</Link>
-                <a href={`/api/reports/${report.id}/export`} className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface">导出 Word</a>
-                <a href={`/api/reports/${report.id}/export?formal=1&profile=post_investment`} className="rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-xs text-accent hover:bg-[#f3e5dc]">正式版 Word</a>
+                <ExportDownloadButton href={`/api/reports/${report.id}/export`} label="导出 Word" className="rounded-md border border-line bg-white px-2.5 py-1.5 text-xs text-ink-soft hover:bg-surface" />
+                <ExportDownloadButton href={`/api/reports/${report.id}/export?formal=1&profile=post_investment`} label="正式版 Word" className="rounded-md border border-accent bg-accent-soft px-2.5 py-1.5 text-xs text-accent hover:bg-[#f3e5dc]" />
               </div>
             </div>
           ))}

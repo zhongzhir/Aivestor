@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { readTextStream, readError } from "@/lib/clientAI";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ExportDownloadButton } from "@/components/shared/ExportDownloadButton";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -214,32 +215,26 @@ export function LpReportClient({
                   ? `共 ${history.length} 轮修改`
                   : "未生成"}
             </span>
-            <a
-              href={reportId ? `/api/reports/${reportId}/export` : undefined}
-              aria-disabled={!reportId || streaming}
+            <ExportDownloadButton
+              href={`/api/reports/${reportId ?? ""}/export`}
+              label="导出 Word"
+              disabled={!reportId || streaming}
               className={`rounded-md border px-3 py-1.5 text-sm ${
                 reportId && !streaming
                   ? "border-line text-ink-soft hover:bg-surface"
-                  : "pointer-events-none border-line text-ink-faint opacity-50"
+                  : "border-line text-ink-faint"
               }`}
-            >
-              导出 Word
-            </a>
-            <a
-              href={
-                reportId
-                  ? `/api/reports/${reportId}/export?formal=1&profile=lp`
-                  : undefined
-              }
-              aria-disabled={!reportId || streaming}
+            />
+            <ExportDownloadButton
+              href={`/api/reports/${reportId ?? ""}/export?formal=1&profile=lp`}
+              label="正式版 Word"
+              disabled={!reportId || streaming}
               className={`rounded-md border px-3 py-1.5 text-sm ${
                 reportId && !streaming
                   ? "border-accent bg-accent-soft text-accent hover:bg-[#f3e5dc]"
-                  : "pointer-events-none border-line text-ink-faint opacity-50"
+                  : "border-line text-ink-faint"
               }`}
-            >
-              正式版 Word
-            </a>
+            />
           </div>
 
           {content ? (
