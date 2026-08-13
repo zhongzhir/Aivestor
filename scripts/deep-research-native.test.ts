@@ -62,7 +62,7 @@ async function main() {
   assert.ok(retrievalStart && Date.now() - retrievalStart.getTime() > 13 * 86400000 && Date.now() - retrievalStart.getTime() < 15 * 86400000, "14-day search must not use a 365-day start");
   assert.match(initialPrompt, /当前日期：/);
   assert.match(initialPrompt, /绝对研究区间：/);
-  assert.match(initialPrompt, /区间外资料只能作为历史背景/);
+  assert.match(initialPrompt, /事件日早于区间开始日时，只能作为明确标注日期的历史背景/);
   assert.equal(calls, 4, "Agent should search, read twice, then produce one final answer");
   assert.match(lastToolPayload, /"sourceRef":"S1"/);
   assert.match(lastToolPayload, /"sourceRef":"S2"/);

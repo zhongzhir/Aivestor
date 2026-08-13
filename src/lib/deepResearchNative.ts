@@ -10,7 +10,7 @@ export interface NativeDeepResearchResult {
   answer: string;
   importantFacts: Candidate[];
   otherItems: Candidate[];
-  sourceList: Array<{ sourceRef: string; source: string; url: string | null; publishedAt: string | null; sourceTier: NonNullable<Candidate["sourceTier"]>; origin: string }>;
+  sourceList: Array<{ sourceRef: string; title: string; source: string; url: string | null; publishedAt: string | null; sourceTier: NonNullable<Candidate["sourceTier"]>; origin: string }>;
   retrieval: { status: "success" | "partial" | "failed"; providers: unknown[]; searchCandidates: number; evidence: { attempted: number; full: number; partial: number; unavailable: number }; final: { facts: number; clues: number; trends: number } };
   searchedAreas: string[];
   unresolvedGaps: string[];
@@ -51,7 +51,7 @@ function taskPrompt(input: IntelligenceTaskInput, investmentContext?: string): s
     input.excludeRequirements.length ? `排除：${input.excludeRequirements.join("；")}` : "",
     `当前日期：${coverage.end.toISOString()}`,
     `绝对研究区间：${coverage.start.toISOString()} 至 ${coverage.end.toISOString()}`,
-    "只有区间内发生的事件才能作为近期事实。区间外资料只能作为历史背景，并必须明确标注为历史背景。",
+    "只有区间内发生的事件才能作为近期事实。网页发布日期和事件实际发生日期是两个不同事实；判断是否属于研究区间，必须依据事件实际发生日期，而不是搜索返回日期、网页发布日期或被再次报道的日期。对每项拟写入区间内事实的事件，先从正文判断事件发生日；事件日早于区间开始日时，只能作为明确标注日期的历史背景，不能写成区间内新动态。如果只能确认报道日期、不能确认事件日期，必须写明事件发生时间未确认，不得断言属于区间内。最终写作前，逐项自行复核近期事实的事件日期是否落在绝对研究区间内。",
     investmentContext || "",
     "你是唯一的自治研究 Agent。自主决定搜索、阅读、补充搜索、交叉核验和停止时机。",
     "近期事实优先寻找公司公告、监管披露、交易所、政府机构、基金或投资机构公告等一手来源；一手来源不存在时再使用可信专业媒体。重大事实尽量交叉核验。搜索摘要只能作为发现线索，重要事实应优先阅读正文；资料不足时明确说不知道，不得用旧闻填充近期动态。",
@@ -118,7 +118,7 @@ export async function runNativeDeepResearch(input: IntelligenceTaskInput, depend
     for (let turn = 0; turn < 12; turn += 1) {
       if (signal.aborted) break;
       if (turn === 7 || searchCalls >= 4) {
-        messages.push({ role: "user", content: "你已经获得多轮搜索和网页正文。现在停止调用任何工具，基于当前真实来源直接输出最终自然语言 Markdown 报告；必须包含事实、简短投资分析和明确的不确定性，并用 [S1]、[S2] 引用本轮来源。不要输出 JSON，也不要继续搜索。" });
+        messages.push({ role: "user", content: `你已经获得多轮搜索和网页正文。现在停止调用任何工具，基于当前真实来源直接输出最终自然语言 Markdown 报告。再次复核本次绝对研究区间：${coverage.start.toISOString()} 至 ${coverage.end.toISOString()}。网页发布日期不等于事件实际发生日期；逐项确认近期事实的事件日，区间外事件只能写成明确日期的历史背景，事件日未确认则明确说明不确定。必须包含事实、简短投资分析和明确的不确定性，并用 [S1]、[S2] 引用本轮来源。不要输出 JSON，也不要继续搜索。` });
       }
       const response = await provider.runAgentTurn({ messages, tools: TOOLS, signal });
       generationCalls += 1;
@@ -171,6 +171,6 @@ export async function runNativeDeepResearch(input: IntelligenceTaskInput, depend
     const mapped = markdownWithMappedCitations(answer, sources);
     const cited = mapped.cited;
     const reportCard = candidate(mapped.answer, cited, evidence);
-    return { answer: mapped.answer, importantFacts: [reportCard], otherItems: [], sourceList: cited.map((source) => ({ sourceRef: source.sourceRef!, source: source.siteName, url: source.url, publishedAt: source.publishedAt || null, sourceTier: source.sourceTier || "C", origin: "web-search" })), retrieval: { status: retrievalStatus, providers, searchCandidates: sources.size, evidence: evidenceStats, final: { facts: 1, clues: 0, trends: 0 } }, searchedAreas: [...new Set(searchedAreas)], unresolvedGaps, confidence: cited.length > 1 ? "high" : cited.length === 1 ? "medium" : "low", generationCalls, searchCalls, readUrls, durationMs: Date.now() - started };
+    return { answer: mapped.answer, importantFacts: [reportCard], otherItems: [], sourceList: cited.map((source) => ({ sourceRef: source.sourceRef!, title: source.title, source: source.siteName, url: source.url, publishedAt: source.publishedAt || null, sourceTier: source.sourceTier || "C", origin: "web-search" })), retrieval: { status: retrievalStatus, providers, searchCandidates: sources.size, evidence: evidenceStats, final: { facts: 1, clues: 0, trends: 0 } }, searchedAreas: [...new Set(searchedAreas)], unresolvedGaps, confidence: cited.length > 1 ? "high" : cited.length === 1 ? "medium" : "low", generationCalls, searchCalls, readUrls, durationMs: Date.now() - started };
   } finally { clearTimeout(deadline); }
 }
