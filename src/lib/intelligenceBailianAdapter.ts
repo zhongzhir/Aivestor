@@ -1,5 +1,5 @@
 import type { RetrievalProvider, RetrievalRequest, RetrievalRunResult } from "@/lib/intelligenceProvider";
-import { buildIntelligenceSearchRuns, INTELLIGENCE_SEARCH_LIMITS, normalizeWebResults, planIntelligenceQueries, WEB_SEARCH_SYSTEM_PROMPT, type WebSearchItem } from "@/lib/intelligenceWebSearch";
+import { buildIntelligenceSearchRuns, freshnessForLookback, INTELLIGENCE_SEARCH_LIMITS, normalizeWebResults, planIntelligenceQueries, WEB_SEARCH_SYSTEM_PROMPT, type WebSearchItem } from "@/lib/intelligenceWebSearch";
 
 interface BailianCredentials { apiKey?: string; model?: string; endpoint?: string; }
 
@@ -8,10 +8,6 @@ function errorCode(error: unknown): string {
   if (/timeout|timed out|abort/i.test(message)) return "timeout";
   if (/http \d+/i.test(message)) return `upstream_${message.match(/http (\d+)/i)?.[1] ?? "error"}`;
   return "upstream_error";
-}
-
-function freshness(input: RetrievalRequest["input"]): number {
-  return input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 1 ? 7 : input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 7 ? 30 : 365;
 }
 
 export function createBailianRetrievalProvider(credentials: BailianCredentials = {}): RetrievalProvider {
@@ -32,8 +28,10 @@ export class BailianRetrievalProvider implements RetrievalProvider {
     const results: WebSearchItem[] = [];
     let failed = 0;
     for (const run of runs) {
+      if (signal?.aborted) break;
       try {
-        results.push(...await this.searchWithDashScopeHTTP(run.query, freshness(input), run.assigned, apiKey, signal));
+        results.push(...await this.searchWithDashScopeHTTP(run.query, freshnessForLookback(input), run.assigned, apiKey, signal));
+        if (signal?.aborted) break;
       } catch (error) {
         failed++;
         console.warn(`[intelligence-retrieval] provider=bailian-web query failed: ${run.query}`, errorCode(error));

@@ -10,7 +10,7 @@ export interface NativeDeepResearchResult {
   answer: string;
   importantFacts: Candidate[];
   otherItems: Candidate[];
-  sourceList: Array<{ source: string; url: string | null; publishedAt: string | null; sourceTier: NonNullable<Candidate["sourceTier"]>; origin: string }>;
+  sourceList: Array<{ sourceRef: string; source: string; url: string | null; publishedAt: string | null; sourceTier: NonNullable<Candidate["sourceTier"]>; origin: string }>;
   retrieval: { status: "success" | "partial" | "failed"; providers: unknown[]; searchCandidates: number; evidence: { attempted: number; full: number; partial: number; unavailable: number }; final: { facts: number; clues: number; trends: number } };
   searchedAreas: string[];
   unresolvedGaps: string[];
@@ -40,6 +40,7 @@ function cleanExternal(value: unknown, limit: number): string {
 }
 
 function taskPrompt(input: IntelligenceTaskInput, investmentContext?: string): string {
+  const coverage = coverageForNative(input);
   return [
     "用户研究要求：", input.name, input.outputInstructions,
     input.topics.length ? `关注主题：${input.topics.join("、")}` : "",
@@ -48,40 +49,53 @@ function taskPrompt(input: IntelligenceTaskInput, investmentContext?: string): s
     input.regions.length ? `地域：${input.regions.join("、")}` : "",
     input.includeRequirements.length ? `必须包含：${input.includeRequirements.join("；")}` : "",
     input.excludeRequirements.length ? `排除：${input.excludeRequirements.join("；")}` : "",
-    `时间范围：${JSON.stringify(input.lookbackPeriod)}`,
+    `当前日期：${coverage.end.toISOString()}`,
+    `绝对研究区间：${coverage.start.toISOString()} 至 ${coverage.end.toISOString()}`,
+    "只有区间内发生的事件才能作为近期事实。区间外资料只能作为历史背景，并必须明确标注为历史背景。",
     investmentContext || "",
     "你是唯一的自治研究 Agent。自主决定搜索、阅读、补充搜索、交叉核验和停止时机。",
-    "完成后只输出给投资人阅读的自然语言 Markdown 报告；用 [1]、[2] 标注实际来源。不要输出 JSON、内部状态、工具过程或技术诊断。",
+    "近期事实优先寻找公司公告、监管披露、交易所、政府机构、基金或投资机构公告等一手来源；一手来源不存在时再使用可信专业媒体。重大事实尽量交叉核验。搜索摘要只能作为发现线索，重要事实应优先阅读正文；资料不足时明确说不知道，不得用旧闻填充近期动态。",
+    "完成后只输出给投资人阅读的自然语言 Markdown 报告；用 [S1]、[S2] 标注实际来源。不要输出 JSON、内部状态、工具过程或技术诊断。",
   ].filter(Boolean).join("\n");
 }
 
+export function coverageForNative(input: IntelligenceTaskInput, now = new Date()): { start: Date; end: Date } {
+  if (input.lookbackPeriod.kind === "custom" && input.lookbackPeriod.start && input.lookbackPeriod.end) {
+    const start = new Date(input.lookbackPeriod.start);
+    const end = new Date(input.lookbackPeriod.end);
+    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && start <= end) return { start, end };
+  }
+  const days = Math.max(1, Math.min(365, input.lookbackPeriod.value || 3));
+  return { start: new Date(now.getTime() - days * 86400000), end: now };
+}
+
 function sourceContext(source: WebSearchItem, evidence?: EvidenceCandidate): Record<string, unknown> {
-  return { title: cleanExternal(source.title, 300), url: source.url, source: cleanExternal(source.siteName, 120), publishedAt: source.publishedAt, snippet: cleanExternal(source.snippet, 1_200), ...(evidence ? { evidenceStatus: evidence.evidenceStatus, content: cleanExternal(evidence.content, 8_000), evidencePublishedAt: evidence.evidencePublishedAt } : {}) };
+  return { sourceRef: source.sourceRef, title: cleanExternal(source.title, 300), url: source.url, source: cleanExternal(source.siteName, 120), sourceTier: source.sourceTier, publishedAt: source.publishedAt, snippet: cleanExternal(source.snippet, 1_200), ...(evidence ? { evidenceStatus: evidence.evidenceStatus, content: cleanExternal(evidence.content, 8_000), evidencePublishedAt: evidence.evidencePublishedAt } : {}) };
 }
 
 function markdownWithMappedCitations(answer: string, sources: Map<string, WebSearchItem>): { answer: string; cited: WebSearchItem[]; invalid: string[] } {
   const cited: WebSearchItem[] = [];
   const invalid: string[] = [];
-  const mapped = answer.replace(/\[(\d+)\]/g, (_match, raw: string) => {
-    const index = Number(raw) - 1;
-    const source = [...sources.values()][index];
-    if (!source) { invalid.push(raw); return `[${raw}]`; }
+  const mapped = answer.replace(/\[S(\d+)\]/g, (_match, raw: string) => {
+    const source = [...sources.values()].find((item) => item.sourceRef === `S${raw}`);
+    if (!source) { invalid.push(raw); return `[S${raw}]`; }
     if (!cited.some((item) => item.url === source.url)) cited.push(source);
-    return `[${raw}](${source.url})`;
+    return `[S${raw}](${source.url})`;
   });
-  const warning = invalid.length ? `\n\n> 引用提示：报告中有 ${invalid.map((item) => `[${item}]`).join("、")} 未能对应到本次实际取得的来源，未据此支持事实。` : "";
+  const warning = invalid.length ? `\n\n> 引用提示：报告中有 ${invalid.map((item) => `[S${item}]`).join("、")} 未能对应到本次实际取得的来源，未据此支持事实。` : "";
   return { answer: `${mapped.trim()}${warning}`, cited, invalid };
 }
 
 function candidate(answer: string, cited: WebSearchItem[], evidence: Map<string, EvidenceCandidate>): Candidate {
   const statuses = cited.map((source) => evidence.get(source.url)?.evidenceStatus).filter(Boolean) as EvidenceStatus[];
-  return { id: "native-report", title: "本期研究简报", content: answer, summary: answer, source: cited[0]?.siteName || "联网研究来源", sourceUrl: cited[0]?.url || null, sourceUrls: cited.map((source) => source.url), publishedAt: cited[0]?.publishedAt || "", subject: "研究简报", region: null, kind: "fact", sourceTier: cited[0]?.sourceTier || "C", origin: "web-search", evidenceStatus: statuses.includes("full") ? "full" : statuses.includes("partial") ? "partial" : "unavailable", confidence: cited.length > 1 ? "high" : "medium", importance: "high", timeUnconfirmed: !cited[0]?.publishedAt };
+  return { id: "native-report", title: "本期研究简报", content: answer, summary: answer, source: cited[0]?.siteName || "联网研究来源", sourceUrl: cited[0]?.url || null, sourceUrls: cited.map((source) => source.url), publishedAt: cited[0]?.publishedAt || "", subject: "研究简报", region: null, kind: "fact", sourceTier: cited[0]?.sourceTier || "C", origin: "web-search", evidenceStatus: statuses.includes("full") ? "full" : statuses.includes("partial") ? "partial" : "unavailable", confidence: cited.length > 1 ? "high" : cited.length === 1 ? "medium" : "low", importance: "high", timeUnconfirmed: !cited[0]?.publishedAt };
 }
 
 export async function runNativeDeepResearch(input: IntelligenceTaskInput, dependencies: { generationProvider: IntelligenceProvider; retrieval: IntelligenceSearchRouter; investmentContext?: string; signal?: AbortSignal; deadlineMs?: number; acquireEvidenceFn?: typeof acquireEvidence }): Promise<NativeDeepResearchResult> {
   const provider = dependencies.generationProvider;
   if (!provider.runAgentTurn) throw new Error("deep research requires model tool calling");
   const started = Date.now();
+  const coverage = coverageForNative(input, new Date(started));
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), dependencies.deadlineMs ?? DEEP_RESEARCH_DEADLINE_MS);
   const signal = dependencies.signal ? AbortSignal.any([controller.signal, dependencies.signal]) : controller.signal;
@@ -104,7 +118,7 @@ export async function runNativeDeepResearch(input: IntelligenceTaskInput, depend
     for (let turn = 0; turn < 12; turn += 1) {
       if (signal.aborted) break;
       if (turn === 7 || searchCalls >= 4) {
-        messages.push({ role: "user", content: "你已经获得多轮搜索和网页正文。现在停止调用任何工具，基于当前真实来源直接输出最终自然语言 Markdown 报告；必须包含事实、简短投资分析和明确的不确定性，并用 [1]、[2] 引用本轮来源。不要输出 JSON，也不要继续搜索。" });
+        messages.push({ role: "user", content: "你已经获得多轮搜索和网页正文。现在停止调用任何工具，基于当前真实来源直接输出最终自然语言 Markdown 报告；必须包含事实、简短投资分析和明确的不确定性，并用 [S1]、[S2] 引用本轮来源。不要输出 JSON，也不要继续搜索。" });
       }
       const response = await provider.runAgentTurn({ messages, tools: TOOLS, signal });
       generationCalls += 1;
@@ -117,18 +131,30 @@ export async function runNativeDeepResearch(input: IntelligenceTaskInput, depend
           const queries = values(payload.queries, 6);
           if (!queries.length) { messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ error: "queries_required" }) }); continue; }
           searchCalls += 1; searchedAreas.push(...queries);
-          const result = await dependencies.retrieval.retrieve({ input, start: new Date(Date.now() - 365 * 86400000), queries, signal });
+          if (signal.aborted) break;
+          const result = await dependencies.retrieval.retrieve({ input, start: coverage.start, queries, signal });
           retrievalStatus = result.status; providers = result.providers;
-          result.results.forEach((item) => sources.set(item.url, item));
-          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: result.status, results: result.results.slice(0, 24).map((item) => ({ title: cleanExternal(item.title, 300), url: item.url, source: cleanExternal(item.siteName, 120), publishedAt: item.publishedAt, snippet: cleanExternal(item.snippet, 1200) })) }) });
+          result.results.forEach((item) => {
+            const existing = sources.get(item.url);
+            if (existing) item.sourceRef = existing.sourceRef;
+            else item.sourceRef = `S${sources.size + 1}`;
+            sources.set(item.url, item);
+          });
+          messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: result.status, results: result.results.slice(0, 24).map((item) => sourceContext(item)) }) });
           continue;
         }
         if (call.function.name === "read_url") {
           const urls = values(payload.urls, 8).filter((url) => sources.has(url));
           readUrls += urls.length;
           const candidates: EvidenceCandidate[] = urls.map((url) => { const source = sources.get(url)!; return { title: source.title, publishedAt: source.publishedAt || undefined, sourceUrl: url, origin: "web-search", content: source.snippet }; });
+          if (signal.aborted) break;
           const acquired = await (dependencies.acquireEvidenceFn || acquireEvidence)(candidates, { maxUrls: urls.length, signal });
-          evidenceStats = acquired.stats;
+          evidenceStats = {
+            attempted: evidenceStats.attempted + acquired.stats.attempted,
+            full: evidenceStats.full + acquired.stats.full,
+            partial: evidenceStats.partial + acquired.stats.partial,
+            unavailable: evidenceStats.unavailable + acquired.stats.unavailable,
+          };
           acquired.candidates.forEach((item) => { if (item.sourceUrl) evidence.set(item.sourceUrl, item); });
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ pages: acquired.candidates.map((item) => sourceContext(sources.get(item.sourceUrl!)!, item)) }) });
           continue;
@@ -143,8 +169,8 @@ export async function runNativeDeepResearch(input: IntelligenceTaskInput, depend
     if (!answer && sources.size) answer = "研究在全局时限内未完成全部追查，以下保留本轮已取得的公开来源，建议继续补充核验。";
     if (!answer) throw new Error("deep research returned no usable result");
     const mapped = markdownWithMappedCitations(answer, sources);
-    const cited = mapped.cited.length ? mapped.cited : [...sources.values()].slice(0, 1);
+    const cited = mapped.cited;
     const reportCard = candidate(mapped.answer, cited, evidence);
-    return { answer: mapped.answer, importantFacts: [reportCard], otherItems: [], sourceList: cited.map((source) => ({ source: source.siteName, url: source.url, publishedAt: source.publishedAt || null, sourceTier: source.sourceTier || "C", origin: "web-search" })), retrieval: { status: retrievalStatus, providers, searchCandidates: sources.size, evidence: evidenceStats, final: { facts: 1, clues: 0, trends: 0 } }, searchedAreas: [...new Set(searchedAreas)], unresolvedGaps, confidence: cited.length > 1 ? "high" : "medium", generationCalls, searchCalls, readUrls, durationMs: Date.now() - started };
+    return { answer: mapped.answer, importantFacts: [reportCard], otherItems: [], sourceList: cited.map((source) => ({ sourceRef: source.sourceRef!, source: source.siteName, url: source.url, publishedAt: source.publishedAt || null, sourceTier: source.sourceTier || "C", origin: "web-search" })), retrieval: { status: retrievalStatus, providers, searchCandidates: sources.size, evidence: evidenceStats, final: { facts: 1, clues: 0, trends: 0 } }, searchedAreas: [...new Set(searchedAreas)], unresolvedGaps, confidence: cited.length > 1 ? "high" : cited.length === 1 ? "medium" : "low", generationCalls, searchCalls, readUrls, durationMs: Date.now() - started };
   } finally { clearTimeout(deadline); }
 }

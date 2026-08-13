@@ -1,7 +1,7 @@
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator } from "@/lib/intelligenceProvider";
 import { createBailianRetrievalProvider } from "@/lib/intelligenceBailianAdapter";
 import { normalizeTaskInput } from "@/lib/intelligence";
-import { runNativeDeepResearch } from "@/lib/deepResearchNative";
+import { coverageForNative, runNativeDeepResearch } from "@/lib/deepResearchNative";
 
 const apiKey = process.env.BAILIAN_API_KEY;
 const provider = createIntelligenceGenerationProvider({ provider: "qwen", apiKey: apiKey || "", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: process.env.RESEARCH_QWEN_MODEL || "qwen-plus" });
@@ -19,7 +19,15 @@ async function main() {
     const input = normalizeTaskInput({ name: task.name, topics: task.topics, entities: [], keywords: task.keywords, regions: [], includeRequirements: [], excludeRequirements: [], maxItems: 10, lookbackPeriod: { kind: "days", value: 14 }, outputInstructions: "面向投资人，直接输出自然语言 Markdown；事实、分析和不确定性清楚分开。", executionMode: "manual", scheduleConfig: null, isActive: true });
     const started = Date.now();
     const result = await runNativeDeepResearch(input, { generationProvider: provider, retrieval, deadlineMs: 600_000 });
-    console.log(JSON.stringify({ label: task.label, model: provider.model, elapsedMs: Date.now() - started, generationCalls: result.generationCalls, searchCalls: result.searchCalls, readUrls: result.readUrls, sourceCount: result.sourceList.length, retrieval: result.retrieval.status, answerLength: result.answer.length, answerPreview: result.answer.replace(/\s+/g, " ").slice(0, 280), sources: result.sourceList.slice(0, 5).map((source) => ({ source: source.source, url: source.url })) }));
+    const coverage = coverageForNative(input, new Date(started));
+    const citationRefs = [...result.answer.matchAll(/\[S(\d+)\]/g)].map((match) => `S${match[1]}`);
+    const citedSources = new Set(result.sourceList.map((source) => source.sourceRef));
+    const outOfRangeSources = result.sourceList.filter((source) => {
+      if (!source.publishedAt) return false;
+      const published = new Date(source.publishedAt).getTime();
+      return Number.isFinite(published) && (published < coverage.start.getTime() || published > coverage.end.getTime());
+    }).map((source) => ({ sourceRef: source.sourceRef, publishedAt: source.publishedAt }));
+    console.log(JSON.stringify({ label: task.label, model: provider.model, coverageStart: coverage.start.toISOString(), coverageEnd: coverage.end.toISOString(), elapsedMs: Date.now() - started, generationCalls: result.generationCalls, searchCalls: result.searchCalls, readUrls: result.readUrls, sourceCount: result.sourceList.length, firstPartySourceCount: result.sourceList.filter((source) => source.sourceTier === "S").length, citationRefs, validCitationRefs: citationRefs.filter((ref) => citedSources.has(ref)), outOfRangeSources, retrieval: result.retrieval.status, answerLength: result.answer.length, answerPreview: result.answer.replace(/\s+/g, " ").slice(0, 280), sources: result.sourceList.slice(0, 5).map((source) => ({ sourceRef: source.sourceRef, source: source.source, sourceTier: source.sourceTier, publishedAt: source.publishedAt, url: source.url })) }));
   }
 }
 

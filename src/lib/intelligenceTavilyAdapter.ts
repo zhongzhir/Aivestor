@@ -30,8 +30,10 @@ export class TavilyRetrievalProvider implements RetrievalProvider {
     const results: WebSearchItem[] = [];
     let failed = 0;
     for (const query of planned) {
+      if (signal?.aborted) break;
       try {
         results.push(...await this.search(query, apiKey, signal));
+        if (signal?.aborted) break;
       } catch (error) {
         failed++;
         console.warn(`[intelligence-retrieval] provider=tavily-web query failed: ${query}`, errorCode(error));

@@ -150,6 +150,7 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
   ) {}
 
   async retrieve(request: RetrievalRequest): Promise<RetrievalResult> {
+    if (request.signal?.aborted) return { status: "failed", providers: [], results: [] };
     const native = this.generationProviders.filter((provider) => provider.capabilities.nativeWebSearch && provider.searchWeb);
     const nativeProviders: Array<{ id: string; searchWeb: RetrievalProvider["searchWeb"] }> = native.map((provider) => ({ id: provider.id, searchWeb: provider.searchWeb! }));
     const diagnostics: RetrievalProviderDiagnostic[] = [];
@@ -169,6 +170,7 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
 
     let nativeSucceeded = false;
     for (const provider of nativeProviders) {
+      if (request.signal?.aborted) break;
       const status = await run(provider);
       if (status === "success") {
         nativeSucceeded = true;
@@ -177,6 +179,7 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
     }
     if (nativeProviders.length === 0 || !nativeSucceeded) {
       for (const provider of this.independentProviders) {
+        if (request.signal?.aborted) break;
         // Ordered providers are a real failover chain.  A partial result keeps
         // its evidence, then gives the next provider a chance to fill the gap.
         if ((await run(provider)) === "success") break;

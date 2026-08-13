@@ -7,6 +7,7 @@ export const WEB_SEARCH_SYSTEM_PROMPT = "你是情报系统的联网检索器。
 
 export interface WebSearchCredentials { apiKey: string; provider?: string; baseURL?: string; model?: string; }
 export interface WebSearchItem {
+  sourceRef?: string;
   title: string;
   url: string;
   siteName: string;
@@ -33,7 +34,14 @@ export function planIntelligenceQueries(input: IntelligenceTaskInput): string[] 
   return queries.map((query) => query.trim()).filter(Boolean).filter((query, index, list) => list.indexOf(query) === index).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxQueries);
 }
 
-function freshness(input: IntelligenceTaskInput): number { return input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 1 ? 7 : input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 7 ? 30 : 365; }
+export function freshnessForLookback(input: IntelligenceTaskInput): number {
+  if (input.lookbackPeriod.kind === "custom" && input.lookbackPeriod.start && input.lookbackPeriod.end) {
+    const span = Math.max(1, (new Date(input.lookbackPeriod.end).getTime() - new Date(input.lookbackPeriod.start).getTime()) / 86400000);
+    return span <= 7 ? 7 : span <= 30 ? 30 : 365;
+  }
+  const days = Math.max(1, input.lookbackPeriod.value ?? 3);
+  return days <= 7 ? 7 : days <= 30 ? 30 : 365;
+}
 function domainOf(value: string): string { try { return new URL(value).hostname.replace(/^www\./, ""); } catch { return ""; } }
 function normalizeUrl(value: string): string | null { try { const url = new URL(value); if (url.protocol !== "http:" && url.protocol !== "https:") return null; ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "gclid"].forEach((key) => url.searchParams.delete(key)); url.hash = ""; return url.toString().replace(/\/$/, ""); } catch { return null; } }
 function sourceName(value: unknown, domain: string): string {
