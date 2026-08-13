@@ -42,13 +42,7 @@ export function Sidebar({
                 desc: "情报订制与机构数据",
               },
             ]
-          : [
-              {
-                href: "/data-apps/intelligence-subscriptions",
-                label: "情报订制",
-                desc: "按关注持续整理",
-              },
-            ]),
+          : []),
       ]
     : NAV;
 
