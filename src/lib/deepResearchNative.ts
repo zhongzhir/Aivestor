@@ -10,7 +10,7 @@ export interface NativeDeepResearchResult {
   answer: string;
   importantFacts: Candidate[];
   otherItems: Candidate[];
-  sourceList: Array<{ sourceRef: string; title: string; source: string; url: string | null; publishedAt: string | null; sourceTier: NonNullable<Candidate["sourceTier"]>; origin: string }>;
+  sourceList: Array<{ sourceRef: string; title: string; source: string; url: string | null; publishedAt: string | null; sourceTier: NonNullable<Candidate["sourceTier"]>; origin: string; searchProviders: string[]; read: boolean; readStatus: string }>;
   retrieval: { status: "success" | "partial" | "failed"; providers: unknown[]; searchCandidates: number; evidence: { attempted: number; full: number; partial: number; unavailable: number }; final: { facts: number; clues: number; trends: number } };
   searchedAreas: string[];
   unresolvedGaps: string[];
@@ -70,7 +70,7 @@ export function coverageForNative(input: IntelligenceTaskInput, now = new Date()
 }
 
 function sourceContext(source: WebSearchItem, evidence?: EvidenceCandidate): Record<string, unknown> {
-  return { sourceRef: source.sourceRef, title: cleanExternal(source.title, 300), url: source.url, source: cleanExternal(source.siteName, 120), sourceTier: source.sourceTier, publishedAt: source.publishedAt, snippet: cleanExternal(source.snippet, 1_200), ...(evidence ? { evidenceStatus: evidence.evidenceStatus, content: cleanExternal(evidence.content, 8_000), evidencePublishedAt: evidence.evidencePublishedAt } : {}) };
+  return { sourceRef: source.sourceRef, title: cleanExternal(source.title, 300), url: source.url, searchProviders: source.searchProviders || [], source: cleanExternal(source.siteName, 120), sourceTier: source.sourceTier, publishedAt: source.publishedAt, read: evidence?.evidenceStatus === "full" || evidence?.evidenceStatus === "partial", readStatus: evidence?.evidenceStatus || "search_snippet_only", snippet: cleanExternal(source.snippet, 1_200), ...(evidence ? { evidenceStatus: evidence.evidenceStatus, content: cleanExternal(evidence.content, 8_000), evidencePublishedAt: evidence.evidencePublishedAt } : {}) };
 }
 
 function markdownWithMappedCitations(answer: string, sources: Map<string, WebSearchItem>): { answer: string; cited: WebSearchItem[]; invalid: string[] } {
@@ -171,6 +171,6 @@ export async function runNativeDeepResearch(input: IntelligenceTaskInput, depend
     const mapped = markdownWithMappedCitations(answer, sources);
     const cited = mapped.cited;
     const reportCard = candidate(mapped.answer, cited, evidence);
-    return { answer: mapped.answer, importantFacts: [reportCard], otherItems: [], sourceList: cited.map((source) => ({ sourceRef: source.sourceRef!, title: source.title, source: source.siteName, url: source.url, publishedAt: source.publishedAt || null, sourceTier: source.sourceTier || "C", origin: "web-search" })), retrieval: { status: retrievalStatus, providers, searchCandidates: sources.size, evidence: evidenceStats, final: { facts: 1, clues: 0, trends: 0 } }, searchedAreas: [...new Set(searchedAreas)], unresolvedGaps, confidence: cited.length > 1 ? "high" : cited.length === 1 ? "medium" : "low", generationCalls, searchCalls, readUrls, durationMs: Date.now() - started };
+    return { answer: mapped.answer, importantFacts: [reportCard], otherItems: [], sourceList: cited.map((source) => ({ sourceRef: source.sourceRef!, title: source.title, source: source.siteName, url: source.url, publishedAt: source.publishedAt || null, sourceTier: source.sourceTier || "C", origin: "web-search", searchProviders: source.searchProviders || [], read: evidence.get(source.url)?.evidenceStatus === "full" || evidence.get(source.url)?.evidenceStatus === "partial", readStatus: evidence.get(source.url)?.evidenceStatus || "search_snippet_only" })), retrieval: { status: retrievalStatus, providers, searchCandidates: sources.size, evidence: evidenceStats, final: { facts: 1, clues: 0, trends: 0 } }, searchedAreas: [...new Set(searchedAreas)], unresolvedGaps, confidence: cited.length > 1 ? "high" : cited.length === 1 ? "medium" : "low", generationCalls, searchCalls, readUrls, durationMs: Date.now() - started };
   } finally { clearTimeout(deadline); }
 }

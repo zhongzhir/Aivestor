@@ -8,6 +8,7 @@ export const WEB_SEARCH_SYSTEM_PROMPT = "你是情报系统的联网检索器。
 export interface WebSearchCredentials { apiKey: string; provider?: string; baseURL?: string; model?: string; }
 export interface WebSearchItem {
   sourceRef?: string;
+  searchProviders?: string[];
   title: string;
   url: string;
   siteName: string;
@@ -95,7 +96,7 @@ export function normalizeWebResults(raw: unknown, query: string): WebSearchItem[
     if (!url || !title) return null;
     const domain = domainOf(url);
     const site = sourceName(row.site_name ?? row.siteName ?? row.source, domain);
-    return { title, url, siteName: site, snippet: String(row.snippet ?? row.content ?? row.description ?? "").trim().slice(0, 4000), publishedAt: row.published_at || row.publishedAt || row.date ? String(row.published_at ?? row.publishedAt ?? row.date) : dateFromUrl(url), sourceTier: tierFor(domain, site), domain, query };
+  return { title, url, siteName: site, snippet: String(row.snippet ?? row.content ?? row.description ?? "").trim().slice(0, 4000), publishedAt: row.published_at || row.publishedAt || row.date ? String(row.published_at ?? row.publishedAt ?? row.date) : dateFromUrl(url), sourceTier: tierFor(domain, site), domain, query };
   }).filter((item): item is WebSearchItem => !!item).filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxCandidates);
 }
 

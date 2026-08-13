@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildRetrievalOverview, normalizeTaskInput } from "@/lib/intelligence";
-import { resolveAIModelSelection } from "@/lib/ai";
+import { AI_IDLE_TIMEOUT_MS, resolveAIModelSelection } from "@/lib/ai";
 import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider, type RetrievalProvider } from "@/lib/intelligenceProvider";
 import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
 
@@ -16,6 +16,7 @@ function provider(id: string, result: { status: "success" | "partial" | "failed"
 }
 
 async function main() {
+assert.equal(AI_IDLE_TIMEOUT_MS, 180_000, "provider idle timeout should allow up to 180 seconds");
 const deepseek = createIntelligenceGenerationProvider({ provider: "deepseek", apiKey: "secret" });
 assert.equal(deepseek.capabilities.generation, true);
 assert.equal(deepseek.capabilities.nativeWebSearch, false);
@@ -69,8 +70,9 @@ const multiSource = await new IntelligenceRetrievalOrchestrator([], [
   provider("web-b", { status: "success", results: [secondItem], queryCount: 1 }),
 ]).retrieve(request);
 assert.equal(multiSource.status, "success");
-assert.deepEqual(multiSource.providers.map((entry) => entry.provider), ["web-a"], "主检索成功后不得无故调用备用通道");
-assert.deepEqual(multiSource.results.map((entry) => entry.url), [item.url], "主检索成功时只保留已实际检索到的来源");
+assert.deepEqual(multiSource.providers.map((entry) => entry.provider), ["web-a", "web-b"], "独立搜索供应商必须并行参与");
+assert.deepEqual(multiSource.results.map((entry) => entry.url).sort(), [item.url, secondItem.url].sort(), "并行搜索应合并双方来源");
+assert.deepEqual(multiSource.results.find((entry) => entry.url === item.url)?.searchProviders, ["web-a"]);
 
 const failed = await new IntelligenceRetrievalOrchestrator([], [provider("failed-a", { status: "failed", results: [], queryCount: 1, errorCode: "timeout" })]).retrieve(request);
 assert.equal(failed.status, "failed");
