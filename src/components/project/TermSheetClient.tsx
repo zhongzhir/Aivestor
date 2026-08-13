@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
 import { readError, readTextStream } from "@/lib/clientAI";
+import { ExportDownloadButton } from "@/components/shared/ExportDownloadButton";
 
 type Mode = "idle" | "generating" | "done" | "error";
 
@@ -76,12 +77,11 @@ export function TermSheetClient({
         {mode === "done" && (
           <div className="flex shrink-0 items-center gap-2">
             {reportId && (
-              <a
+              <ExportDownloadButton
                 href={`/api/reports/${reportId}/export`}
+                label="导出 Word"
                 className="rounded-md border border-line px-3 py-1.5 text-xs text-ink-soft hover:bg-surface"
-              >
-                导出 Word
-              </a>
+              />
             )}
             <Link
               href={`/archive/${projectId}`}
@@ -175,12 +175,11 @@ export function TermSheetClient({
                   重新生成
                 </button>
                 {reportId && (
-                  <a
+                  <ExportDownloadButton
                     href={`/api/reports/${reportId}/export`}
+                    label="导出 Word →"
                     className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
-                  >
-                    导出 Word →
-                  </a>
+                  />
                 )}
               </div>
             </div>

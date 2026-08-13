@@ -9,6 +9,7 @@ import { PostInvestment } from "@/components/project/PostInvestment";
 import { STAGE_LABELS } from "@/lib/stages";
 import { outcomeDef } from "@/lib/outcome";
 import { readTextStream, readError } from "@/lib/clientAI";
+import { ExportDownloadButton } from "@/components/shared/ExportDownloadButton";
 
 export interface ArchiveDoc {
   id: string;
@@ -332,24 +333,21 @@ function ReportsTab({
                 >
                   查看
                 </Link>
-                <a
+                <ExportDownloadButton
                   href={`/api/reports/${r.id}/export`}
+                  label="Word"
                   className="rounded border border-slate-200 px-2 py-1 text-ink-soft hover:bg-slate-50"
-                >
-                  Word
-                </a>
-                <a
+                />
+                <ExportDownloadButton
                   href={`/api/reports/${r.id}/export?formal=1`}
+                  label="正式版"
                   className="rounded border border-accent/40 bg-accent-soft px-2 py-1 text-accent hover:bg-[#f3e5dc]"
-                >
-                  正式版
-                </a>
-                <a
+                />
+                <ExportDownloadButton
                   href={`/api/reports/${r.id}/export-ppt`}
+                  label="PPT"
                   className="rounded border border-slate-200 px-2 py-1 text-ink-soft hover:bg-slate-50"
-                >
-                  PPT
-                </a>
+                />
               </div>
             </li>
           );
