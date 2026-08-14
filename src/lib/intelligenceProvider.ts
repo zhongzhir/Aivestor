@@ -64,6 +64,7 @@ export interface RetrievalProviderDiagnostic {
   queryCount: number;
   resultCount: number;
   errorCode?: string;
+  queries?: string[];
 }
 
 export interface RetrievalResult {
@@ -155,8 +156,12 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
     const run = async (provider: { id: string; searchWeb: RetrievalProvider["searchWeb"] }) => {
       try {
         const run = await provider.searchWeb(request);
-        diagnostics.push({ provider: provider.id, attempted: true, succeeded: run.status !== "failed", queryCount: run.queryCount, resultCount: run.results.length, ...(run.errorCode ? { errorCode: run.errorCode } : {}) });
-        results.push(...run.results);
+        diagnostics.push({ provider: provider.id, attempted: true, succeeded: run.status !== "failed", queryCount: run.queryCount, resultCount: run.results.length, queries: request.queries || [], ...(run.errorCode ? { errorCode: run.errorCode } : {}) });
+        run.results.forEach((item) => {
+          const existing = results.find((candidate) => candidate.url === item.url);
+          if (existing) existing.searchProviders = [...new Set([...(existing.searchProviders || []), provider.id])];
+          else results.push({ ...item, searchProviders: [provider.id] });
+        });
         return run.status;
       } catch (error) {
         diagnostics.push({ provider: provider.id, attempted: true, succeeded: false, queryCount: 0, resultCount: 0, errorCode: errorCode(error) });
@@ -173,11 +178,8 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
       }
     }
     if (nativeProviders.length === 0 || !nativeSucceeded) {
-      for (const provider of this.independentProviders) {
-        // Ordered providers are a real failover chain.  A partial result keeps
-        // its evidence, then gives the next provider a chance to fill the gap.
-        if ((await run(provider)) === "success") break;
-      }
+      // 独立搜索供应商并行参与并合并结果，提升召回与权威来源覆盖。
+      await Promise.all(this.independentProviders.map((provider) => run(provider)));
     }
 
     const unique = results.filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index);

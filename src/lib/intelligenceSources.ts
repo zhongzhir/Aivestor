@@ -120,6 +120,64 @@ export const TRUSTED_INTELLIGENCE_SOURCES: IntelligenceSourceDefinition[] = [
     articlePath: /^https:\/\/www\.minimax\.io\/news\/.+/i,
     aliases: ["MiniMax", "海螺", "AI", "大模型"],
   },
+  // ── 权威来源（S2）──────────────────────────────────────────────
+  // 面向股权投资研究：让相关任务（IPO/并购/监管/政策等）在搜索侧通过
+  // assigned_site_list 锁定这些权威域，并维持 S 级来源标记。
+  // 专业媒体（Reuters/36氪/财新等）保持 A 级（见 sourceQuality），不在此升级。
+  // 交易所/监管站点多为 JS 渲染，采集侧（RSS/HTML 正则）可能仅部分可用，
+  // 抓取失败由采集器逐源容错，不影响搜索侧生效。
+  {
+    key: "sse-announcements",
+    name: "上海证券交易所",
+    category: "交易所/监管",
+    coverage: "general",
+    trustLevel: "regulatory",
+    priority: 95,
+    homepage: "https://www.sse.com.cn/",
+    kind: "html",
+    endpoint: "https://www.sse.com.cn/",
+    articlePath: /^https:\/\/www\.sse\.com\.cn\/.+/i,
+    aliases: ["上交所", "上海证券交易所", "SSE", "科创板", "沪市", "IPO"],
+  },
+  {
+    key: "szse-announcements",
+    name: "深圳证券交易所",
+    category: "交易所/监管",
+    coverage: "general",
+    trustLevel: "regulatory",
+    priority: 95,
+    homepage: "https://www.szse.cn/",
+    kind: "html",
+    endpoint: "https://www.szse.cn/",
+    articlePath: /^https:\/\/www\.szse\.cn\/.+/i,
+    aliases: ["深交所", "深圳证券交易所", "SZSE", "创业板", "深市"],
+  },
+  {
+    key: "hkex-announcements",
+    name: "香港交易所",
+    category: "交易所/监管",
+    coverage: "general",
+    trustLevel: "regulatory",
+    priority: 95,
+    homepage: "https://www.hkex.com.hk/",
+    kind: "html",
+    endpoint: "https://www.hkex.com.hk/",
+    articlePath: /^https:\/\/www\.hkex\.com\.hk\/.+/i,
+    aliases: ["港交所", "香港交易所", "HKEX", "港股", "港股IPO"],
+  },
+  {
+    key: "csrc-regulatory",
+    name: "中国证监会",
+    category: "交易所/监管",
+    coverage: "general",
+    trustLevel: "regulatory",
+    priority: 95,
+    homepage: "https://www.csrc.gov.cn/",
+    kind: "html",
+    endpoint: "https://www.csrc.gov.cn/",
+    articlePath: /^https:\/\/www\.csrc\.gov\.cn\/.+/i,
+    aliases: ["证监会", "中国证监会", "CSRC", "监管", "政策"],
+  },
 ];
 
 // 保留旧名称，避免独立采集脚本或外部部署脚本在升级期间中断。

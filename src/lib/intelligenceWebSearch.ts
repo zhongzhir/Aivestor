@@ -15,6 +15,8 @@ export interface WebSearchItem {
   sourceTier: SourceQualityTier;
   domain: string;
   query: string;
+  /** 命中该结果的一个或多个检索提供方；由 Search Router 在并行合并时填充。 */
+  searchProviders?: string[];
 }
 
 export interface IntelligenceSearchRun { query: string; assigned: string[]; purpose: "general" | "high-quality" | "primary" | "complementary"; }
