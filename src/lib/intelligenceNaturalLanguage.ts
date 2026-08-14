@@ -124,15 +124,30 @@ function parseRegions(text: string): string[] {
 
 function parseTopics(text: string): string[] {
   const topics: string[] = [];
+  const cleanTopic = (value: string) => value
+    .replace(/(?:20\d{2}\s*年\s*)?\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?/g, "")
+    .replace(/最近\s*\d+\s*(?:天|日|周|星期)|最近一周|最近一个月|近一周|近一个月/g, "")
+    .replace(/^(中国|国内|全球|海外|北京|上海|广州|深圳|杭州|成都)/, "")
+    .replace(/(资本|融资|投资|并购|收购|估值|IPO|上市|股权|募资|政策|监管|行业|市场)(?:动态|消息|变化|情况)?$/i, "")
+    .replace(/(企业|公司|机构)$/g, "")
+    .trim();
   const matches = text.match(/(?:关注|整理|跟踪|监测|观察)([^，。；,。]{2,24})/g) ?? [];
   for (const match of matches) {
     const value = match.replace(/^(关注|整理|跟踪|监测|观察)/, "").trim();
-    if (value) topics.push(value.replace(/^(最近|国内|海外)/, "").trim());
+    const cleaned = cleanTopic(value);
+    if (cleaned) topics.push(cleaned);
   }
-  for (const known of ["AI赛事", "人工智能", "新能源汽车", "基金", "机构", "政策", "监管", "医疗", "芯片"]) {
+  for (const known of ["AI赛事", "人工智能", "新能源汽车", "基金", "机构", "医疗", "芯片", "创新药", "商业航天"]) {
     if (text.includes(known)) topics.push(known);
   }
-  return unique(topics);
+  // 对“某行业/企业 + 事件类型”的短语保留用户明确的研究对象，
+  // 避免后续只按“资本事件”筛选而把其他行业结果混入。
+  const subject = text.match(/(?:中国|国内|全球|海外)?([\u4e00-\u9fffA-Za-z0-9]{2,18}?)(?:企业|公司|机构)?(?:的)?(?:资本|融资|投资|并购|IPO|上市|政策|行业|市场)(?:动态|消息|变化|情况)?/);
+  if (subject?.[1]) {
+    const cleaned = cleanTopic(subject[1]);
+    if (cleaned) topics.push(cleaned);
+  }
+  return unique(topics.map(cleanTopic));
 }
 
 function parseEntities(text: string): string[] {
@@ -144,6 +159,9 @@ function parseIncludeExclude(text: string): { include: string[]; exclude: string
   const include: string[] = [];
   const exclude: string[] = [];
   for (const value of ["有奖金", "有明确奖金", "适合我的项目参赛", "适合我的项目", "有融资信息", "有政策影响"]) {
+    if (text.includes(value)) include.push(value);
+  }
+  for (const value of ["融资", "投资", "并购", "收购", "估值", "IPO", "上市", "股权", "募资", "授权", "合作", "BD", "资本动态"]) {
     if (text.includes(value)) include.push(value);
   }
   const excludeMatch = text.match(/(?:排除|不要|不看|不包含)([^，。；,]+)/);
@@ -207,13 +225,18 @@ export function planFromAI(description: string, rawText: string, userTimezone = 
     timezone: safeTimezone(typeof rawSchedule.timezone === "string" ? rawSchedule.timezone : userTimezone),
   } : fallback.task.scheduleConfig;
   const rawLookback = task.lookbackPeriod && typeof task.lookbackPeriod === "object" ? task.lookbackPeriod as Record<string, unknown> : null;
-  const lookbackPeriod: IntelligenceTaskInput["lookbackPeriod"] = rawLookback?.kind === "custom"
-    ? { kind: "custom", start: typeof rawLookback.start === "string" ? rawLookback.start : undefined, end: typeof rawLookback.end === "string" ? rawLookback.end : undefined }
-    : { kind: "days", value: Math.max(1, Math.min(365, Number(rawLookback?.value) || fallback.task.lookbackPeriod.value || 3)) };
+  // 日期是用户研究意图的硬约束。AI 可能把“8月”猜成历史年份，
+  // 因此只要兜底解析出了明确范围，就不得用 AI 返回值覆盖。
+  const lookbackPeriod: IntelligenceTaskInput["lookbackPeriod"] = fallback.task.lookbackPeriod.kind === "custom"
+    ? fallback.task.lookbackPeriod
+    : rawLookback?.kind === "custom"
+      ? { kind: "custom", start: typeof rawLookback.start === "string" ? rawLookback.start : undefined, end: typeof rawLookback.end === "string" ? rawLookback.end : undefined }
+      : { kind: "days", value: Math.max(1, Math.min(365, Number(rawLookback?.value) || fallback.task.lookbackPeriod.value || 3)) };
+  const chooseExplicit = (aiValue: unknown, fallbackValue: string[]) => fallbackValue.length > 0 ? fallbackValue : cleanList(aiValue, fallbackValue);
   const merged: IntelligenceTaskInput = {
     name: typeof task.name === "string" ? task.name.trim().slice(0, 120) || fallback.task.name : fallback.task.name,
-    topics: cleanList(task.topics, fallback.task.topics), entities: cleanList(task.entities, fallback.task.entities), keywords: cleanList(task.keywords, fallback.task.keywords), regions: cleanList(task.regions, fallback.task.regions),
-    includeRequirements: cleanList(task.includeRequirements, fallback.task.includeRequirements), excludeRequirements: cleanList(task.excludeRequirements, fallback.task.excludeRequirements),
+    topics: chooseExplicit(task.topics, fallback.task.topics), entities: chooseExplicit(task.entities, fallback.task.entities), keywords: chooseExplicit(task.keywords, fallback.task.keywords), regions: chooseExplicit(task.regions, fallback.task.regions),
+    includeRequirements: chooseExplicit(task.includeRequirements, fallback.task.includeRequirements), excludeRequirements: chooseExplicit(task.excludeRequirements, fallback.task.excludeRequirements),
     maxItems: Math.max(1, Math.min(50, Number(task.maxItems) || fallback.task.maxItems)), lookbackPeriod,
     outputInstructions: typeof task.outputInstructions === "string" ? task.outputInstructions.trim().slice(0, 500) || fallback.task.outputInstructions : fallback.task.outputInstructions,
     executionMode: fallback.task.executionMode, scheduleConfig: fallback.task.executionMode === "scheduled" ? parsedSchedule : null,

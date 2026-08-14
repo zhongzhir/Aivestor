@@ -55,6 +55,13 @@ const productionConfig = normalizeTaskInput({
 assert.deepEqual(productionConfig.topics, ["AI大模型"]);
 assert.ok(productionConfig.keywords.includes("资本动态"));
 assert.deepEqual(productionConfig.entities, [], "泛化企业类别不应作为具体实体");
+const monthScoped = normalizeTaskInput({
+  name: "中国机器人企业8月资本动态",
+  topics: ["机器人"],
+  keywords: ["资本动态"],
+  lookbackPeriod: { kind: "custom", start: "2026-08-01T00:00:00.000Z", end: "2026-08-14T00:00:00.000Z" },
+});
+assert.ok(planIntelligenceQueries(monthScoped).every((query) => query.includes("2026年8月")), "自定义月份必须进入检索词，避免搜索引擎回落到历史年份");
 
 const smokeCandidate = (title: string, content: string, id = title): any => ({ id, title, content, source: "smoke", sourceUrl: `https://example.com/${id}`, publishedAt: "2026-08-08T00:00:00.000Z", subject: title, region: null, kind: "fact", sourceTier: "C", origin: "web-search" });
 const recent = new Date("2026-08-01T00:00:00.000Z");

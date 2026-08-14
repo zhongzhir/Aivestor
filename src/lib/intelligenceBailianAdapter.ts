@@ -11,6 +11,16 @@ function errorCode(error: unknown): string {
 }
 
 function freshness(input: RetrievalRequest["input"]): number {
+  if (input.lookbackPeriod.kind === "custom" && input.lookbackPeriod.start) {
+    const start = new Date(input.lookbackPeriod.start);
+    const end = input.lookbackPeriod.end ? new Date(input.lookbackPeriod.end) : new Date();
+    const ageDays = (Date.now() - end.getTime()) / 86400000;
+    if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && ageDays <= 2) {
+      const spanDays = Math.max(1, (end.getTime() - start.getTime()) / 86400000);
+      return spanDays <= 7 ? 30 : 365;
+    }
+    return 365;
+  }
   return input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 1 ? 7 : input.lookbackPeriod.kind === "days" && (input.lookbackPeriod.value ?? 3) <= 7 ? 30 : 365;
 }
 

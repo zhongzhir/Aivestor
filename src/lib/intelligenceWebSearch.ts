@@ -31,7 +31,20 @@ export function planIntelligenceQueries(input: IntelligenceTaskInput): string[] 
   if (!all.length) return [input.name.trim()].filter(Boolean);
   const subject = [...input.topics, ...input.entities].filter(Boolean).join(" ");
   const qualifiers = [...input.keywords, ...input.includeRequirements].filter(Boolean).join(" ");
-  const queries = [subject || all.join(" "), `${subject || all.join(" ")} ${qualifiers}`.trim(), `${all.join(" ")} 最新动态`, `${all.join(" ")} 融资 并购 政策 产品 合作`];
+  const scope = input.lookbackPeriod.kind === "custom" && input.lookbackPeriod.start
+    ? (() => {
+        const start = new Date(input.lookbackPeriod.start!);
+        const end = input.lookbackPeriod.end ? new Date(input.lookbackPeriod.end) : null;
+        if (!Number.isFinite(start.getTime())) return "";
+        const startText = `${start.getUTCFullYear()}年${start.getUTCMonth() + 1}月`;
+        const endText = end && Number.isFinite(end.getTime()) && (end.getUTCFullYear() !== start.getUTCFullYear() || end.getUTCMonth() !== start.getUTCMonth())
+          ? `至${end.getUTCFullYear()}年${end.getUTCMonth() + 1}月`
+          : "";
+        return `${startText}${endText}`;
+      })()
+    : "";
+  const withScope = (query: string) => `${query}${scope ? ` ${scope}` : ""}`.trim();
+  const queries = [withScope(subject || all.join(" ")), withScope(`${subject || all.join(" ")} ${qualifiers}`), withScope(`${all.join(" ")} 最新动态`), withScope(`${all.join(" ")} 融资 并购 政策 产品 合作`)];
   return queries.map((query) => query.trim()).filter(Boolean).filter((query, index, list) => list.indexOf(query) === index).slice(0, INTELLIGENCE_SEARCH_LIMITS.maxQueries);
 }
 

@@ -56,6 +56,35 @@ assert.equal(explicitMonth.task.lookbackPeriod.end, now.toISOString(), "未完�
 const bareMonth = parseNaturalLanguageFallbackAt("中国机器人企业8月资本动态", "Asia/Shanghai", now);
 assert.equal(bareMonth.task.lookbackPeriod.kind, "custom", "裸月（无年份）应解析为最近一个自然月");
 assert.equal(bareMonth.task.lookbackPeriod.start, "2026-08-01T00:00:00.000Z");
+assert.ok(bareMonth.task.topics.some((topic) => /机器人/.test(topic)), "应保留用户明确的机器人主题");
+assert.ok(bareMonth.task.includeRequirements.includes("资本动态"), "应保留用户明确的资本事件类型");
+
+const staleAiPlan = planFromAI("中国机器人企业8月资本动态", JSON.stringify({
+  task: {
+    name: "中国机器人企业8月资本动态",
+    topics: ["机器人企业"],
+    keywords: ["资本动态"],
+    lookbackPeriod: { kind: "custom", start: "2024-08-01T00:00:00.000Z", end: "2024-08-31T00:00:00.000Z" },
+    executionMode: "manual",
+  },
+  questions: [],
+}), "Asia/Shanghai");
+assert.equal(staleAiPlan.task.lookbackPeriod.start, "2026-08-01T00:00:00.000Z", "AI 不得覆盖用户的裸月份年份");
+assert.equal(new Date(staleAiPlan.task.lookbackPeriod.end ?? "").getUTCFullYear(), 2026);
+assert.equal(new Date(staleAiPlan.task.lookbackPeriod.end ?? "").getUTCMonth(), 7);
+assert.ok(new Date(staleAiPlan.task.lookbackPeriod.end ?? "").getTime() <= Date.now(), "未结束月份的结束时间不得晚于当前时间");
+assert.ok(staleAiPlan.task.topics.some((topic) => /机器人/.test(topic)));
+
+for (const [description, expectedTopic, expectedEvent] of [
+  ["中国创新药企业8月融资与授权动态", "创新药", "融资"],
+  ["北京商业航天企业2026年7月融资与政策动态", "商业航天", "融资"],
+  ["中国AI大模型企业最近一周资本动态", "AI大模型", "资本动态"],
+] as const) {
+  const plan = parseNaturalLanguageFallbackAt(description, "Asia/Shanghai", now);
+  assert.ok(plan.task.topics.includes(expectedTopic), `${description} 应保留主题`);
+  assert.ok(plan.task.includeRequirements.includes(expectedEvent), `${description} 应保留事件类型`);
+  assert.ok(plan.task.topics.every((topic) => !/20\d{2}|最近|\d+月/.test(topic)), `${description} 主题不应携带时间词`);
+}
 
 const pastMonth = parseNaturalLanguageFallbackAt("研究2024年8月资本动态", "Asia/Shanghai", now);
 assert.equal(pastMonth.task.lookbackPeriod.kind, "custom");
