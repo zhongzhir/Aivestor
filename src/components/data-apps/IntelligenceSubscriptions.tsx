@@ -76,20 +76,32 @@ export default function IntelligenceSubscriptions() {
   async function parseDescription() {
     if (!description.trim()) { setError("请先写下你想收集或研究的内容。 "); return; }
     setBusy(true); setError("");
-    const response = await fetch("/api/data-apps/intelligence-subscriptions/parse", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description, timezone: browserTimezone }) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.plan) { setError(data.error ?? "请再补充关注对象或时间节奏，然后重试。 "); setBusy(false); return; }
-    setPlan(data.plan);
-    setBusy(false);
+    try {
+      const response = await fetch("/api/data-apps/intelligence-subscriptions/parse", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ description, timezone: browserTimezone }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.plan) { setError(data.error ?? "请再补充关注对象或时间节奏，然后重试。 "); return; }
+      setPlan(data.plan);
+    } catch {
+      setError("解析暂时没有完成，请检查网络或稍后重试。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function confirmPlan() {
     if (!plan) return;
     setBusy(true); setError("");
-    const response = await fetch("/api/data-apps/intelligence-subscriptions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(clampCustomEnd(plan.task)) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) { if (response.status === 402 || data.code === "quota_unavailable") setQuotaBlocked(true); setError(response.status === 402 ? "生成情报简报会消耗 AI 额度，请选择一种可用方式后再试。" : friendlyError(data.error ?? "")); setBusy(false); return; }
-    setDescription(""); setPlan(null); await load(); setBusy(false);
+    try {
+      const response = await fetch("/api/data-apps/intelligence-subscriptions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(clampCustomEnd(plan.task)) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { if (response.status === 402 || data.code === "quota_unavailable") setQuotaBlocked(true); setError(response.status === 402 ? "生成情报简报会消耗 AI 额度，请选择一种可用方式后再试。" : friendlyError(data.error ?? "")); return; }
+      setDescription(""); setPlan(null);
+      await load().catch(() => setError("任务已创建，但列表刷新失败，请刷新页面查看。"));
+    } catch {
+      setError("创建暂时没有完成，请检查网络或稍后重试。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function modifyDescription() {
@@ -126,30 +138,43 @@ export default function IntelligenceSubscriptions() {
           })()
         : { kind: "days", value: Number(form.get("lookbackKind") ?? 3) };
     } catch { setError("时间范围需要填写完整，请再试一次。 "); setBusy(false); return; }
-    const payload = {
-      name: String(form.get("name") ?? ""), topics: csv("topics"), entities: csv("entities"), keywords: csv("keywords"), regions: csv("regions"),
-      includeRequirements: csv("includeRequirements"), excludeRequirements: csv("excludeRequirements"), maxItems: Number(form.get("maxItems") ?? 10),
-      lookbackPeriod, outputInstructions: String(form.get("outputInstructions") ?? ""), executionMode,
-      isActive: form.get("isActive") === "on",
-      scheduleConfig: executionMode === "scheduled" ? { frequency: String(form.get("frequency") ?? "daily"), time: String(form.get("time") ?? "09:00"), timezone: String(form.get("timezone") ?? "Asia/Shanghai"), weekdays: [Number(form.get("weekday") ?? 1)] } : null,
-    };
-    const url = editing ? `/api/data-apps/intelligence-subscriptions/${editing.id}` : "/api/data-apps/intelligence-subscriptions";
-    const response = await fetch(url, { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(friendlyError(data.error ?? "")); setBusy(false); return; }
-    setShowForm(false); setEditing(null); setAdvancedSeed(null); setPlan(null); await load(); setBusy(false);
+    try {
+      const payload = {
+        name: String(form.get("name") ?? ""), topics: csv("topics"), entities: csv("entities"), keywords: csv("keywords"), regions: csv("regions"),
+        includeRequirements: csv("includeRequirements"), excludeRequirements: csv("excludeRequirements"), maxItems: Number(form.get("maxItems") ?? 10),
+        lookbackPeriod, outputInstructions: String(form.get("outputInstructions") ?? ""), executionMode,
+        isActive: form.get("isActive") === "on",
+        scheduleConfig: executionMode === "scheduled" ? { frequency: String(form.get("frequency") ?? "daily"), time: String(form.get("time") ?? "09:00"), timezone: String(form.get("timezone") ?? "Asia/Shanghai"), weekdays: [Number(form.get("weekday") ?? 1)] } : null,
+      };
+      const url = editing ? `/api/data-apps/intelligence-subscriptions/${editing.id}` : "/api/data-apps/intelligence-subscriptions";
+      const response = await fetch(url, { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setError(friendlyError(data.error ?? "")); return; }
+      setShowForm(false); setEditing(null); setAdvancedSeed(null); setPlan(null);
+      await load().catch(() => setError("设置已保存，但列表刷新失败，请刷新页面查看。"));
+    } catch {
+      setError("保存暂时没有完成，请检查网络或稍后重试。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function action(task: Task, kind: "generate" | "delete" | "toggle") {
     setBusy(true); setError("");
     const url = `/api/data-apps/intelligence-subscriptions/${task.id}`;
-    const response = kind === "generate"
-      ? await fetch(`${url}/generate`, { method: "POST" })
-      : kind === "delete"
-        ? await fetch(url, { method: "DELETE" })
-        : await fetch(url, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...task, isActive: !task.is_active, includeRequirements: task.include_requirements, excludeRequirements: task.exclude_requirements, maxItems: task.max_items, lookbackPeriod: task.lookback_period, executionMode: task.execution_mode, scheduleConfig: task.schedule_config }) });
-    if (!response.ok) { const data = await response.json().catch(() => ({})); if (response.status === 402 || data.code === "quota_unavailable") setQuotaBlocked(true); setError(response.status === 402 ? "生成情报简报会消耗 AI 额度，请选择一种可用方式后再试。" : friendlyError(data.error ?? "")); }
-    await load(); setBusy(false);
+    try {
+      const response = kind === "generate"
+        ? await fetch(`${url}/generate`, { method: "POST" })
+        : kind === "delete"
+          ? await fetch(url, { method: "DELETE" })
+          : await fetch(url, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...task, isActive: !task.is_active, includeRequirements: task.include_requirements, excludeRequirements: task.exclude_requirements, maxItems: task.max_items, lookbackPeriod: task.lookback_period, executionMode: task.execution_mode, scheduleConfig: task.schedule_config }) });
+      if (!response.ok) { const data = await response.json().catch(() => ({})); if (response.status === 402 || data.code === "quota_unavailable") setQuotaBlocked(true); setError(response.status === 402 ? "生成情报简报会消耗 AI 额度，请选择一种可用方式后再试。" : friendlyError(data.error ?? "")); }
+      await load().catch(() => {});
+    } catch {
+      setError("操作暂时没有完成，请检查网络或稍后重试。");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function markFeedback(briefId: string, itemKey: string, value: "valuable" | "irrelevant") {
@@ -173,9 +198,9 @@ export default function IntelligenceSubscriptions() {
       <div className="mt-5"><p className="text-xs text-ink-faint">可以从这些方向开始</p><div className="mt-2 flex flex-wrap gap-2">{templates.map((template) => <button key={template.label} onClick={() => { setDescription(template.text); setPlan(null); window.setTimeout(() => descriptionRef.current?.focus(), 0); }} className="rounded-full border border-line px-3 py-1.5 text-xs text-ink-soft hover:border-[#0D1B3E]">{template.label}</button>)}</div></div>
     </section>
 
-    {plan && <section className="mt-5 rounded-lg border border-[#cdd9e8] bg-[#f8fbff] p-5"><h2 className="text-base font-semibold text-ink">这是我整理的订制方案</h2>{plan.questions.length > 0 ? <><p className="mt-3 text-sm text-ink-soft">再补充一点信息，就能开始：</p><ul className="mt-2 list-disc pl-5 text-sm text-ink">{plan.questions.map((question) => <li key={question}>{question}</li>)}</ul><button onClick={modifyDescription} className="mt-4 rounded-md border border-line bg-white px-4 py-2 text-sm text-ink-soft">修改描述</button></> : <><div className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><Summary label="任务名称" value={plan.task.name} /><Summary label="关注内容" value={summaryValue(plan.task)} /><Summary label="重点筛选条件" value={filtersValue(plan.task)} /><Summary label="时间范围" value={lookbackValue(plan.task.lookbackPeriod)} /><Summary label="信息数量" value={`最多 ${plan.task.maxItems} 条`} /><Summary label="生成方式" value={plan.task.executionMode === "scheduled" ? "定时生成" : "手动生成"} />{plan.task.executionMode === "scheduled" && <Summary label="定时频率与时间" value={scheduleValue(plan.task)} />}</div><div className="mt-5 flex flex-wrap gap-3"><button onClick={confirmPlan} disabled={busy} className="rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">确认创建</button><button onClick={modifyDescription} className="rounded-md border border-line bg-white px-4 py-2 text-sm text-ink-soft">修改描述</button><button onClick={() => openAdvanced(undefined, plan.task)} className="rounded-md border border-line bg-white px-4 py-2 text-sm text-ink-soft">高级调整</button></div></>}</section>}
+    {plan && <section className="mt-5 rounded-lg border border-[#cdd9e8] bg-[#f8fbff] p-5"><h2 className="text-base font-semibold text-ink">这是我整理的订制方案</h2>{plan.questions.length > 0 ? <><p className="mt-3 text-sm text-ink-soft">再补充一点信息，就能开始：</p><ul className="mt-2 list-disc pl-5 text-sm text-ink">{plan.questions.map((question) => <li key={question}>{question}</li>)}</ul><button onClick={modifyDescription} className="mt-4 rounded-md border border-line bg-white px-4 py-2 text-sm text-ink-soft">修改描述</button></> : <><div className="mt-4 grid gap-3 text-sm sm:grid-cols-2"><Summary label="任务名称" value={plan.task.name} /><Summary label="关注内容" value={summaryValue(plan.task)} /><Summary label="重点筛选条件" value={filtersValue(plan.task)} /><Summary label="时间范围" value={lookbackValue(plan.task.lookbackPeriod)} /><Summary label="信息数量" value={`最多 ${plan.task.maxItems} 条`} /><Summary label="生成方式" value={plan.task.executionMode === "scheduled" ? "定时生成" : "手动生成"} />{plan.task.executionMode === "scheduled" && <Summary label="定时频率与时间" value={scheduleValue(plan.task)} />}</div><div className="mt-5 flex flex-wrap gap-3"><button onClick={confirmPlan} disabled={busy} className="rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">确认创建</button><button onClick={modifyDescription} className="rounded-md border border-line bg-white px-4 py-2 text-sm text-ink-soft">修改描述</button><button onClick={() => openAdvanced(undefined, plan.task)} className="rounded-md border border-line bg-white px-4 py-2 text-sm text-ink-soft">高级调整</button></div>{error && <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}</>}</section>}
 
-    {showForm && <form onSubmit={saveAdvanced} className="mt-5 rounded-lg border border-line bg-white p-5"><div className="flex items-center justify-between"><h2 className="text-base font-semibold">高级设置</h2><button type="button" onClick={() => { setShowForm(false); setEditing(null); setAdvancedSeed(null); }} className="text-sm text-ink-faint">收起</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="任务名称" name="name" defaultValue={read(current, "name", "name")} required /><Field label="主题（逗号分隔）" name="topics" defaultValue={listValue(read(current, "topics", "topics", []))} /><Field label="主体或公司" name="entities" defaultValue={listValue(read(current, "entities", "entities", []))} /><Field label="关键词" name="keywords" defaultValue={listValue(read(current, "keywords", "keywords", []))} /><Field label="地域" name="regions" defaultValue={listValue(read(current, "regions", "regions", []))} /><Field label="包含条件" name="includeRequirements" defaultValue={listValue(read(current, "includeRequirements", "include_requirements", []))} /><Field label="排除条件" name="excludeRequirements" defaultValue={listValue(read(current, "excludeRequirements", "exclude_requirements", []))} /><Field label="最多条数" name="maxItems" type="number" defaultValue={read(current, "maxItems", "max_items", 10)} /><label className="text-sm text-ink-soft">时间范围<select name="lookbackKind" defaultValue={read(current, "lookbackPeriod", "lookback_period", {})?.kind === "custom" ? "custom" : String(read(current, "lookbackPeriod", "lookback_period", {})?.value ?? 3)} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="1">最近24小时</option><option value="3">最近3天</option><option value="7">最近7天</option><option value="custom">自定义</option></select></label><Field label="自定义开始时间" name="lookbackStart" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.start ?? "")} /><Field label="自定义结束时间" name="lookbackEnd" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.end ?? "")} /><label className="text-sm text-ink-soft sm:col-span-2">输出要求<textarea name="outputInstructions" defaultValue={read(current, "outputInstructions", "output_instructions", "")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm" placeholder="例如：区分事实与趋势，突出对项目的影响" /></label><label className="text-sm text-ink-soft">生成方式<select name="executionMode" defaultValue={read(current, "executionMode", "execution_mode", "manual")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="manual">手动生成</option><option value="scheduled">定时生成</option></select></label><label className="flex items-end gap-2 pb-2 text-sm text-ink-soft"><input type="checkbox" name="isActive" defaultChecked={read(current, "isActive", "is_active", true) === true} /> 启用</label><label className="text-sm text-ink-soft">生成频率<select name="frequency" defaultValue={currentSchedule.frequency ?? "daily"} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="daily">每天</option><option value="weekly">每周</option></select></label><Field label="生成时间" name="time" type="time" defaultValue={currentSchedule.time ?? "09:00"} /><Field label="时区" name="timezone" defaultValue={currentSchedule.timezone ?? browserTimezone} /><Field label="星期（0=周日，1=周一）" name="weekday" type="number" defaultValue={currentSchedule.weekdays?.[0] ?? 1} /></div><button disabled={busy} className="mt-4 rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">保存设置</button></form>}
+    {showForm && <form onSubmit={saveAdvanced} className="mt-5 rounded-lg border border-line bg-white p-5"><div className="flex items-center justify-between"><h2 className="text-base font-semibold">高级设置</h2><button type="button" onClick={() => { setShowForm(false); setEditing(null); setAdvancedSeed(null); }} className="text-sm text-ink-faint">收起</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="任务名称" name="name" defaultValue={read(current, "name", "name")} required /><Field label="主题（逗号分隔）" name="topics" defaultValue={listValue(read(current, "topics", "topics", []))} /><Field label="主体或公司" name="entities" defaultValue={listValue(read(current, "entities", "entities", []))} /><Field label="关键词" name="keywords" defaultValue={listValue(read(current, "keywords", "keywords", []))} /><Field label="地域" name="regions" defaultValue={listValue(read(current, "regions", "regions", []))} /><Field label="包含条件" name="includeRequirements" defaultValue={listValue(read(current, "includeRequirements", "include_requirements", []))} /><Field label="排除条件" name="excludeRequirements" defaultValue={listValue(read(current, "excludeRequirements", "exclude_requirements", []))} /><Field label="最多条数" name="maxItems" type="number" defaultValue={read(current, "maxItems", "max_items", 10)} /><label className="text-sm text-ink-soft">时间范围<select name="lookbackKind" defaultValue={read(current, "lookbackPeriod", "lookback_period", {})?.kind === "custom" ? "custom" : String(read(current, "lookbackPeriod", "lookback_period", {})?.value ?? 3)} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="1">最近24小时</option><option value="3">最近3天</option><option value="7">最近7天</option><option value="custom">自定义</option></select></label><Field label="自定义开始时间" name="lookbackStart" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.start ?? "")} /><Field label="自定义结束时间" name="lookbackEnd" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.end ?? "")} /><label className="text-sm text-ink-soft sm:col-span-2">输出要求<textarea name="outputInstructions" defaultValue={read(current, "outputInstructions", "output_instructions", "")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm" placeholder="例如：区分事实与趋势，突出对项目的影响" /></label><label className="text-sm text-ink-soft">生成方式<select name="executionMode" defaultValue={read(current, "executionMode", "execution_mode", "manual")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="manual">手动生成</option><option value="scheduled">定时生成</option></select></label><label className="flex items-end gap-2 pb-2 text-sm text-ink-soft"><input type="checkbox" name="isActive" defaultChecked={read(current, "isActive", "is_active", true) === true} /> 启用</label><label className="text-sm text-ink-soft">生成频率<select name="frequency" defaultValue={currentSchedule.frequency ?? "daily"} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="daily">每天</option><option value="weekly">每周</option></select></label><Field label="生成时间" name="time" type="time" defaultValue={currentSchedule.time ?? "09:00"} /><Field label="时区" name="timezone" defaultValue={currentSchedule.timezone ?? browserTimezone} /><Field label="星期（0=周日，1=周一）" name="weekday" type="number" defaultValue={currentSchedule.weekdays?.[0] ?? 1} /></div><button disabled={busy} className="mt-4 rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">保存设置</button>{error && <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}</form>}
 
     {tasks.length > 0 && <section id="my-intelligence-tasks" className="mt-7"><h2 className="text-base font-semibold">我的情报任务</h2><div className="mt-3 grid gap-3">{tasks.map((task) => { const blocked = quotaAvailable === false && task.is_active; return <div key={task.id} className="rounded-lg border border-line bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-medium">{task.name}</h3><p className="mt-1 text-xs text-ink-faint">{blocked ? "额度不足" : task.is_active ? "已启用" : "已停用"} · {task.execution_mode === "scheduled" ? `${task.schedule_config?.frequency === "weekly" ? "每周" : "每天"} ${task.schedule_config?.time ?? ""}` : "手动生成"}{task.last_generated_at ? ` · 最近生成 ${new Date(task.last_generated_at).toLocaleString("zh-CN")}` : ""}</p><p className="mt-1 text-xs text-ink-faint">AI 来源：{aiSource === "custom" ? "自有 API" : aiSource === "platform" ? "平台额度" : "暂不可用"}</p></div><div className="flex flex-wrap gap-3 text-xs"><button onClick={() => action(task, "generate")} className="text-accent">生成本期简报</button><button onClick={() => openAdvanced(task)} className="text-ink-soft">编辑设置</button><button onClick={() => action(task, "toggle")} className="text-ink-soft">{task.is_active ? "停用" : "启用"}</button><button onClick={() => action(task, "delete")} className="text-red-600">删除</button></div></div></div>; })}</div></section>}
     <section className="mt-7"><h2 className="text-base font-semibold">过去生成的简报</h2>{briefs.length === 0 ? <p className="mt-3 text-sm text-ink-faint">生成后的简报会保留在这里，方便回看。</p> : <div className="mt-3 space-y-5">{briefs.map((brief) => <div key={brief.id} className="rounded-xl border border-line bg-white p-4 sm:p-5"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4"><div><p className="text-base font-semibold text-ink">{brief.task_name}</p><p className="mt-1 text-xs text-ink-faint">覆盖 {new Date(brief.coverage_start).toLocaleDateString("zh-CN")} 至 {new Date(brief.coverage_end).toLocaleDateString("zh-CN")} · 生成于 {new Date(brief.generated_at).toLocaleString("zh-CN")}</p></div><span className="rounded-full bg-[#f1f5fb] px-2.5 py-1 text-xs text-ink-soft">共 {brief.item_count} 条</span></div>{brief.metadata?.retrieval?.status === "partial" && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">本期有部分公开来源暂时无法访问；已保留可核验结果，建议稍后重新生成。</div>}{brief.metadata?.overview && <div className="mt-4 rounded-lg bg-[#f8fbff] px-4 py-3 text-sm leading-6 text-ink-soft"><p className="text-xs font-medium text-ink">本期概览</p><p className="mt-1 whitespace-pre-wrap">{brief.metadata.overview}</p></div>}<div className="mt-4 space-y-4">{brief.important_facts?.length > 0 && <BriefSection title="重点动态" tone="blue" items={brief.important_facts} briefId={brief.id} feedback={feedback} onFeedback={markFeedback} />}{brief.trend_signals?.length > 0 && <BriefSection title="趋势观察" tone="amber" items={brief.trend_signals} briefId={brief.id} feedback={feedback} onFeedback={markFeedback} />}{brief.other_items?.filter((item: any) => item.isClue)?.length > 0 && <BriefSection title="值得继续跟踪" tone="amber" items={brief.other_items.filter((item: any) => item.isClue).slice(0, 4)} briefId={brief.id} feedback={feedback} onFeedback={markFeedback} />}{brief.other_items?.filter((item: any) => !item.isClue)?.length > 0 && <BriefSection title="其他动态" tone="gray" items={brief.other_items.filter((item: any) => !item.isClue)} briefId={brief.id} feedback={feedback} onFeedback={markFeedback} />}</div>{brief.source_list?.length > 0 && <div className="mt-5 border-t border-line pt-4"><p className="text-xs font-medium text-ink-soft">本期信息源</p><div className="mt-2 flex flex-wrap gap-2">{uniqueSources(brief.source_list).map((source: any) => <a key={`${source.source}-${source.url ?? ""}`} href={source.url ?? undefined} target={source.url ? "_blank" : undefined} rel={source.url ? "noreferrer" : undefined} className="rounded-full border border-line px-2.5 py-1 text-xs text-ink-soft hover:border-[#0D1B3E]">{source.source}</a>)}</div></div>}</div>)}</div>}</section>
