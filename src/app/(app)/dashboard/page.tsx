@@ -266,35 +266,35 @@ export default async function DashboardPage() {
             <MetricCard label="知识条目" value={knowledgeCount} note="可被检索和复用" />
             <MetricCard label="报告草稿" value={draftReportCount} note="可继续打磨输出" />
           </div>
+
+          {attentionProjects.length > 0 && (
+            <div className="mt-6">
+              <p className="text-sm font-semibold text-ink">需要回看的项目</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {attentionProjects.map((project) => (
+                  <Link
+                    key={project.id}
+                    href={`/projects/${project.id}`}
+                    className="block rounded-lg border border-[#e2d8c8] bg-white/70 p-3 transition-colors hover:border-[#cdbfAA] hover:bg-white"
+                  >
+                    <p className="text-sm font-medium text-ink">{project.name}</p>
+                    <p className="mt-1 text-xs leading-5 text-ink-soft">
+                      你在{gentlePeriod(project.days)}关注的项目，有新进展吗？
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded-lg border border-[#e6ded1] bg-[#f7f2e8] p-5">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">今日关注</h2>
             <span className="rounded-full bg-white/70 px-2 py-1 text-xs text-ink-soft">
-              项目与情报
+              情报简报
             </span>
           </div>
-          {attentionProjects.length === 0 ? (
-            <p className="mt-5 text-sm leading-7 text-ink-soft">
-              暂时没有需要特别回看的项目。你可以从最近项目继续，或者整理一份新材料。
-            </p>
-          ) : (
-            <div className="mt-4 space-y-3">
-              {attentionProjects.map((project) => (
-                <Link
-                  key={project.id}
-                  href={`/projects/${project.id}`}
-                  className="block rounded-lg border border-[#e2d8c8] bg-white/70 p-3 transition-colors hover:border-[#cdbfAA] hover:bg-white"
-                >
-                  <p className="text-sm font-medium text-ink">{project.name}</p>
-                  <p className="mt-1 text-xs leading-5 text-ink-soft">
-                    你在{gentlePeriod(project.days)}关注的项目，有新进展吗？
-                  </p>
-                </Link>
-              ))}
-            </div>
-          )}
           {user && <IntelligenceAttention tasks={intelligenceTasks} briefs={latestIntelligenceBriefs} quotaUnavailable={intelligenceQuotaUnavailable} />}
         </div>
       </section>
