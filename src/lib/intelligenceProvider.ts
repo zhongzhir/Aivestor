@@ -182,7 +182,8 @@ export class IntelligenceRetrievalOrchestrator implements IntelligenceSearchRout
 
     const unique = results.filter((item, index, list) => list.findIndex((other) => other.url === item.url) === index);
     const succeeded = diagnostics.filter((item) => item.succeeded).length;
-    const failed = diagnostics.filter((item) => !item.succeeded).length;
+    // 未配置凭据的 Provider 视为"未启用"而非真实失败，不把整体检索降级为 partial。
+    const failed = diagnostics.filter((item) => !item.succeeded && item.errorCode !== "missing_credentials").length;
     const status: RetrievalResult["status"] = succeeded === 0 ? "failed" : failed > 0 ? "partial" : "success";
     return { status, providers: diagnostics, results: unique, fetchedAt: new Date().toISOString() };
   }

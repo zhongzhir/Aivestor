@@ -5,7 +5,7 @@ import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { sleepDays } from "@/lib/projectSleep";
 import { BRAND } from "@/lib/brand";
 import { getGenerationAccess } from "@/lib/intelligenceGeneration";
-import { IntelligenceAttention, type DashboardIntelligenceBrief, type DashboardIntelligenceTask } from "@/components/dashboard/IntelligenceAttention";
+import { IntelligenceAttention, type DashboardIntelligenceBrief, type DashboardIntelligenceItem, type DashboardIntelligenceTask } from "@/components/dashboard/IntelligenceAttention";
 
 const QUICK_ACTIONS = [
   {
@@ -63,11 +63,13 @@ interface IntelligenceTaskRow {
 
 interface IntelligenceBriefRow {
   id: string;
+  task_id: string;
   task_name: string;
   generated_at: string;
   important_facts: unknown;
   trend_signals: unknown;
   other_items: unknown;
+  metadata: unknown;
 }
 
 type AttentionProject = RecentProject & { days: number };
@@ -98,11 +100,16 @@ function projectMeta(project: RecentProject): string {
     .join(" · ");
 }
 
-function briefItems(row: IntelligenceBriefRow): Array<{ title?: string; content?: string }> {
+function briefItems(row: IntelligenceBriefRow): DashboardIntelligenceItem[] {
   return [row.important_facts, row.trend_signals, row.other_items]
     .flatMap((value) => Array.isArray(value) ? value : [])
-    .filter((item): item is { title?: string; content?: string } => typeof item === "object" && item !== null)
-    .slice(0, 5);
+    .filter((item): item is DashboardIntelligenceItem => typeof item === "object" && item !== null)
+    .slice(0, 12);
+}
+
+function briefOverview(row: IntelligenceBriefRow): string {
+  const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata as Record<string, unknown> : {};
+  return typeof metadata.overview === "string" ? metadata.overview.replace(/^#{1,3}\s+/, "").trim() : "";
 }
 
 async function safeCount(sql: string, params: unknown[]): Promise<number> {
@@ -176,7 +183,7 @@ export default async function DashboardPage() {
     : [0, 0, 0];
 
   let intelligenceTasks: DashboardIntelligenceTask[] = [];
-  let latestIntelligenceBrief: DashboardIntelligenceBrief | null = null;
+  let latestIntelligenceBriefs: DashboardIntelligenceBrief[] = [];
   let intelligenceQuotaUnavailable = false;
   if (user) {
     try {
@@ -186,12 +193,22 @@ export default async function DashboardPage() {
       );
       intelligenceTasks = taskRows.map((task) => ({ id: task.id, name: task.name, isActive: task.is_active, executionMode: task.execution_mode, scheduleConfig: task.schedule_config }));
       if (intelligenceTasks.length > 0) {
+        const taskIds = intelligenceTasks.map((task) => task.id);
         const briefRows = await query<IntelligenceBriefRow>(
-          "SELECT id, task_name, generated_at, important_facts, trend_signals, other_items FROM intelligence_briefs WHERE user_id = $1 ORDER BY generated_at DESC LIMIT 1",
-          [user.id]
+          `SELECT DISTINCT ON (task_id) id, task_id, task_name, generated_at, important_facts, trend_signals, other_items, metadata
+             FROM intelligence_briefs
+            WHERE user_id = $1 AND task_id = ANY($2::uuid[])
+            ORDER BY task_id, generated_at DESC`,
+          [user.id, taskIds]
         );
-        const latest = briefRows[0];
-        if (latest) latestIntelligenceBrief = { id: latest.id, taskName: latest.task_name, generatedAt: latest.generated_at, items: briefItems(latest) };
+        latestIntelligenceBriefs = briefRows.map((latest) => ({
+          id: latest.id,
+          taskId: latest.task_id,
+          taskName: latest.task_name,
+          generatedAt: latest.generated_at,
+          overview: briefOverview(latest),
+          items: briefItems(latest),
+        }));
         intelligenceQuotaUnavailable = intelligenceTasks.some((task) => task.isActive) && !(await getGenerationAccess(user.id));
       }
     } catch {
@@ -278,7 +295,7 @@ export default async function DashboardPage() {
               ))}
             </div>
           )}
-          {user && <IntelligenceAttention tasks={intelligenceTasks} latestBrief={latestIntelligenceBrief} quotaUnavailable={intelligenceQuotaUnavailable} />}
+          {user && <IntelligenceAttention tasks={intelligenceTasks} briefs={latestIntelligenceBriefs} quotaUnavailable={intelligenceQuotaUnavailable} />}
         </div>
       </section>
 

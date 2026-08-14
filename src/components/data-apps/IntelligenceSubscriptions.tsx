@@ -164,23 +164,38 @@ export default function IntelligenceSubscriptions() {
 function Summary({ label, value }: { label: string; value: string }) { return <div><p className="text-xs text-ink-faint">{label}</p><p className="mt-1 text-sm text-ink">{value || "按你的描述整理"}</p></div>; }
 function BriefSection({ title, tone, items, briefId, feedback, onFeedback }: { title: string; tone: "blue" | "amber" | "gray"; items: any[]; briefId: string; feedback: Record<string, string>; onFeedback: (briefId: string, itemKey: string, value: "valuable" | "irrelevant") => void }) {
   const toneClass = tone === "blue" ? "border-blue-100 bg-blue-50/40" : tone === "amber" ? "border-amber-100 bg-amber-50/40" : "border-line bg-[#fafafa]";
-  return <section className={`rounded-lg border p-3 ${toneClass}`}><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold text-ink">{title}</h3><span className="text-xs text-ink-faint">{items.length} 条</span></div><div className="mt-2 space-y-3">{items.map((item: any) => {
+  const relevanceRank = (value?: string) => value === "high" ? 2 : value === "medium" ? 1 : 0;
+  const sortedItems = [...items].sort((a: any, b: any) => relevanceRank(b.relevance) - relevanceRank(a.relevance));
+  return <section className={`rounded-lg border p-3 ${toneClass}`}><div className="flex items-center justify-between gap-2"><h3 className="text-sm font-semibold text-ink">{title}</h3><span className="text-xs text-ink-faint">{items.length} 条</span></div><div className="mt-2 space-y-3">{sortedItems.map((item: any) => {
     const sources = sourceLabels(item);
     const publishedLabel = item.timeUnconfirmed || !item.publishedAt ? "时间未确认" : new Date(item.publishedAt).toLocaleDateString("zh-CN");
     const summary = item.summary || stripLegacyBriefMarkdown(item.content) || "暂无摘要";
     const primaryUrl = item.sourceUrl || item.sourceUrls?.[0] || null;
     const moreUrls = (item.sourceUrls || []).filter((url: string) => url && url !== primaryUrl);
     return <article key={item.id} className="rounded-md border border-white/80 bg-white p-3 shadow-sm">
-      <h4 className="text-sm font-medium leading-6 text-ink">{item.title}</h4>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h4 className="text-sm font-medium leading-6 text-ink">{item.title}</h4>
+        <span className="flex shrink-0 items-center gap-1.5">{item.relevance === "high" ? <span className="rounded bg-[#eef4ff] px-1.5 py-0.5 text-[10px] font-medium text-accent">与你相关</span> : null}<TierBadge tier={item.sourceTier} /></span>
+      </div>
       <p className="mt-2 text-sm leading-6 text-ink-soft whitespace-pre-wrap">{summary}</p>
       {item.investmentNote ? <p className="mt-2 text-sm leading-6 text-ink"><span className="font-medium">投资观察：</span>{item.investmentNote}</p> : null}
       {item.isClue ? <p className="mt-2 text-xs text-amber-700"><span className="font-medium">线索：</span>{item.followUpReason || "待进一步确认"}</p> : null}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
-        <p className="text-xs text-ink-faint">{publishedLabel} · {sources.join(" / ")}{primaryUrl ? <> · <a href={primaryUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">原文</a></> : null}{moreUrls.length > 0 ? <> · <a href={moreUrls[0]} target="_blank" rel="noreferrer" className="text-accent hover:underline">更多来源</a></> : null}</p>
+        <p className="text-xs text-ink-faint">{item.timeUnconfirmed ? <span className="text-ink-faint">时间未确认</span> : publishedLabel} · {sources.join(" / ")}{primaryUrl ? <> · <a href={primaryUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">原文</a></> : null}{moreUrls.length > 0 ? <> · <a href={moreUrls[0]} target="_blank" rel="noreferrer" className="text-accent hover:underline">更多来源</a></> : null}{item.evidenceStatus === "partial" ? <> · <span className="text-amber-600">部分核验</span></> : item.evidenceStatus === "unavailable" ? <> · <span className="text-ink-faint">仅摘要</span></> : null}</p>
         <div className="flex gap-2 text-xs"><button onClick={() => onFeedback(briefId, item.id, "valuable")} className={feedback[`${briefId}:${item.id}`] === "valuable" ? "font-semibold text-accent" : "text-ink-faint"}>有价值</button><button onClick={() => onFeedback(briefId, item.id, "irrelevant")} className={feedback[`${briefId}:${item.id}`] === "irrelevant" ? "font-semibold text-red-600" : "text-ink-faint"}>无关</button></div>
       </div>
     </article>;
   })}</div></section>;
+}
+function TierBadge({ tier }: { tier?: string }) {
+  if (!tier) return null;
+  const label = tier === "S" ? "官方" : tier === "A" ? "专业" : tier === "B" ? "媒体" : tier === "C" ? "门户" : "其他";
+  const cls = tier === "S"
+    ? "bg-[#e7f5ec] text-[#1f7a44]"
+    : tier === "A"
+      ? "bg-[#eef4ff] text-accent"
+      : "bg-[#f5f3ee] text-ink-soft";
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${cls}`}>{label}</span>;
 }
 function sourceLabels(item: any): string[] {
   const raw = String(item.source || "").split(/;\s*/).map((part: string) => part.trim()).filter(Boolean);
