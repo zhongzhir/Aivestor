@@ -247,10 +247,10 @@ export default async function DashboardPage() {
           <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="text-2xl font-semibold text-ink">
-                今天先看这些项目线索
+                今天想推进什么
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-ink-soft">
-                工作台会把项目、材料、判断和知识放在同一张桌面上，帮你从值得关注的线索开始今天的工作。
+                项目、材料、判断和知识都在同一张桌面上。从活跃项目、报告草稿和知识开始今天的工作。
               </p>
             </div>
             <Link
@@ -272,7 +272,7 @@ export default async function DashboardPage() {
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">今日关注</h2>
             <span className="rounded-full bg-white/70 px-2 py-1 text-xs text-ink-soft">
-              项目线索
+              项目与情报
             </span>
           </div>
           {attentionProjects.length === 0 ? (
