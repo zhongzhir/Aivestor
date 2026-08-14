@@ -18,6 +18,17 @@ const templates = [
 const listValue = (value: unknown) => Array.isArray(value) ? value.join(", ") : "";
 const read = (task: Task, camel: string, snake: string, fallback: any = "") => task[camel] ?? task[snake] ?? fallback;
 const scheduleOf = (task: Task) => read(task, "scheduleConfig", "schedule_config", null) ?? {};
+function clampCustomEnd(task: Task): Task {
+  const lp = read(task, "lookbackPeriod", "lookback_period", null);
+  if (lp && typeof lp === "object" && (lp as any).kind === "custom" && (lp as any).end) {
+    const end = new Date((lp as any).end);
+    const nowDate = new Date();
+    if (Number.isFinite(end.getTime()) && end.getTime() > nowDate.getTime()) {
+      return { ...task, lookbackPeriod: { ...lp, end: nowDate.toISOString() } };
+    }
+  }
+  return task;
+}
 
 function friendlyError(message: string): string {
   if (message.includes("时间") || message.includes("时区")) return "时间安排需要再确认一下，请修改描述后重试。";
@@ -75,7 +86,7 @@ export default function IntelligenceSubscriptions() {
   async function confirmPlan() {
     if (!plan) return;
     setBusy(true); setError("");
-    const response = await fetch("/api/data-apps/intelligence-subscriptions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(plan.task) });
+    const response = await fetch("/api/data-apps/intelligence-subscriptions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(clampCustomEnd(plan.task)) });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { if (response.status === 402 || data.code === "quota_unavailable") setQuotaBlocked(true); setError(response.status === 402 ? "生成情报简报会消耗 AI 额度，请选择一种可用方式后再试。" : friendlyError(data.error ?? "")); setBusy(false); return; }
     setDescription(""); setPlan(null); await load(); setBusy(false);
@@ -102,7 +113,17 @@ export default function IntelligenceSubscriptions() {
     let lookbackPeriod: Task;
     try {
       lookbackPeriod = String(form.get("lookbackKind")) === "custom"
-        ? { kind: "custom", start: rawStart ? new Date(rawStart).toISOString() : "", end: rawEnd ? new Date(rawEnd).toISOString() : "" }
+        ? (() => {
+            const start = rawStart ? new Date(rawStart) : null;
+            let end = rawEnd ? new Date(rawEnd) : null;
+            const nowDate = new Date();
+            if (end && Number.isFinite(end.getTime()) && end.getTime() > nowDate.getTime()) end = nowDate;
+            return {
+              kind: "custom",
+              start: start && Number.isFinite(start.getTime()) ? start.toISOString() : "",
+              end: end && Number.isFinite(end.getTime()) ? end.toISOString() : "",
+            };
+          })()
         : { kind: "days", value: Number(form.get("lookbackKind") ?? 3) };
     } catch { setError("时间范围需要填写完整，请再试一次。 "); setBusy(false); return; }
     const payload = {

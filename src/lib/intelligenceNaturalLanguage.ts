@@ -59,6 +59,8 @@ function parseLookback(text: string, now: Date): IntelligenceTaskInput["lookback
       if (start < end) return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
     }
   }
+  const monthRange = parseMonthLookback(text, now);
+  if (monthRange) return monthRange;
   const days = firstMatch(text, /最近\s*(\d+)\s*(?:天|日)/);
   if (days) return { kind: "days", value: Math.max(1, Math.min(365, Number(days))) };
   if (/最近一周|最近一星期|近一周/.test(text)) return { kind: "days", value: 7 };
@@ -66,6 +68,39 @@ function parseLookback(text: string, now: Date): IntelligenceTaskInput["lookback
   if (/最近24小时|过去24小时|近24小时/.test(text)) return { kind: "days", value: 1 };
   if (/最近一个月|近一个月/.test(text)) return { kind: "days", value: 30 };
   return { kind: "days", value: 3 };
+}
+
+/**
+ * 解析月份范围：显式「2026年8月」或裸「8月」。
+ * - 显式年份+月：范围为该自然月；结束时间收敛到 now（未来月份数据尚不存在）。
+ * - 裸月（无年份）：取最近一次已到达的该月（当月即本月），结束时间收敛到 now。
+ * 排除「一个月」「3个月」等时长表达（不视为 1 月/3 月）。
+ */
+function parseMonthLookback(text: string, now: Date): IntelligenceTaskInput["lookbackPeriod"] | null {
+  const explicit = text.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月/);
+  if (explicit) {
+    const year = Number(explicit[1]);
+    const month = Number(explicit[2]);
+    if (month < 1 || month > 12) return null;
+    const start = dateAtUtcStart(year, month, 1);
+    if (!start) return null;
+    const lastDayOfMonth = new Date(Date.UTC(year, month, 0));
+    const end = lastDayOfMonth.getTime() <= now.getTime() ? lastDayOfMonth : now;
+    if (start.getTime() < end.getTime()) return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
+    return null;
+  }
+  const bare = text.match(/(?<![0-9个])(\d{1,2})\s*月(?!个)/);
+  if (!bare) return null;
+  const month = Number(bare[1]);
+  if (month < 1 || month > 12) return null;
+  let year = now.getUTCFullYear();
+  if (month > now.getUTCMonth() + 1) year -= 1;
+  const start = dateAtUtcStart(year, month, 1);
+  if (!start) return null;
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0));
+  const end = lastDayOfMonth.getTime() <= now.getTime() ? lastDayOfMonth : now;
+  if (start.getTime() < end.getTime()) return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
+  return null;
 }
 
 function parseMaxItems(text: string): number {
@@ -200,6 +235,7 @@ JSON 结构必须是：{"task":{"name":string,"topics":string[],"entities":strin
 - 用户明确提出周期执行时才使用 scheduled，并解析星期、时间、时区；若周期任务确实缺少执行所必需的星期或时间，只提出一个最少必要问题。
 - 用户已经描述了明确研究对象或问题时，即使 topics/entities 为空也不得追问；questions 只用于真正缺少执行所需信息，不用于填满结构化字段。
 - 明确日期范围使用 custom lookbackPeriod，并保留用户的研究意图与输出要求（包括字数限制）。
+- 明确「某年某月」（如 2026年8月）或裸月（如 8月）表示以该自然月为研究范围，使用 custom lookbackPeriod：start 为月初，end 不超过今天（今天由调用方提供当前日期）。
 - topics 只放行业、技术、赛道或关注主题，例如“AI大模型”“创新药”“商业航天”；不要放“资本动态”“融资动态”“政策动态”“最新消息”等事件类型。
 - entities 只放具体可识别的公司、机构、基金、政府部门或项目；不要放“中国AI大模型企业”“创新药公司”“商业航天企业”等泛化类别。
 - keywords 可放融资、投资、并购、估值、IPO、授权交易等事件动作和检索提示。

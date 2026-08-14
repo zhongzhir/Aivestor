@@ -48,6 +48,24 @@ assert.equal(oneOff.task.maxItems, 10, "字数限制不得被误解析为信息�
 assert.match(oneOff.task.outputInstructions, /融资、IPO、战略投资、并购和重要资本合作/);
 assert.match(oneOff.task.outputInstructions, /不超过500字/);
 
+const explicitMonth = parseNaturalLanguageFallbackAt("中国机器人企业2026年8月资本动态", "Asia/Shanghai", now);
+assert.equal(explicitMonth.task.lookbackPeriod.kind, "custom");
+assert.equal(explicitMonth.task.lookbackPeriod.start, "2026-08-01T00:00:00.000Z");
+assert.equal(explicitMonth.task.lookbackPeriod.end, now.toISOString(), "未完结月份的结束时间应收敛到今天");
+
+const bareMonth = parseNaturalLanguageFallbackAt("中国机器人企业8月资本动态", "Asia/Shanghai", now);
+assert.equal(bareMonth.task.lookbackPeriod.kind, "custom", "裸月（无年份）应解析为最近一个自然月");
+assert.equal(bareMonth.task.lookbackPeriod.start, "2026-08-01T00:00:00.000Z");
+
+const pastMonth = parseNaturalLanguageFallbackAt("研究2024年8月资本动态", "Asia/Shanghai", now);
+assert.equal(pastMonth.task.lookbackPeriod.kind, "custom");
+assert.equal(pastMonth.task.lookbackPeriod.start, "2024-08-01T00:00:00.000Z");
+assert.equal(pastMonth.task.lookbackPeriod.end, "2024-08-31T00:00:00.000Z", "已过月份应覆盖完整自然月");
+
+const monthDurationNotScope = parseNaturalLanguageFallback("最近一个月国内AI融资动态");
+assert.equal(monthDurationNotScope.task.lookbackPeriod.kind, "days");
+assert.equal(monthDurationNotScope.task.lookbackPeriod.value, 30, "“最近一个月”是时长而非 1 月范围");
+
 const innovationDrug = parseNaturalLanguageFallback("研究最近一周中国创新药海外BD交易");
 assert.equal(innovationDrug.task.executionMode, "manual");
 assert.equal(innovationDrug.questions.length, 0);
