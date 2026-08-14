@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildAiNativeBriefResult, normalizeTaskInput } from "@/lib/intelligence";
-import { AI_NATIVE_PUBLICATION_SELF_AUDIT, answerCharacterCount, enforceAiNativePublicationConstraint, explicitAnswerCharacterLimit, runAiNativeResearch, type AiNativeResearchReport } from "@/lib/intelligenceAiNative";
+import { AI_NATIVE_PUBLICATION_SELF_AUDIT, answerCharacterCount, enforceAiNativePublicationConstraint, enforceAiNativeTimeWindow, explicitAnswerCharacterLimit, runAiNativeResearch, type AiNativeResearchReport } from "@/lib/intelligenceAiNative";
 import type { IntelligenceAgentTurnResult, IntelligenceProvider, RetrievalRequest, RetrievalResult } from "@/lib/intelligenceProvider";
 import type { EvidenceCandidate } from "@/lib/intelligenceEvidence";
 
@@ -69,6 +69,17 @@ async function main() {
   assert.equal(noLimit.answer, longReport.answer, "没有明确长度限制时不得自行创造限制");
   assert.match(AI_NATIVE_PUBLICATION_SELF_AUDIT, /publication date != event date/i);
   assert.match(AI_NATIVE_PUBLICATION_SELF_AUDIT, /历史事件[\s\S]*context/);
+
+  const windowRepair = await enforceAiNativeTimeWindow({
+    answer: "2024年7月发生了相关融资。",
+    items: [{ headline: "历史融资", summary: "历史事项", eventDate: "2024-07-10", entities: ["甲公司"], status: "confirmed", sourceUrls: [] }],
+    searchedAreas: [], unresolvedGaps: [], confidence: "low",
+  }, { start: new Date("2026-07-01T00:00:00.000Z"), end: new Date("2026-07-31T23:59:59.999Z") }, {
+    id: "window-repair", capabilities: { generation: true, nativeWebSearch: false },
+    async generate() { return JSON.stringify({ answer: "本期在指定时间窗口内未发现可确认的新增事项。" }); },
+  });
+  assert.equal(windowRepair.items[0]?.status, "context", "窗口外事项必须降为背景");
+  assert.doesNotMatch(windowRepair.answer, /2024年7月/, "窗口外日期不得进入最终回答");
 
   let turn = 0;
   const provider: IntelligenceProvider = {

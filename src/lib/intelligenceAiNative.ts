@@ -85,6 +85,58 @@ export function answerCharacterCount(answer: string): number {
   return Array.from(answer.replace(/\s+/gu, "")).length;
 }
 
+function answerHasOutOfWindowDate(answer: string, coverage: { start: Date; end: Date }): boolean {
+  const startMonth = coverage.start.getUTCFullYear() * 12 + coverage.start.getUTCMonth();
+  const endMonth = coverage.end.getUTCFullYear() * 12 + coverage.end.getUTCMonth();
+  const dates = answer.match(/20\d{2}\s*年\s*(?:\d{1,2}\s*月)?/gu) || [];
+  return dates.some((value) => {
+    const match = value.match(/(20\d{2})\s*年(?:\s*(\d{1,2})\s*月)?/u);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = match[2] ? Number(match[2]) - 1 : 0;
+    if (!match[2]) return year < coverage.start.getUTCFullYear() || year > coverage.end.getUTCFullYear();
+    const point = year * 12 + month;
+    return point < startMonth || point > endMonth;
+  });
+}
+
+/**
+ * AI-native 的最终 answer 不能只靠 prompt 自律。
+ * 先把窗口外事件降为 context，再对仍把窗口外日期写进正文的答案做一次受限重写。
+ */
+export async function enforceAiNativeTimeWindow(
+  report: AiNativeResearchReport,
+  coverage: { start: Date; end: Date },
+  generationProvider: IntelligenceProvider,
+): Promise<AiNativeResearchReport> {
+  const start = coverage.start.getTime();
+  const end = coverage.end.getTime();
+  const items = report.items.map((item) => {
+    if (!item.eventDate) return item;
+    const event = new Date(`${item.eventDate}T00:00:00.000Z`).getTime();
+    return Number.isFinite(event) && event >= start && event <= end ? item : { ...item, status: "context" as const };
+  });
+  const hasOutsideItems = items.some((item, index) => item.status === "context" && report.items[index]?.eventDate);
+  const guarded = { ...report, items };
+  if (!hasOutsideItems || !answerHasOutOfWindowDate(report.answer, coverage)) return guarded;
+  const inWindowItems = items.filter((item) => item.status !== "context");
+  if (!generationProvider.generate) {
+    return { ...guarded, answer: inWindowItems.length ? "本期仅保留指定时间窗口内的事项；窗口外历史信息不计入本期。" : "本期在指定时间窗口内未发现可确认的新增事项；检索到的历史信息不计入本期。" };
+  }
+  try {
+    const raw = await generationProvider.generate({
+      system: "你只负责研究结果的时间窗口纠错。不得搜索、补充或猜测事实。",
+      prompt: `原始任务时间窗口：${coverage.start.toISOString()} 至 ${coverage.end.toISOString()}\n仅允许使用以下窗口内事项：${JSON.stringify(inWindowItems)}\n原始回答：${report.answer}\n请重写为严格只谈窗口内事项的简报；如果没有窗口内事项，明确写“本期在指定时间窗口内未发现可确认的新增事项”。不得提及窗口外年份，不得把历史事项当作本期新增。只输出 JSON：{"answer":"..."}`,
+    });
+    const parsed = parseJson(raw) as Record<string, unknown>;
+    const answer = cleanText(parsed.answer, 20_000);
+    if (answer && !answerHasOutOfWindowDate(answer, coverage)) return { ...guarded, answer };
+  } catch {
+    // 使用确定性安全答案，不能让错误日期回流到用户。
+  }
+  return { ...guarded, answer: inWindowItems.length ? "本期仅保留指定时间窗口内的事项；窗口外历史信息不计入本期。" : "本期在指定时间窗口内未发现可确认的新增事项；检索到的历史信息不计入本期。" };
+}
+
 function parseJson(value: string): unknown {
   const cleaned = value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const start = cleaned.indexOf("{");
@@ -263,7 +315,8 @@ export async function runAiNativeResearch(input: IntelligenceTaskInput, coverage
     status: item.status === "confirmed" && !item.sourceUrls.some((url) => runtime.successfulReadUrls.has(url)) ? "reported" as const : item.status,
   }));
   const guardedReport: AiNativeResearchReport = { ...runtime.report, items: guardedItems };
-  const report = await enforceAiNativePublicationConstraint(input, guardedReport, dependencies.generationProvider, new Set(runtime.sources.map((source) => source.url)));
+  const timeGuardedReport = await enforceAiNativeTimeWindow(guardedReport, coverage, dependencies.generationProvider);
+  const report = await enforceAiNativePublicationConstraint(input, timeGuardedReport, dependencies.generationProvider, new Set(runtime.sources.map((source) => source.url)));
   const sources = new Map(runtime.sources.map((source) => [source.url, source]));
   const cards = report.items.filter((item) => item.status !== "context").map((item, index) => candidateFromItem(item, index, sources, runtime.evidenceByUrl));
   const importantFacts = cards.filter((item) => !item.isClue);
