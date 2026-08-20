@@ -18,6 +18,7 @@
     "test:free-quota": "node -r ts-node/register -r tsconfig-paths/register scripts/free-quota.test.ts",
     "test:intelligence-natural-language": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-natural-language.test.ts",
     "test:intelligence-personal-access": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-personal-access.test.ts",
+    "test:intelligence-personalization": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-personalization.test.ts",
     "test:intelligence-navigation": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-navigation.test.ts",
     "test:db-permissions": "node scripts/db-permissions.test.mjs",
     "test:e2e:intelligence": "playwright test --config=playwright.intelligence.config.mjs",

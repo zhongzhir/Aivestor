@@ -15,6 +15,8 @@ export interface AiNativeResearchItem {
   entities: string[];
   status: AiNativeItemStatus;
   sourceUrls: string[];
+  relevance?: "high" | "medium" | "low";
+  relevanceReason?: string;
 }
 
 export interface AiNativeResearchReport {
@@ -43,6 +45,7 @@ type Dependencies = {
   generationProvider: IntelligenceProvider;
   retrieval: Pick<IntelligenceRetrievalOrchestrator, "retrieve">;
   acquireEvidence?: import("@/lib/intelligenceAgentRuntime").AgentRuntimeOptions<AiNativeResearchReport>["acquireEvidence"];
+  personalizationPrompt?: string;
 };
 
 export const AI_NATIVE_PUBLICATION_SELF_AUDIT = `提交最终 JSON 前请自行检查，但不要输出检查过程：
@@ -70,7 +73,7 @@ const AI_NATIVE_SYSTEM = `你是投资研究 Agent。直接完成用户的真实
 ${AI_NATIVE_PUBLICATION_SELF_AUDIT}`;
 
 const REPORT_CONTRACT = `只输出严格 JSON，不要 Markdown：
-{"answer":"直接给用户阅读的最终简报","items":[{"headline":"","summary":"","assessment":"","eventDate":"YYYY-MM-DD 或 null","entities":[],"status":"confirmed|reported|context","sourceUrls":[]}],"searchedAreas":[],"unresolvedGaps":[],"confidence":"high|medium|low"}
+{"answer":"直接给用户阅读的最终简报","items":[{"headline":"","summary":"","assessment":"","eventDate":"YYYY-MM-DD 或 null","entities":[],"status":"confirmed|reported|context","relevance":"high|medium|low","relevanceReason":"仅说明与本次用户关注或投资人上下文的具体关联","sourceUrls":[]}],"searchedAreas":[],"unresolvedGaps":[],"confidence":"high|medium|low"}
 confirmed 表示你阅读来源后认为足够确认；reported 表示有现实信息价值但尚不能充分确认，answer 中必须自然表达不确定性；context 表示有助解释当前事件但不是本期新增。sourceUrls 只能使用工具实际返回的 URL。eventDate 是事件自身日期，不能用文章发布日期代替。answer 是最终成果，直接满足用户格式和长度要求。`;
 
 export function explicitAnswerCharacterLimit(input: IntelligenceTaskInput): number | null {
@@ -224,6 +227,8 @@ export function parseAiNativeResearchReport(raw: string, allowedUrls: Set<string
       entities: strings(item.entities, 20),
       status,
       sourceUrls: strings(item.sourceUrls, 12).filter((url) => allowedUrls.has(url)),
+      relevance: item.relevance === "high" || item.relevance === "medium" || item.relevance === "low" ? item.relevance : "medium",
+      relevanceReason: cleanText(item.relevanceReason, 300),
     }];
   });
   return {
@@ -241,7 +246,7 @@ function calendarDate(date: Date, timeZone: string): string {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
-function taskPrompt(input: IntelligenceTaskInput, start: Date, end: Date): string {
+function taskPrompt(input: IntelligenceTaskInput, start: Date, end: Date, personalizationPrompt = ""): string {
   const timeZone = input.scheduleConfig?.timezone || "Asia/Shanghai";
   return [
     "完整用户研究任务：",
@@ -256,6 +261,7 @@ function taskPrompt(input: IntelligenceTaskInput, start: Date, end: Date): strin
     input.regions.length ? `地域范围：${input.regions.join("、")}` : "",
     input.includeRequirements.length ? `必须包含：${input.includeRequirements.join("；")}` : "",
     input.excludeRequirements.length ? `排除：${input.excludeRequirements.join("；")}` : "",
+    personalizationPrompt,
     "请自主开展研究并直接提交最终 ResearchReport。",
     REPORT_CONTRACT,
   ].filter(Boolean).join("\n");
@@ -283,7 +289,8 @@ function candidateFromItem(item: AiNativeResearchItem, index: number, sources: M
     origin: "web-search",
     domain: source?.domain,
     importance: item.status === "confirmed" ? "high" : "medium",
-    relevance: "high",
+    relevance: item.relevance || "medium",
+    relevanceReason: item.relevanceReason,
     confidence: item.status === "confirmed" ? "high" : "medium",
     evidenceStatus,
     isClue: item.status === "reported",
@@ -297,7 +304,7 @@ export async function runAiNativeResearch(input: IntelligenceTaskInput, coverage
     start: coverage.start,
     ...dependencies,
     systemInstruction: `${AI_NATIVE_SYSTEM}\n${REPORT_CONTRACT}`,
-    taskPrompt: taskPrompt(input, coverage.start, coverage.end),
+    taskPrompt: taskPrompt(input, coverage.start, coverage.end, input.personalizationPrompt),
     finalizationInstruction: `研究阶段已结束，不再提供工具。只基于已收集来源与正文修复/形成最终 ResearchReport。${REPORT_CONTRACT}`,
     finalRepairInstruction: `只修复以下 Agent 最终输出的 JSON 语法与 ResearchReport schema，保持原 answer、items、状态、判断和顺序，不得重新研究。${REPORT_CONTRACT}`,
     parseFinal: (raw, allowedUrls) => {

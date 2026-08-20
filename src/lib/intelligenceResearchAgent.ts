@@ -141,6 +141,7 @@ type ResearchAgentDependencies = {
   generationProvider: IntelligenceProvider;
   retrieval: Pick<IntelligenceRetrievalOrchestrator, "retrieve">;
   acquireEvidence?: typeof acquireEvidence;
+  personalizationPrompt?: string;
 };
 
 type CandidateClaimDraft = Omit<ResearchClaim, "id" | "evidenceStatus" | "classification" | "relevanceToResearch" | "supportingEvidence" | "backgroundDate"> & { sourceUrls: string[] };
@@ -251,6 +252,7 @@ function taskIntent(input: IntelligenceTaskInput, start: Date, end: Date): strin
     input.includeRequirements.length ? `必须包含：${input.includeRequirements.join("；")}` : "",
     input.excludeRequirements.length ? `排除：${input.excludeRequirements.join("；")}` : "",
     input.outputInstructions,
+    input.personalizationPrompt,
   ].filter(Boolean).join("\n");
 }
 
@@ -524,7 +526,8 @@ function candidateFromClaim(claim: ResearchClaim, synthesis: SynthesisOutput, re
     origin: "web-search",
     domain: source?.domain,
     importance: claim.classification === "fact" ? "high" : "medium",
-    relevance: "high",
+    relevance: claim.relevanceToResearch,
+    relevanceReason: claim.relevanceToResearch === "high" ? "研究阶段判定与本次关注主题相关" : undefined,
     confidence: claim.confidence,
     evidenceStatus: claim.evidenceStatus,
     isClue: claim.classification === "clue",
@@ -571,7 +574,7 @@ function trendCandidates(synthesis: SynthesisOutput, facts: ResearchClaim[], res
       sourceTier: source?.sourceTier || "C",
       origin: "web-search" as const,
       importance: "medium" as const,
-      relevance: "high" as const,
+      relevance: supporting.some((claim) => claim.relevanceToResearch === "high") ? "high" as const : "medium" as const,
       confidence: "medium" as const,
       isClue: false,
     }];

@@ -236,6 +236,7 @@ function BriefSection({ title, tone, items, briefId, feedback, onFeedback }: { t
       </div>
       <p className="mt-2 text-sm leading-6 text-ink-soft whitespace-pre-wrap">{summary}</p>
       {item.investmentNote ? <p className="mt-2 text-sm leading-6 text-ink"><span className="font-medium">投资观察：</span>{item.investmentNote}</p> : null}
+      {item.relevanceReason ? <p className="mt-2 text-xs leading-5 text-accent"><span className="font-medium">关联依据：</span>{item.relevanceReason}</p> : null}
       {item.isClue ? <p className="mt-2 text-xs text-amber-700"><span className="font-medium">线索：</span>{item.followUpReason || "待进一步确认"}</p> : null}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
         <p className="text-xs text-ink-faint">{item.timeUnconfirmed ? <span className="text-ink-faint">时间未确认</span> : publishedLabel} · {sources.join(" / ")}{primaryUrl ? <> · <a href={primaryUrl} target="_blank" rel="noreferrer" className="text-accent hover:underline">原文</a></> : null}{moreUrls.length > 0 ? <> · <a href={moreUrls[0]} target="_blank" rel="noreferrer" className="text-accent hover:underline">更多来源</a></> : null}{item.evidenceStatus === "partial" ? <> · <span className="text-amber-600">部分核验</span></> : item.evidenceStatus === "unavailable" ? <> · <span className="text-ink-faint">仅摘要</span></> : null}</p>

@@ -15,6 +15,7 @@ import {
   resolvePublishedAt,
   scoreAndSortCandidates,
 } from "@/lib/intelligenceBriefQuality";
+import { loadIntelligencePersonalization, type IntelligencePersonalization } from "@/lib/intelligencePersonalization";
 
 export type ExecutionMode = "manual" | "scheduled";
 export type Feedback = "valuable" | "irrelevant";
@@ -47,6 +48,9 @@ export interface IntelligenceTaskInput {
   executionMode: ExecutionMode;
   scheduleConfig: ScheduleConfig | null;
   isActive: boolean;
+  /** 运行时注入，不落入任务配置；用于研究阶段的个人关联上下文。 */
+  personalizationPrompt?: string;
+  personalizationMeta?: Pick<IntelligencePersonalization, "profileUsed" | "projectIds" | "judgmentCount">;
 }
 
 export interface Candidate {
@@ -66,6 +70,7 @@ export interface Candidate {
   sourceUrls?: string[];
   importance?: "high" | "medium" | "low";
   relevance?: "high" | "medium" | "low";
+  relevanceReason?: string;
   confidence?: "high" | "medium" | "low";
   /** 1～2 句事实摘要（不含模板话术） */
   summary?: string;
@@ -113,6 +118,7 @@ export interface BriefResult {
     origins: string[];
     generationProvider: string;
     generationModel: string | null;
+    personalization?: Pick<IntelligencePersonalization, "profileUsed" | "projectIds" | "judgmentCount">;
     retrieval: ReturnType<typeof safeRetrievalMetadata> & {
       preEvidencePassed?: number;
       postEvidencePassed?: number;
@@ -163,6 +169,7 @@ export function buildAiNativeBriefResult(
       origins: ["web-search"],
       generationProvider: generationProvider.id,
       generationModel: generationProvider.model || null,
+      personalization: input.personalizationMeta,
       retrieval: {
         status: research.retrieval.status,
         providers: research.retrieval.providers,
@@ -410,14 +417,24 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   if (validationError) throw new Error(validationError);
   const normalizedInput = normalizeIntelligenceTaskSemantics(input);
   const coverage = coverageFor(normalizedInput, now);
+  const personalization = await loadIntelligencePersonalization(userId, normalizedInput);
+  const researchInput: IntelligenceTaskInput = {
+    ...normalizedInput,
+    personalizationPrompt: personalization.prompt,
+    personalizationMeta: {
+      profileUsed: personalization.profileUsed,
+      projectIds: personalization.projectIds,
+      judgmentCount: personalization.judgmentCount,
+    },
+  };
   const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
   const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
   if (generationProvider.capabilities.agenticToolUse && generationProvider.runAgentTurn && generationProvider.generate) {
-    const research = await runAiNativeResearch(normalizedInput, coverage, { generationProvider, retrieval });
-    return persistBrief(userId, taskId, buildAiNativeBriefResult(input, coverage, now, generationProvider, research), scheduledSlot);
+    const research = await runAiNativeResearch(researchInput, coverage, { generationProvider, retrieval });
+    return persistBrief(userId, taskId, buildAiNativeBriefResult(researchInput, coverage, now, generationProvider, research), scheduledSlot);
   }
   if (generationProvider.generate) {
-    const research = await runAiFirstResearch(normalizedInput, coverage, { generationProvider, retrieval });
+    const research = await runAiFirstResearch(researchInput, coverage, { generationProvider, retrieval });
     const brief: BriefResult = {
       taskName: input.name,
       coverageStart: coverage.start.toISOString(),
@@ -433,6 +450,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
         origins: ["web-search"],
         generationProvider: generationProvider.id,
         generationModel: generationProvider.model || null,
+        personalization: researchInput.personalizationMeta,
         retrieval: {
           status: research.retrieval.status,
           providers: research.retrieval.providers,

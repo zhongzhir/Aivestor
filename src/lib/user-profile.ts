@@ -114,6 +114,8 @@ function contextTerms(context: ProfilePromptContext): string[] {
     context.companyName,
     context.industry,
     context.stage,
+    context.taskText,
+    context.explicitInstruction,
   ]
     .filter((value): value is string => !!value?.trim())
     .map(normalizePromptText);
@@ -244,7 +246,12 @@ export function formatRelevantProfileForPrompt(
   const extra = filterClauses(profile.extra_context, terms);
   if (criteria.length) lines.push(`相关判断标准：${criteria.join("；")}`);
   if (avoid.length) lines.push(`相关回避项：${avoid.join("；")}`);
-  if (profile.self_intro) lines.push(`补充背景：${profile.self_intro}`);
+  if (
+    profile.self_intro &&
+    (context.projectName || context.companyName || context.industry || context.taskText)
+  ) {
+    lines.push(`补充背景：${profile.self_intro}`);
+  }
   if (extra.length) lines.push(`相关补充：${extra.join("；")}`);
 
   const hardPass = getRelevantHardPassItems(profile, context);
