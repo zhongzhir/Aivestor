@@ -160,6 +160,12 @@ export function FileUploader({
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (data.code === "TEXT_EXTRACTION_EMPTY") {
+        const hint = data.ocrAvailable
+          ? "系统已尝试 OCR 但仍未识别到文字；请换用更清晰的文件，或先用 WPS/Adobe Acrobat 完成 OCR。"
+          : "当前环境未启用自动 OCR；请先用 WPS/Adobe Acrobat 转为可搜索 PDF。";
+        throw new Error(`${data.error || "未识别到文字"} ${hint}`);
+      }
       throw new Error(data.error || "解析失败");
     }
     // 上传即完成。BP 含图片时由项目页「提取图片信息」按钮按需识别。

@@ -312,7 +312,8 @@ async function extractDocxImages(buffer: Buffer): Promise<ExtractedImage[]> {
 
 export async function extractDocumentImages(
   buffer: Buffer,
-  fileType: string
+  fileType: string,
+  options?: { maxImages?: number }
 ): Promise<ImageExtractionResult> {
   let images: ExtractedImage[] = [];
 
@@ -326,18 +327,19 @@ export async function extractDocumentImages(
     return { images: [], skippedCount: 0 };
   }
 
-  if (images.length <= MAX_IMAGES_PER_DOC) {
+  const maxImages = options?.maxImages ?? MAX_IMAGES_PER_DOC;
+  if (images.length <= maxImages) {
     return { images, skippedCount: 0 };
   }
 
   // 超出上限：按面积降序优先保留大图（信息量更高），再按出现顺序还原输出
   const indexed = images.map((img, i) => ({ img, i }));
   indexed.sort((a, b) => b.img.width * b.img.height - a.img.width * a.img.height);
-  const picked = indexed.slice(0, MAX_IMAGES_PER_DOC);
+  const picked = indexed.slice(0, maxImages);
   picked.sort((a, b) => a.i - b.i);
 
   return {
     images: picked.map((p) => p.img),
-    skippedCount: images.length - MAX_IMAGES_PER_DOC,
+    skippedCount: images.length - maxImages,
   };
 }
