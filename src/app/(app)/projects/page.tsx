@@ -194,12 +194,10 @@ export default async function ProjectsPage({
               按阶段、报告状态和近期进展整理项目，方便你快速回到上次的判断现场。
             </p>
           </div>
-          <Link
-            href="/projects/new"
-            className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:opacity-90"
-          >
-            新建项目
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/projects/screening" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-line bg-white px-4 text-sm font-medium text-ink transition-colors hover:bg-surface">批量初筛</Link>
+            <Link href="/projects/new" className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:opacity-90">新建项目</Link>
+          </div>
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
