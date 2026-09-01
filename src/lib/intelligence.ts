@@ -301,8 +301,8 @@ export function normalizeTaskInput(body: Record<string, unknown>): IntelligenceT
   const schedule = body.scheduleConfig && typeof body.scheduleConfig === "object" ? body.scheduleConfig as Record<string, unknown> : null;
   const scheduleConfig = mode === "scheduled" ? {
     frequency: schedule?.frequency === "weekly" ? "weekly" : "daily",
-    weekdays: Array.isArray(schedule?.weekdays) ? schedule!.weekdays.filter((v): v is number => typeof v === "number") : undefined,
-    time: typeof schedule?.time === "string" ? schedule.time : "09:00",
+    weekdays: Array.isArray(schedule?.weekdays) ? schedule!.weekdays.filter((v): v is number => typeof v === "number") : schedule?.frequency === "weekly" ? [5] : undefined,
+    time: typeof schedule?.time === "string" ? schedule.time : "08:00",
     timezone: typeof schedule?.timezone === "string" ? schedule.timezone : "Asia/Shanghai",
   } as ScheduleConfig : null;
   const lookback = body.lookbackPeriod && typeof body.lookbackPeriod === "object" ? body.lookbackPeriod as Record<string, unknown> : { kind: "days", value: 3 };

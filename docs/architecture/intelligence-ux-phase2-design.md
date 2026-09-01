@@ -3,6 +3,8 @@
 日期：2026-08-14
 状态：设计方案（评审用，不含业务代码实现）
 
+> 强制约束：本方案及后续实现必须遵循 [`../product/product-development-principles.md`](../product/product-development-principles.md)。情报订制应默认理解并执行，使用常理补全非关键配置，不得把参数填写、程序字段或重复确认转嫁给用户。
+
 ## 1. 目标与设计原则
 
 ### 1.1 定位

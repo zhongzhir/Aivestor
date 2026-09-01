@@ -21,8 +21,10 @@ assert.match(scheduled.task.outputInstructions, /合并/);
 assert.equal(scheduled.questions.length, 0);
 
 const ambiguous = parseNaturalLanguageFallback("每周定时整理国内AI赛事");
-assert.equal(ambiguous.task.executionMode, "manual", "没有明确时间不得自动启用定时生成");
-assert.equal(ambiguous.questions.length, 1, "关键定时信息缺失时只提出一个追问");
+assert.equal(ambiguous.task.executionMode, "scheduled", "周期意图明确时应使用合理默认值直接创建");
+assert.deepEqual(ambiguous.task.scheduleConfig?.weekdays, [5], "未指定星期的每周任务默认周五");
+assert.equal(ambiguous.task.scheduleConfig?.time, "08:00", "未指定时间时默认上午8点");
+assert.equal(ambiguous.questions.length, 0, "可使用默认值的配置不得追问用户");
 
 const aiPlan = planFromAI("关注新能源汽车", JSON.stringify({
   task: { name: "新能源汽车跟踪", topics: ["新能源汽车"], maxItems: 12, executionMode: "manual" }, questions: [],
@@ -111,9 +113,28 @@ assert.equal(daily.task.scheduleConfig?.frequency, "daily");
 assert.equal(daily.task.scheduleConfig?.time, "09:00");
 
 const weeklyWithoutTime = parseNaturalLanguageFallback("每周跟踪创新药BD");
-assert.equal(weeklyWithoutTime.task.executionMode, "manual");
-assert.equal(weeklyWithoutTime.task.scheduleConfig, null);
-assert.equal(weeklyWithoutTime.questions.length, 1);
+assert.equal(weeklyWithoutTime.task.executionMode, "scheduled");
+assert.deepEqual(weeklyWithoutTime.task.scheduleConfig?.weekdays, [5]);
+assert.equal(weeklyWithoutTime.task.scheduleConfig?.time, "08:00");
+assert.equal(weeklyWithoutTime.questions.length, 0);
+
+const explicitFriday = parseNaturalLanguageFallback("关注北京大模型公司的资本动态。每周五更新一次。");
+assert.equal(explicitFriday.task.executionMode, "scheduled");
+assert.deepEqual(explicitFriday.task.scheduleConfig?.weekdays, [5], "用户已经说明周五时不得再次追问星期");
+assert.equal(explicitFriday.task.scheduleConfig?.time, "08:00", "缺少时间时采用产品默认值");
+assert.equal(explicitFriday.questions.length, 0);
+
+const countMustNotBecomeTime = parseNaturalLanguageFallback("每周五关注北京大模型公司资本动态，不超过10条");
+assert.equal(countMustNotBecomeTime.task.scheduleConfig?.time, "08:00", "数量等普通数字不得误解析为执行时间");
+assert.equal(countMustNotBecomeTime.task.maxItems, 10);
+
+const aiMustNotOverrideSchedule = planFromAI("每周五关注创新药BD", JSON.stringify({
+  task: { name: "创新药BD", executionMode: "scheduled", scheduleConfig: { frequency: "weekly", weekdays: [1], time: "18:00", timezone: "UTC" } },
+  questions: ["请确认星期和时间"],
+}));
+assert.deepEqual(aiMustNotOverrideSchedule.task.scheduleConfig?.weekdays, [5], "AI 不得覆盖用户明确表达的星期");
+assert.equal(aiMustNotOverrideSchedule.task.scheduleConfig?.time, "08:00", "AI 不得用猜测覆盖产品默认时间");
+assert.equal(aiMustNotOverrideSchedule.questions.length, 0);
 
 const failedAI = planFromAIOrFallback(oneOffDescription, "not-json", "Asia/Shanghai");
 assert.equal(failedAI.task.executionMode, "manual");
@@ -132,7 +153,13 @@ const component = readFileSync(join(process.cwd(), "src/components/data-apps/Int
 for (const phrase of ["不展示默认新闻流", "未订制时不生成", "不主动推送", "信息负担", "泛新闻流", "本模块不支持", "本模块不包含"]) {
   assert.equal(component.includes(phrase), false, `内部文案未清理: ${phrase}`);
 }
-for (const phrase of ["一句话订制你的情报", "理解我的需求", "一次性研究和持续跟踪都可以", "正在检索并整理本期信息", "重新生成", "本期结论"]) {
+for (const phrase of ["一句话订制你的情报", "开始订制", "正在理解并创建", "一次性研究和持续跟踪都可以", "正在检索并整理本期信息", "重新生成", "本期结论"]) {
   assert.equal(component.includes(phrase), true, `缺少订制主流程或执行反馈文案: ${phrase}`);
 }
+assert.equal(component.includes("星期（0=周日"), false, "不得要求普通用户理解程序使用的星期数字");
+for (const phrase of ["系统理解如下", "补充这句话", "修改这句话", "确认创建"]) {
+  assert.equal(component.includes(phrase), false, `自然语言主流程不得保留二次考试式确认: ${phrase}`);
+}
+assert.match(component, /await createTask\(nextPlan\)/, "理解自然语言后应直接创建任务");
+assert.match(component, /await action\(data\.task, "generate"\)/, "一次性研究创建后应直接生成，不得要求第二次点击");
 console.log("intelligence natural-language tests passed");
