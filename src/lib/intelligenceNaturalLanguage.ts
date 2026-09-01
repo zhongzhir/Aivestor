@@ -36,14 +36,24 @@ function parseTime(text: string): string | undefined {
 
 function parseWeekdays(text: string): number[] {
   const result: number[] = [];
-  if (/周日|星期日|星期天/.test(text)) result.push(0);
-  if (/周一|星期一/.test(text)) result.push(1);
-  if (/周二|星期二/.test(text)) result.push(2);
-  if (/周三|星期三/.test(text)) result.push(3);
-  if (/周四|星期四/.test(text)) result.push(4);
-  if (/周五|星期五/.test(text)) result.push(5);
-  if (/周六|星期六/.test(text)) result.push(6);
+  if (/周日|星期日|星期天|礼拜日|礼拜天/.test(text)) result.push(0);
+  if (/周一|星期一|礼拜一/.test(text)) result.push(1);
+  if (/周二|星期二|礼拜二/.test(text)) result.push(2);
+  if (/周三|星期三|礼拜三/.test(text)) result.push(3);
+  if (/周四|星期四|礼拜四/.test(text)) result.push(4);
+  if (/周五|星期五|礼拜五/.test(text)) result.push(5);
+  if (/周六|星期六|礼拜六/.test(text)) result.push(6);
   return unique(result.map(String)).map(Number);
+}
+
+function normalizedScheduleTime(value: unknown): string {
+  if (typeof value !== "string") return DEFAULT_SCHEDULE_TIME;
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return DEFAULT_SCHEDULE_TIME;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return DEFAULT_SCHEDULE_TIME;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function dateAtUtcStart(year: number, month: number, day: number): Date | null {
@@ -181,14 +191,15 @@ export function parseNaturalLanguageFallbackAt(description: string, userTimezone
   const entities = parseEntities(text);
   const regions = parseRegions(text);
   const { include, exclude } = parseIncludeExclude(text);
-  const scheduled = /每天|每日|每周|持续|定期|定时|星期[一二三四五六日天]|周[一二三四五六日天]/.test(text);
+  const scheduled = /每天|每日|每个工作日|工作日|每周|每星期|每礼拜|持续|定期|定时|固定|每逢|星期[一二三四五六日天]|周[一二三四五六日天]|礼拜[一二三四五六日天]/.test(text);
   const weekdays = parseWeekdays(text);
   const time = parseTime(text);
   const explicitlyDaily = /每天|每日/.test(text);
-  const weekly = !explicitlyDaily && (weekdays.length > 0 || /每周|星期|周[一二三四五六日天]|持续|定期|定时/.test(text));
+  const workdays = /每个工作日|工作日/.test(text);
+  const weekly = workdays || (!explicitlyDaily && (weekdays.length > 0 || /每周|每星期|每礼拜|星期|周[一二三四五六日天]|礼拜[一二三四五六日天]|持续|定期|定时|固定|每逢/.test(text)));
   const scheduleConfig: ScheduleConfig | null = scheduled ? {
     frequency: weekly ? "weekly" : "daily",
-    weekdays: weekly ? (weekdays.length > 0 ? weekdays : [DEFAULT_WEEKDAY]) : undefined,
+    weekdays: weekly ? (workdays ? [1, 2, 3, 4, 5] : weekdays.length > 0 ? weekdays : [DEFAULT_WEEKDAY]) : undefined,
     time: time ?? DEFAULT_SCHEDULE_TIME,
     timezone: safeTimezone(userTimezone),
   } : null;
@@ -217,6 +228,18 @@ export function planFromAI(description: string, rawText: string, userTimezone = 
   const raw = parseJson(rawText) as { task?: Record<string, unknown>; questions?: unknown };
   const task = raw.task && typeof raw.task === "object" ? raw.task : {};
   const cleanList = (value: unknown, fallbackValue: string[]) => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string").map((v) => v.trim().slice(0, 100)).filter(Boolean).slice(0, 20) : fallbackValue;
+  const rawSchedule = task.scheduleConfig && typeof task.scheduleConfig === "object" ? task.scheduleConfig as Record<string, unknown> : null;
+  const aiRequestedSchedule = task.executionMode === "scheduled";
+  const aiFrequency = rawSchedule?.frequency === "daily" ? "daily" : "weekly";
+  const aiWeekdays = Array.isArray(rawSchedule?.weekdays)
+    ? rawSchedule.weekdays.filter((value): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 6).slice(0, 7)
+    : [];
+  const aiSchedule: ScheduleConfig | null = aiRequestedSchedule ? {
+    frequency: aiFrequency,
+    weekdays: aiFrequency === "weekly" ? (aiWeekdays.length > 0 ? aiWeekdays : [DEFAULT_WEEKDAY]) : undefined,
+    time: normalizedScheduleTime(rawSchedule?.time),
+    timezone: safeTimezone(typeof rawSchedule?.timezone === "string" ? rawSchedule.timezone : userTimezone),
+  } : null;
   const rawLookback = task.lookbackPeriod && typeof task.lookbackPeriod === "object" ? task.lookbackPeriod as Record<string, unknown> : null;
   // 日期是用户研究意图的硬约束。AI 可能把“8月”猜成历史年份，
   // 因此只要兜底解析出了明确范围，就不得用 AI 返回值覆盖。
@@ -226,13 +249,14 @@ export function planFromAI(description: string, rawText: string, userTimezone = 
       ? { kind: "custom", start: typeof rawLookback.start === "string" ? rawLookback.start : undefined, end: typeof rawLookback.end === "string" ? rawLookback.end : undefined }
       : { kind: "days", value: Math.max(1, Math.min(365, Number(rawLookback?.value) || fallback.task.lookbackPeriod.value || 3)) };
   const chooseExplicit = (aiValue: unknown, fallbackValue: string[]) => fallbackValue.length > 0 ? fallbackValue : cleanList(aiValue, fallbackValue);
+  const executionMode = fallback.task.executionMode === "scheduled" || aiRequestedSchedule ? "scheduled" : "manual";
   const merged: IntelligenceTaskInput = {
     name: typeof task.name === "string" ? task.name.trim().slice(0, 120) || fallback.task.name : fallback.task.name,
     topics: chooseExplicit(task.topics, fallback.task.topics), entities: chooseExplicit(task.entities, fallback.task.entities), keywords: chooseExplicit(task.keywords, fallback.task.keywords), regions: chooseExplicit(task.regions, fallback.task.regions),
     includeRequirements: chooseExplicit(task.includeRequirements, fallback.task.includeRequirements), excludeRequirements: chooseExplicit(task.excludeRequirements, fallback.task.excludeRequirements),
     maxItems: Math.max(1, Math.min(50, Number(task.maxItems) || fallback.task.maxItems)), lookbackPeriod,
     outputInstructions: typeof task.outputInstructions === "string" ? task.outputInstructions.trim().slice(0, 500) || fallback.task.outputInstructions : fallback.task.outputInstructions,
-    executionMode: fallback.task.executionMode, scheduleConfig: fallback.task.executionMode === "scheduled" ? fallback.task.scheduleConfig : null,
+    executionMode, scheduleConfig: executionMode === "scheduled" ? (fallback.task.scheduleConfig ?? aiSchedule) : null,
     isActive: true,
   };
   const questions = fallback.questions.length > 0 ? fallback.questions : [];
@@ -249,6 +273,7 @@ JSON 结构必须是：{"task":{"name":string,"topics":string[],"entities":strin
 - 只使用用户明确表达的信息；不确定的非关键字段使用克制默认值：最近3天、10条、手动生成、启用任务；时区使用请求提供的用户时区。
 - 一次性收集、查找、研究、汇总、了解或分析是合法完整任务；这些动词不表示持续订阅。用户未明确表达每天、每周、持续、定期等周期意图时，必须使用 manual 且 scheduleConfig=null。
 - 用户明确提出周期执行时才使用 scheduled，并解析星期、时间、时区。不得因为未写星期或时间而追问：每天任务默认上午8点；每周任务缺少星期时默认每周五，缺少时间时默认上午8点。
+- 必须按语义理解“每逢、固定、工作日、礼拜、周末前给我一份、以后定期帮我看”等自然表达，不得只匹配少数固定句式。用户明确说出的星期和时间优先于模型推断。
 - 用户已经描述了研究对象或问题时，即使 topics/entities 为空也不得追问；能够使用常识或安全默认值完成的配置一律不得追问，questions 通常返回空数组。
 - 明确日期范围使用 custom lookbackPeriod，并保留用户的研究意图与输出要求（包括字数限制）。
 - 明确「某年某月」（如 2026年8月）或裸月（如 8月）表示以该自然月为研究范围，使用 custom lookbackPeriod：start 为月初，end 不超过今天（今天由调用方提供当前日期）。

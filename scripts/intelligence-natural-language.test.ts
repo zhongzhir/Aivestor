@@ -128,6 +128,39 @@ const countMustNotBecomeTime = parseNaturalLanguageFallback("每周五关注北�
 assert.equal(countMustNotBecomeTime.task.scheduleConfig?.time, "08:00", "数量等普通数字不得误解析为执行时间");
 assert.equal(countMustNotBecomeTime.task.maxItems, 10);
 
+const colloquialWeekday = parseNaturalLanguageFallback("礼拜三早上给我整理一份创新药授权动态");
+assert.equal(colloquialWeekday.task.executionMode, "scheduled", "口语化星期表达也应识别为周期任务");
+assert.deepEqual(colloquialWeekday.task.scheduleConfig?.weekdays, [3]);
+assert.equal(colloquialWeekday.task.scheduleConfig?.time, "08:00", "只说早上时采用不打扰用户的合理默认时间");
+
+const workdayRoutine = parseNaturalLanguageFallback("每个工作日开工前帮我看看AI大模型融资");
+assert.equal(workdayRoutine.task.executionMode, "scheduled");
+assert.equal(workdayRoutine.task.scheduleConfig?.frequency, "weekly", "工作日不得错误扩展为周末也执行");
+assert.deepEqual(workdayRoutine.task.scheduleConfig?.weekdays, [1, 2, 3, 4, 5]);
+assert.equal(workdayRoutine.task.scheduleConfig?.time, "08:00");
+
+const fixedRoutine = parseNaturalLanguageFallback("固定礼拜二下午3点给我一份商业航天简报");
+assert.equal(fixedRoutine.task.executionMode, "scheduled");
+assert.deepEqual(fixedRoutine.task.scheduleConfig?.weekdays, [2]);
+assert.equal(fixedRoutine.task.scheduleConfig?.time, "15:00");
+
+const semanticSchedule = planFromAI("以后在周末前给我一份机器人行业简报", JSON.stringify({
+  task: { name: "机器人行业简报", topics: ["机器人"], executionMode: "scheduled", scheduleConfig: { frequency: "weekly", weekdays: [5], timezone: "Asia/Shanghai" } },
+  questions: [],
+}));
+assert.equal(semanticSchedule.task.executionMode, "scheduled", "规则未覆盖的新说法应采用 AI 的语义理解");
+assert.deepEqual(semanticSchedule.task.scheduleConfig?.weekdays, [5]);
+assert.equal(semanticSchedule.task.scheduleConfig?.time, "08:00", "语义已完整但时间缺失时应直接使用默认值");
+
+const invalidAiSchedule = planFromAI("以后定期帮我看机器人行业动态", JSON.stringify({
+  task: { name: "机器人行业动态", topics: ["机器人"], executionMode: "scheduled", scheduleConfig: { frequency: "weekly", weekdays: [9], time: "88:99", timezone: "invalid/timezone" } },
+  questions: ["请填写具体星期和时间"],
+}));
+assert.deepEqual(invalidAiSchedule.task.scheduleConfig?.weekdays, [5], "AI 的非法星期应回退到常识默认值");
+assert.equal(invalidAiSchedule.task.scheduleConfig?.time, "08:00", "AI 的非法时间应回退到常识默认值");
+assert.equal(invalidAiSchedule.task.scheduleConfig?.timezone, "Asia/Shanghai", "AI 的非法时区应安全回退");
+assert.equal(invalidAiSchedule.questions.length, 0, "可默认的调度细节不得变成对用户的考试");
+
 const aiMustNotOverrideSchedule = planFromAI("每周五关注创新药BD", JSON.stringify({
   task: { name: "创新药BD", executionMode: "scheduled", scheduleConfig: { frequency: "weekly", weekdays: [1], time: "18:00", timezone: "UTC" } },
   questions: ["请确认星期和时间"],
