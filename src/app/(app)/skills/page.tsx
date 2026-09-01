@@ -50,7 +50,11 @@ async function loadCustomSkills(userId: string): Promise<SkillRow[]> {
 
 // SKILL 广场公开页：未登录可浏览全部官方框架（SSR，爬虫可读）；
 // 已登录额外加载自建 SKILL 并开放调用/创建/导入等交互。
-export default async function SkillsPage() {
+export default async function SkillsPage({
+  searchParams,
+}: {
+  searchParams?: { scene?: string };
+}) {
   const session = await getServerSession(authOptions);
   const isLoggedIn = !!session?.user;
 
@@ -115,6 +119,7 @@ export default async function SkillsPage() {
         initialCustom={custom}
         isLoggedIn={isLoggedIn}
         hasZjjrData={hasZjjrData}
+        initialScene={searchParams?.scene ?? null}
       />
     </div>
   );

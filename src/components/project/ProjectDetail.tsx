@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { FinancialCharts } from "./FinancialCharts";
 import type { Judgment } from "./StageProgress";
 import { DecisionTools } from "./DecisionTools";
@@ -150,8 +150,12 @@ export function ProjectDetail({
   currentUserId,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [tab, setTab] = useState<Tab>("analysis");
+  const requestedTab = searchParams.get("tab");
+  const [tab, setTab] = useState<Tab>(
+    requestedTab === "decision" || requestedTab === "post" ? requestedTab : "analysis"
+  );
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [newUpload, setNewUpload] = useState(false);
   const [hasTeamJudgments, setHasTeamJudgments] = useState(false);
@@ -172,6 +176,21 @@ export function ProjectDetail({
     useState<DecisionEventMeta[]>(decisionEvents);
 
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
+
+  useEffect(() => {
+    const nextTab = searchParams.get("tab");
+    if (nextTab === "analysis" || nextTab === "decision" || nextTab === "post") {
+      setTab(nextTab);
+    }
+    const focus = searchParams.get("focus");
+    if (focus === "next-action") setTab("analysis");
+    const targetId = focus === "ic" ? "ic-workspace" : focus === "next-action" ? "project-next-action" : null;
+    if (!targetId) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [searchParams]);
 
   useEffect(() => {
     const bpDocs = docMeta.filter(
@@ -470,7 +489,7 @@ export function ProjectDetail({
           </div>
 
           {tab === "decision" && (
-            <div className="mt-6 space-y-6">
+            <div id="ic-workspace" className="mt-6 scroll-mt-24 space-y-6">
               <ICMemoWorkspace
                 projectId={projectId}
                 projectName={projectName}
@@ -1384,7 +1403,7 @@ function WorkflowPanel({
   }
 
   return (
-    <section className="mt-6 rounded-lg border border-line bg-white p-5">
+    <section id="project-next-action" className="mt-6 scroll-mt-24 rounded-lg border border-line bg-white p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-sm font-semibold text-ink">项目当前状态</h2>

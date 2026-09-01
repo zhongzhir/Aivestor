@@ -5,6 +5,7 @@ import { SkillRunner } from "@/components/skills/SkillRunner";
 import { CreateSkillModal } from "@/components/skills/CreateSkillModal";
 import { ImportSkillModal } from "@/components/skills/ImportSkillModal";
 import { CATEGORY_ICONS, STAGE_LABELS } from "@/lib/skills";
+import { SKILL_SCENES } from "@/lib/workScenes";
 
 interface SkillItem {
   id: string;
@@ -69,11 +70,13 @@ export function SkillsClient({
   initialCustom,
   isLoggedIn,
   hasZjjrData = false,
+  initialScene = null,
 }: {
   initialCatalog: RawSkill[];
   initialCustom: RawSkill[];
   isLoggedIn: boolean;
   hasZjjrData?: boolean;
+  initialScene?: string | null;
 }) {
   const [catalog, setCatalog] = useState<SkillItem[]>(() =>
     withType(initialCatalog, "catalog")
@@ -82,6 +85,9 @@ export function SkillsClient({
     withType(initialCustom, "custom")
   );
   const [tab, setTab] = useState<TabKey>("all");
+  const [activeScene, setActiveScene] = useState<string | null>(() =>
+    SKILL_SCENES.some((scene) => scene.id === initialScene) ? initialScene : null
+  );
   const [runnerSkill, setRunnerSkill] = useState<SkillItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editSkill, setEditSkill] = useState<SkillItem | null>(null);
@@ -103,6 +109,11 @@ export function SkillsClient({
   const clResultRef = useRef<HTMLDivElement>(null);
 
   const visibleTabs = isLoggedIn ? TABS : TABS.filter((t) => t.key !== "mine");
+
+  useEffect(() => {
+    const scene = SKILL_SCENES.find((item) => item.id === activeScene);
+    if (scene) setTab(scene.category as TabKey);
+  }, [activeScene]);
 
   // 刷新自建/官方 SKILL（仅登录用户在创建/导入后调用）
   async function load() {
@@ -253,15 +264,64 @@ export function SkillsClient({
     if (res.ok) setCustom((prev) => prev.filter((s) => s.id !== id));
   }
 
-  const visible: SkillItem[] =
+  const selectedScene = SKILL_SCENES.find((scene) => scene.id === activeScene);
+  const tabSkills: SkillItem[] =
     tab === "mine"
       ? custom
       : tab === "all"
         ? catalog
         : catalog.filter((s) => s.category === tab);
+  const visible = selectedScene
+    ? tabSkills.filter((skill) => {
+        const text = `${skill.name} ${skill.description ?? ""}`.toLowerCase();
+        return selectedScene.keywords.some((keyword) =>
+          text.includes(keyword.toLowerCase())
+        );
+      })
+    : tabSkills;
 
   return (
     <>
+      <section className="mt-6 rounded-xl border border-line bg-white p-5">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-ink">常用投资工作</h2>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">
+              先按要完成的工作选择，再从现有分析框架中开始。
+            </p>
+          </div>
+          {activeScene && (
+            <button
+              type="button"
+              onClick={() => { setActiveScene(null); setTab("all"); }}
+              className="text-xs font-medium text-accent"
+            >
+              查看全部框架
+            </button>
+          )}
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {SKILL_SCENES.map((scene) => (
+            <button
+              key={scene.id}
+              type="button"
+              onClick={() => setActiveScene(scene.id)}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                activeScene === scene.id
+                  ? "border-accent bg-accent-soft"
+                  : "border-line bg-[#fffdfa] hover:border-[#b7c8bc] hover:bg-[#f7fbf8]"
+              }`}
+            >
+              <span className="block text-sm font-medium text-ink">{scene.title}</span>
+              <span className="mt-1 block text-xs leading-5 text-ink-soft">{scene.description}</span>
+              <span className="mt-2 block text-[11px] leading-5 text-ink-faint">
+                需要：{scene.input}<br />得到：{scene.output}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* 工具栏：仅登录用户可创建 / 导入 */}
       {isLoggedIn && (
         <div className="mt-6 flex items-center justify-end gap-2">
@@ -285,7 +345,7 @@ export function SkillsClient({
         {visibleTabs.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); setActiveScene(null); }}
             className={`-mb-px border-b-2 px-3.5 py-2 text-sm transition-colors ${
               tab === t.key
                 ? "border-accent font-medium text-accent"
@@ -349,7 +409,18 @@ export function SkillsClient({
       </div>
 
       {visible.length === 0 && tab !== "mine" && (
-        <p className="mt-8 text-sm text-ink-faint">该分类暂无 SKILL。</p>
+        <div className="mt-8 rounded-lg border border-dashed border-line p-5 text-sm text-ink-faint">
+          <p>当前场景暂无匹配的 SKILL。</p>
+          {activeScene && (
+            <button
+              type="button"
+              onClick={() => { setActiveScene(null); setTab("all"); }}
+              className="mt-2 font-medium text-accent"
+            >
+              查看全部分析框架
+            </button>
+          )}
+        </div>
       )}
       {isLoggedIn && visible.length === 0 && tab === "mine" && (
         <p className="mt-4 text-xs text-ink-faint">

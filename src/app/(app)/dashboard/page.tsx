@@ -6,27 +6,7 @@ import { sleepDays } from "@/lib/projectSleep";
 import { BRAND } from "@/lib/brand";
 import { getGenerationAccess } from "@/lib/intelligenceGeneration";
 import { IntelligenceAttention, type DashboardIntelligenceBrief, type DashboardIntelligenceItem, type DashboardIntelligenceTask } from "@/components/dashboard/IntelligenceAttention";
-
-const QUICK_ACTIONS = [
-  {
-    href: "/projects/new",
-    label: "新项目",
-    title: "整理一份新材料",
-    desc: "上传 BP、财务模型或补充材料，形成项目工作区。",
-  },
-  {
-    href: "/chat",
-    label: "研究",
-    title: "讨论一个问题",
-    desc: "把赛道、公司或判断点先放进一次可沉淀的讨论。",
-  },
-  {
-    href: "/knowledge",
-    label: "知识",
-    title: "回看已有判断",
-    desc: "从历史项目、报告和手工笔记里找可复用的经验。",
-  },
-];
+import { WorkSceneCards } from "@/components/dashboard/WorkSceneCards";
 
 const STATUS_LABEL: Record<string, string> = {
   evaluating: "评估中",
@@ -299,35 +279,9 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="mt-6 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-        <div className="rounded-lg border border-line bg-white p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink">快速开始</h2>
-            <span className="text-xs text-ink-faint">常用动作</span>
-          </div>
-          <div className="mt-4 space-y-3">
-            {QUICK_ACTIONS.map((action) => (
-              <Link
-                key={action.href}
-                href={action.href}
-                className="group grid grid-cols-[auto_1fr] gap-3 rounded-lg border border-line p-3 transition-colors hover:border-[#b7c8bc] hover:bg-[#f7fbf8]"
-              >
-                <span className="flex h-8 min-w-8 items-center justify-center rounded-md bg-accent-soft px-2 text-xs font-medium text-accent">
-                  {action.label}
-                </span>
-                <span>
-                  <span className="block text-sm font-medium text-ink">
-                    {action.title}
-                  </span>
-                  <span className="mt-1 block text-xs leading-5 text-ink-soft">
-                    {action.desc}
-                  </span>
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
+      <WorkSceneCards />
 
+      <section className="mt-6">
         <div className="rounded-lg border border-line bg-white p-5">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-ink">最近项目</h2>

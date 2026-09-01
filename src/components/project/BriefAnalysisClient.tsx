@@ -5,6 +5,7 @@ import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import { readError, readTextStream } from "@/lib/clientAI";
+import { ResultNextActions } from "@/components/shared/ResultNextActions";
 
 type Mode = "idle" | "generating" | "done" | "error";
 
@@ -138,11 +139,11 @@ export function BriefAnalysisClient({
             {mode === "generating" && <span className="type-cursor" />}
           </div>
           {mode === "done" && (
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3">
-              <p className="text-xs text-ink-faint">
-                已保存到项目档案 · 追加材料或判断后可生成正式分析
-              </p>
-              <div className="flex items-center gap-2">
+            <div className="border-t border-line px-5 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-ink-faint">
+                  已保存到项目档案 · 追加材料或判断后可生成正式分析
+                </p>
                 <button
                   type="button"
                   onClick={start}
@@ -154,8 +155,20 @@ export function BriefAnalysisClient({
                   href={`/projects/${projectId}`}
                   className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
                 >
-                  补充判断 →
+                  补充判断
                 </Link>
+              </div>
+              <div className="mt-4">
+                <ResultNextActions
+                  compact
+                  description="这份简要分析已经进入项目，可以继续补充证据、升级正式分析或进入投资决策。"
+                  actions={[
+                    { label: "打开项目", href: `/projects/${projectId}`, primary: true },
+                    { label: "升级正式分析", href: `/projects/${projectId}?tab=analysis` },
+                    { label: "进入 IC", href: `/projects/${projectId}?tab=decision&focus=ic` },
+                    { label: "维护下一步", href: `/projects/${projectId}?focus=next-action` },
+                  ]}
+                />
               </div>
             </div>
           )}

@@ -3,6 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
+import { ResultNextActions } from "@/components/shared/ResultNextActions";
 
 interface Props {
   reportId: string;
@@ -61,6 +62,18 @@ export function StandaloneReportView({
         >
           {content || "（报告内容生成中，请稍后刷新页面）"}
         </ReactMarkdown>
+      </div>
+
+      <div className="mt-6">
+        <ResultNextActions
+          title="继续使用这份独立报告"
+          description="当前报告没有关联项目；新建项目不会自动迁移报告内容。"
+          actions={[
+            { label: "返回项目档案", href: "/archive", primary: true },
+            { label: "新建项目继续", href: "/projects/new" },
+            { label: "查看分析框架", href: "/skills" },
+          ]}
+        />
       </div>
     </article>
   );

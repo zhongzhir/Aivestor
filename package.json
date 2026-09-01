@@ -15,6 +15,7 @@
     "test:brand-compliance": "node -r ts-node/register -r tsconfig-paths/register scripts/brand-compliance.test.ts",
     "test:project-soft-delete": "node -r ts-node/register -r tsconfig-paths/register scripts/project-soft-delete.test.ts",
     "test:batch-screening": "node -r ts-node/register -r tsconfig-paths/register scripts/batch-screening.test.ts",
+    "test:work-scenes": "node -r ts-node/register -r tsconfig-paths/register scripts/work-scenes.test.ts",
     "test:intelligence": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-web-search.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-brief-quality.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-evidence.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-provider.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-ai-first.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-ai-native.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-release-gate.test.ts",
     "test:free-quota": "node -r ts-node/register -r tsconfig-paths/register scripts/free-quota.test.ts",
     "test:intelligence-natural-language": "node -r ts-node/register -r tsconfig-paths/register scripts/intelligence-natural-language.test.ts",

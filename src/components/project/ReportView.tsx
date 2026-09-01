@@ -14,6 +14,7 @@ import { extractConfidence } from "@/lib/reportConfidence";
 import { ConfidencePanel } from "@/components/report/ConfidencePanel";
 import { ExportDownloadButton } from "@/components/shared/ExportDownloadButton";
 import type { FinancialData } from "@/lib/types";
+import { ResultNextActions } from "@/components/shared/ResultNextActions";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -279,6 +280,21 @@ export function ReportView({
           </>
         );
       })()}
+
+      {reportId && content && !streaming && (
+        <div className="mt-6">
+          <ResultNextActions
+            title="报告完成后继续推进项目"
+            description="报告已保存在项目中，可以直接进入决策讨论或回到项目维护下一步。"
+            actions={[
+              { label: "返回项目", href: `/projects/${projectId}`, primary: true },
+              { label: "进入 IC", href: `/projects/${projectId}?tab=decision&focus=ic` },
+              { label: "维护下一步", href: `/projects/${projectId}?focus=next-action` },
+              { label: "查看项目档案", href: `/archive/${projectId}` },
+            ]}
+          />
+        </div>
+      )}
 
       {/* 修改历史 */}
       {history.length > 0 && (

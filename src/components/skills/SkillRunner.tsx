@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { readTextStream, readError } from "@/lib/clientAI";
 import { SkillMarkdown } from "@/components/skills/SkillMarkdown";
+import { ResultNextActions } from "@/components/shared/ResultNextActions";
 
 interface RunnerSkill {
   id: string;
@@ -173,21 +174,43 @@ export function SkillRunner({ skill, onClose }: Props) {
               </article>
 
               {hasResult && !running && (
-                <button
-                  onClick={save}
-                  disabled={saveState !== "idle"}
-                  className="mt-4 rounded-md border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
-                >
-                  {saveState === "saving"
-                    ? "保存中…"
-                    : saveState === "saved"
-                      ? projectId
-                        ? "✅ 已保存到项目档案"
-                        : "✅ 已保存到知识库"
-                      : projectId
-                        ? "保存到项目档案"
-                        : "保存到知识库"}
-                </button>
+                <>
+                  <button
+                    onClick={save}
+                    disabled={saveState !== "idle"}
+                    className="mt-4 rounded-md border border-accent px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent-soft disabled:opacity-50"
+                  >
+                    {saveState === "saving"
+                      ? "保存中…"
+                      : saveState === "saved"
+                        ? projectId
+                          ? "✅ 已保存到项目档案"
+                          : "✅ 已保存到知识库"
+                        : projectId
+                          ? "保存到项目档案"
+                          : "保存到知识库"}
+                  </button>
+                  {saveState === "saved" && (
+                    <div className="mt-4">
+                      <ResultNextActions
+                        compact
+                        description={projectId
+                          ? "结果已经进入项目档案，可以回到项目继续推进。"
+                          : "结果已经进入知识库；如需形成正式工作流，可以新建项目继续。"}
+                        actions={projectId
+                          ? [
+                              { label: "打开项目", href: `/projects/${projectId}`, primary: true },
+                              { label: "进入 IC", href: `/projects/${projectId}?tab=decision&focus=ic` },
+                              { label: "维护下一步", href: `/projects/${projectId}?focus=next-action` },
+                            ]
+                          : [
+                              { label: "查看知识库", href: "/knowledge", primary: true },
+                              { label: "新建项目继续", href: "/projects/new" },
+                            ]}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
