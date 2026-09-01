@@ -108,8 +108,12 @@ function isBlockedIp(value: string): boolean {
 }
 
 function hostnameIsBlocked(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const host = normalizeHostname(hostname);
   return host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host === "metadata.google.internal";
+}
+
+function normalizeHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
 }
 
 async function lookupAddresses(hostname: string): Promise<string[]> {
@@ -122,8 +126,9 @@ export async function validatePublicHttpUrl(value: string, resolver: AddressReso
   try { url = new URL(value); } catch { throw new Error("invalid_url"); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported_protocol");
   if (url.username || url.password) throw new Error("url_credentials_not_allowed");
-  if (hostnameIsBlocked(url.hostname)) throw new Error("private_hostname");
-  const addresses = await resolver(url.hostname);
+  const hostname = normalizeHostname(url.hostname);
+  if (hostnameIsBlocked(hostname)) throw new Error("private_hostname");
+  const addresses = await resolver(hostname);
   if (!addresses.length || addresses.some(isBlockedIp)) throw new Error("private_or_reserved_address");
   return { url, addresses };
 }
@@ -134,6 +139,7 @@ function contentType(headers: http.IncomingHttpHeaders): string {
 
 function requestOnce(url: URL, address: string): Promise<RawResponse> {
   const transport = url.protocol === "https:" ? https : http;
+  const hostname = normalizeHostname(url.hostname);
   return new Promise((resolve, reject) => {
     const request = transport.request({
       protocol: url.protocol,
@@ -142,7 +148,7 @@ function requestOnce(url: URL, address: string): Promise<RawResponse> {
       path: `${url.pathname || "/"}${url.search}`,
       method: "GET",
       headers: { Accept: "text/html, text/plain;q=0.9", "User-Agent": USER_AGENT, Host: url.host },
-      servername: net.isIP(url.hostname) ? undefined : url.hostname,
+      servername: net.isIP(hostname) ? undefined : hostname,
       timeout: EVIDENCE_LIMITS.timeoutMs,
       rejectUnauthorized: true,
     }, (response) => {
