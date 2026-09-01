@@ -103,6 +103,22 @@ function answerHasOutOfWindowDate(answer: string, coverage: { start: Date; end: 
   });
 }
 
+const NEGATIVE_NON_EVENT = /(?:^|[。；\n])(?:未发现|没有发现|并未发生|没有发生|未发生|无新增|无任何|无)[^。；\n]{0,40}(?:融资|并购|IPO|上市|投资|募资|资本运作|事件)/u;
+const CONCRETE_EVENT_ACTION = /(?:完成|宣布|披露|获得|获批|签署|签约|达成|提交|启动|推进|领投|跟投|投资|入股|收购|并购|IPO|上市|融资|募资|增资|发行)/u;
+
+export function isPublishableAiNativeItem(
+  item: AiNativeResearchItem,
+  coverage: { start: Date; end: Date },
+): boolean {
+  if (item.status === "context") return false;
+  const text = `${item.headline}\n${item.summary}\n${item.assessment || ""}`;
+  if (NEGATIVE_NON_EVENT.test(text)) return false;
+  if (answerHasOutOfWindowDate(text, coverage)) return false;
+  if (!item.sourceUrls.length) return false;
+  if (!item.eventDate && !CONCRETE_EVENT_ACTION.test(text)) return false;
+  return true;
+}
+
 /**
  * AI-native 的最终 answer 不能只靠 prompt 自律。
  * 先把窗口外事件降为 context，再对仍把窗口外日期写进正文的答案做一次受限重写。
@@ -115,11 +131,12 @@ export async function enforceAiNativeTimeWindow(
   const start = coverage.start.getTime();
   const end = coverage.end.getTime();
   const items = report.items.map((item) => {
-    if (!item.eventDate) return item;
+    const text = `${item.headline}\n${item.summary}\n${item.assessment || ""}`;
+    if (!item.eventDate) return answerHasOutOfWindowDate(text, coverage) ? { ...item, status: "context" as const } : item;
     const event = new Date(`${item.eventDate}T00:00:00.000Z`).getTime();
     return Number.isFinite(event) && event >= start && event <= end ? item : { ...item, status: "context" as const };
   });
-  const hasOutsideItems = items.some((item, index) => item.status === "context" && report.items[index]?.eventDate);
+  const hasOutsideItems = items.some((item, index) => item.status === "context" && report.items[index]?.status !== "context");
   const guarded = { ...report, items };
   if (!hasOutsideItems || !answerHasOutOfWindowDate(report.answer, coverage)) return guarded;
   const inWindowItems = items.filter((item) => item.status !== "context");
@@ -325,10 +342,11 @@ export async function runAiNativeResearch(input: IntelligenceTaskInput, coverage
   const timeGuardedReport = await enforceAiNativeTimeWindow(guardedReport, coverage, dependencies.generationProvider);
   const report = await enforceAiNativePublicationConstraint(input, timeGuardedReport, dependencies.generationProvider, new Set(runtime.sources.map((source) => source.url)));
   const sources = new Map(runtime.sources.map((source) => [source.url, source]));
-  const cards = report.items.filter((item) => item.status !== "context").map((item, index) => candidateFromItem(item, index, sources, runtime.evidenceByUrl));
+  const publishableItems = report.items.filter((item) => isPublishableAiNativeItem(item, coverage));
+  const cards = publishableItems.map((item, index) => candidateFromItem(item, index, sources, runtime.evidenceByUrl));
   const importantFacts = cards.filter((item) => !item.isClue);
   const otherItems = cards.filter((item) => item.isClue);
-  const allUrls = [...new Set(report.items.flatMap((item) => item.sourceUrls))];
+  const allUrls = [...new Set(publishableItems.flatMap((item) => item.sourceUrls))];
   const sourceList: AiNativeResearchResult["sourceList"] = allUrls.map((url) => {
     const source = sources.get(url);
     return { source: source?.siteName || "联网来源", url, publishedAt: normalizePublicTimestamp(source?.publishedAt), sourceTier: source?.sourceTier || "C", origin: "web-search" };

@@ -132,7 +132,7 @@ const component = readFileSync(join(process.cwd(), "src/components/data-apps/Int
 for (const phrase of ["不展示默认新闻流", "未订制时不生成", "不主动推送", "信息负担", "泛新闻流", "本模块不支持", "本模块不包含"]) {
   assert.equal(component.includes(phrase), false, `内部文案未清理: ${phrase}`);
 }
-for (const phrase of ["你想了解什么？", "生成任务方案", "可以是一次性研究，也可以设置持续跟踪"]) {
-  assert.equal(component.includes(phrase), true, `缺少一次性任务界面文案: ${phrase}`);
+for (const phrase of ["一句话订制你的情报", "理解我的需求", "一次性研究和持续跟踪都可以", "正在检索并整理本期信息", "重新生成", "本期结论"]) {
+  assert.equal(component.includes(phrase), true, `缺少订制主流程或执行反馈文案: ${phrase}`);
 }
 console.log("intelligence natural-language tests passed");

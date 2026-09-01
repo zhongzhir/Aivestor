@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildAiNativeBriefResult, normalizeTaskInput } from "@/lib/intelligence";
-import { AI_NATIVE_PUBLICATION_SELF_AUDIT, answerCharacterCount, enforceAiNativePublicationConstraint, enforceAiNativeTimeWindow, explicitAnswerCharacterLimit, runAiNativeResearch, type AiNativeResearchReport } from "@/lib/intelligenceAiNative";
+import { AI_NATIVE_PUBLICATION_SELF_AUDIT, answerCharacterCount, enforceAiNativePublicationConstraint, enforceAiNativeTimeWindow, explicitAnswerCharacterLimit, isPublishableAiNativeItem, runAiNativeResearch, type AiNativeResearchReport } from "@/lib/intelligenceAiNative";
 import type { IntelligenceAgentTurnResult, IntelligenceProvider, RetrievalRequest, RetrievalResult } from "@/lib/intelligenceProvider";
 import type { EvidenceCandidate } from "@/lib/intelligenceEvidence";
 
@@ -81,6 +81,15 @@ async function main() {
   assert.equal(windowRepair.items[0]?.status, "context", "窗口外事项必须降为背景");
   assert.doesNotMatch(windowRepair.answer, /2024年7月/, "窗口外日期不得进入最终回答");
 
+  const undatedHistorical = await enforceAiNativeTimeWindow({
+    answer: "本期没有新事件。",
+    items: [{ headline: "无并购、IPO及其他融资事件发生", summary: "经检索，2024年8月没有相关融资。", eventDate: null, entities: [], status: "reported", sourceUrls: [unreadUrl] }],
+    searchedAreas: [], unresolvedGaps: [], confidence: "low",
+  }, { start: new Date("2026-08-25T00:00:00.000Z"), end: new Date("2026-09-01T23:59:59.999Z") }, publicationProvider);
+  assert.equal(undatedHistorical.items[0]?.status, "context", "缺少 eventDate 的窗口外旧闻也必须降为背景");
+  assert.equal(isPublishableAiNativeItem({ headline: "无并购、IPO及其他融资事件发生", summary: "未发现新增融资事件。", eventDate: null, entities: [], status: "reported", sourceUrls: [unreadUrl] }, coverage), false, "否定性非事件不得作为情报卡片发布");
+  assert.equal(isPublishableAiNativeItem({ headline: "甲公司宣布完成新一轮融资", summary: "公司宣布完成融资。", eventDate: null, entities: ["甲公司"], status: "reported", sourceUrls: [unreadUrl] }, coverage), true, "有来源且包含明确动作的无日期线索可以保留为待核实项");
+
   let turn = 0;
   const provider: IntelligenceProvider = {
     id: "synthetic-agent",
@@ -108,7 +117,7 @@ async function main() {
   const result = await runAiNativeResearch(input, coverage, { generationProvider: provider, retrieval: retrieval(), acquireEvidence: acquire });
   assert.equal(result.report.answer, directAnswer, "AI answer must remain the first-class output");
   assert.equal(result.importantFacts.length, 1, "confirmed with a successful read becomes an important fact");
-  assert.equal(result.otherItems.length, 3, "reported items and a downgraded confirmed item remain visible");
+  assert.equal(result.otherItems.length, 1, "only sourced, concrete current-window clues remain visible");
   assert.equal(result.report.items[1]?.status, "reported", "confirmed without a successful read must be downgraded, not deleted");
   assert.equal(result.report.items.find((item) => item.headline === "池外来源事项")?.sourceUrls.length, 0, "URLs outside the search pool must be removed");
   assert.ok(!result.importantFacts.some((item) => item.title === "历史背景") && !result.otherItems.some((item) => item.title === "历史背景"), "context must not become a current-event card");
