@@ -8,13 +8,17 @@ import {
   scopedProjectChildWhere,
   ResourceForbiddenError,
 } from "@/lib/resourceAccess";
+import type { DeepResearchMetadata } from "@/lib/deepResearchWorkpaper";
 
 export const dynamic = "force-dynamic";
 
 interface ReportRow {
   id: string;
+  title: string;
+  kind: string;
   content: string;
   conversation_history: { instruction: string; ts: string }[];
+  research_metadata: DeepResearchMetadata | null;
 }
 
 export default async function ReportPage({
@@ -52,7 +56,7 @@ export default async function ReportPage({
       excludeMergedForAnalyst: true,
     });
     const specific = await query<ReportRow>(
-      `SELECT r.id, r.content, r.conversation_history
+      `SELECT r.id, r.title, r.kind, r.content, r.conversation_history, r.research_metadata
          FROM reports r
         WHERE r.id = $1 AND r.project_id = $2 AND ${child.sql}`,
       [searchParams.reportId, params.id, ...child.params]
@@ -65,7 +69,7 @@ export default async function ReportPage({
       excludeMergedForAnalyst: true,
     });
     const reports = await query<ReportRow>(
-      `SELECT r.id, r.content, r.conversation_history
+      `SELECT r.id, r.title, r.kind, r.content, r.conversation_history, r.research_metadata
          FROM reports r
         WHERE r.project_id = $1 AND ${child.sql}
         ORDER BY r.updated_at DESC LIMIT 1`,
@@ -79,9 +83,12 @@ export default async function ReportPage({
       projectId={params.id}
       projectName={projects[0].name}
       initialReportId={report?.id ?? null}
+      initialReportTitle={report?.title ?? null}
+      initialReportKind={report?.kind ?? null}
       initialContent={report?.content ?? ""}
       initialHistory={report?.conversation_history ?? []}
       initialFinancialData={projects[0].financial_data}
+      initialResearchMetadata={report?.research_metadata ?? null}
       autoGenerate={searchParams.generate === "1"}
     />
   );

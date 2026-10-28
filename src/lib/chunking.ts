@@ -6,6 +6,9 @@ export interface Chunk {
   tokenCount: number;
   metadata: {
     sectionHint?: string;
+    locator?: string;
+    locatorType?: string;
+    label?: string;
   };
 }
 
@@ -79,5 +82,31 @@ export function chunkText(text: string): Chunk[] {
   }
 
   flush();
+  return chunks;
+}
+
+export function chunkLocatedText(
+  entries: Array<{
+    locator: string;
+    locatorType: string;
+    label: string;
+    text: string;
+  }>
+): Chunk[] {
+  const chunks: Chunk[] = [];
+  for (const entry of entries) {
+    for (const chunk of chunkText(entry.text)) {
+      chunks.push({
+        ...chunk,
+        chunkIndex: chunks.length,
+        metadata: {
+          ...chunk.metadata,
+          locator: entry.locator,
+          locatorType: entry.locatorType,
+          label: entry.label,
+        },
+      });
+    }
+  }
   return chunks;
 }

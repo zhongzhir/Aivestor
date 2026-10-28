@@ -77,4 +77,20 @@ assert.match(lp.markdown, /^# 基金表现与收益指标/m);
 assert.match(lp.markdown, /^# 投资组合进展/m);
 assert.match(lp.markdown, /风险事项与披露/);
 
+const deepResearch = composeFormalReport({
+  markdown:
+    "好的，我将开始研究。\n\n# 研究身份与边界\n\n主体待核验。\n\n# 一、政策\n\n政策判断。\n\n# 重要声明与数据缺口\n\n仍缺审计报告。",
+  profile: FORMAL_REPORT_PROFILES.deep_research,
+  metadata,
+});
+assert.equal(deepResearch.profileKey, "deep_research");
+assert.match(deepResearch.markdown, /^# 研究身份与边界/m);
+assert.match(deepResearch.markdown, /^# 一、政策/m);
+assert.match(deepResearch.markdown, /^# 重要声明与数据缺口/m);
+assert.doesNotMatch(deepResearch.markdown, /好的，我将开始研究/);
+assert.ok(
+  deepResearch.markdown.indexOf("研究身份与边界") <
+    deepResearch.markdown.indexOf("重要声明与数据缺口")
+);
+
 console.log("formal-report composer tests passed");

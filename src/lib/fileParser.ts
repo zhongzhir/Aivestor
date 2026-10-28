@@ -5,12 +5,14 @@ import * as XLSX from "xlsx";
 import { parseDocument } from "@/lib/parser";
 import { extractDocumentImages } from "@/lib/imageExtract";
 import { describeImage, isQwenVLAvailable } from "@/lib/qwenVL";
+import { sourceMapText, type SourceMapEntry } from "@/lib/sourceMap";
 
 export type ParsableType = "pdf" | "docx" | "pptx" | "xlsx" | "xls";
 
 export interface ParseFileResult {
   text: string;
   warning?: string;
+  sourceMap: SourceMapEntry[];
 }
 
 const EXCEL_WARNING =
@@ -47,17 +49,69 @@ export function getFileType(fileName: string): string {
 }
 
 // 解析 Excel：遍历所有 sheet，拼成「Sheet名称\n内容」文本块。
-function parseExcel(buffer: Buffer): string {
+function parseExcel(buffer: Buffer): SourceMapEntry[] {
   const workbook = XLSX.read(buffer, { type: "buffer" });
-  const blocks: string[] = [];
+  const blocks: SourceMapEntry[] = [];
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
-    const content = XLSX.utils.sheet_to_csv(sheet).trim();
-    if (content) {
-      blocks.push(`${sheetName}\n${content}`);
+    if (!sheet || !sheet["!ref"]) continue;
+    const decoded = XLSX.utils.decode_range(sheet["!ref"]);
+    const rows: string[] = [];
+    for (let row = decoded.s.r; row <= decoded.e.r; row++) {
+      const cells: string[] = [];
+      for (let col = decoded.s.c; col <= decoded.e.c; col++) {
+        const address = XLSX.utils.encode_cell({ r: row, c: col });
+        const cell = sheet[address];
+        if (!cell || cell.v == null || String(cell.v).trim() === "") continue;
+        const displayed = cell.w != null ? String(cell.w) : String(cell.v);
+        cells.push(`${address}=${displayed.replace(/\s+/g, " ").trim()}`);
+      }
+      if (cells.length > 0) rows.push(cells.join(" | "));
+    }
+    if (rows.length > 0) {
+      const range = XLSX.utils.encode_range(decoded);
+      blocks.push({
+        locator: `SHEET:${sheetName}!${range}`,
+        locatorType: "sheet_range",
+        label: `工作表“${sheetName}” ${range}`,
+        sheet: sheetName,
+        range,
+        text: rows.join("\n"),
+      });
     }
   }
-  return blocks.join("\n\n");
+  return blocks;
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)));
+}
+
+async function parsePptx(buffer: Buffer): Promise<SourceMapEntry[]> {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(buffer);
+  const slideNames = Object.keys(zip.files)
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    .sort((a, b) => Number(a.match(/slide(\d+)/)?.[1]) - Number(b.match(/slide(\d+)/)?.[1]));
+  const entries: SourceMapEntry[] = [];
+  for (const name of slideNames) {
+    const slide = Number(name.match(/slide(\d+)/)?.[1]);
+    const xml = await zip.files[name].async("string");
+    const runs = Array.from(xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g))
+      .map((match) => decodeXmlText(match[1]).trim())
+      .filter(Boolean);
+    if (runs.length > 0) {
+      entries.push({ locator: `SLIDE${slide}`, locatorType: "slide", label: `幻灯片${slide}`, slide, text: runs.join("\n") });
+    }
+  }
+  return entries;
 }
 
 export async function parseFile(
@@ -67,12 +121,13 @@ export async function parseFile(
 ): Promise<ParseFileResult> {
   let text: string;
   let warning: string | undefined;
+  let sourceMap: SourceMapEntry[] = [];
 
   switch (fileType) {
     case "pdf":
     case "docx": {
       // 复用现有 unpdf / mammoth 解析逻辑
-      ({ text } = await parseDocument(buffer, fileType));
+      ({ text, sourceMap } = await parseDocument(buffer, fileType));
       if (fileType === "pdf" && !text.trim() && isQwenVLAvailable()) {
         const detected = await extractDocumentImages(buffer, fileType, {
           // 扫描型 BP 常见为每页一张图片；限制页数以控制耗时和额度。
@@ -96,24 +151,32 @@ export async function parseFile(
             worker
           )
         );
-        const recognized = ocrParts.filter((part): part is string => Boolean(part));
+        const recognized = ocrParts.flatMap((part, index) =>
+          part ? [{ part, page: index + 1 }] : []
+        );
         if (recognized.length > 0) {
-          text = recognized.join("\n\n");
+          sourceMap = recognized.map(({ part, page }) => ({
+            locator: `OCR-P${page}`,
+            locatorType: "ocr_page",
+            label: `OCR第${page}页`,
+            page,
+            text: part.replace(/^\[[^\]]+\]\s*/, ""),
+          }));
+          text = sourceMapText(sourceMap);
           warning = OCR_WARNING;
         }
       }
       break;
     }
     case "pptx": {
-      // officeparser 提取 PPT 文本
-      const { parseOffice } = await import("officeparser");
-      const ast = await parseOffice(buffer);
-      text = ast.toText().replace(/\n{3,}/g, "\n\n").trim();
+      sourceMap = await parsePptx(buffer);
+      text = sourceMapText(sourceMap);
       break;
     }
     case "xlsx":
     case "xls": {
-      text = parseExcel(buffer).replace(/\n{3,}/g, "\n\n").trim();
+      sourceMap = parseExcel(buffer);
+      text = sourceMapText(sourceMap);
       warning = EXCEL_WARNING;
       break;
     }
@@ -122,5 +185,9 @@ export async function parseFile(
   }
 
   // 统一清理 NUL 字符，避免写入 Postgres text 字段时报 0x00 编码错误
-  return { text: stripNul(text), warning };
+  return {
+    text: stripNul(text),
+    warning,
+    sourceMap: sourceMap.map((entry) => ({ ...entry, text: stripNul(entry.text) })),
+  };
 }

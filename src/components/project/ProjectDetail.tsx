@@ -17,11 +17,16 @@ import {
   type UploadResult,
 } from "@/components/shared/FileUploader";
 import { SkillRunModal } from "@/components/skills/SkillRunModal";
-import { stashJudgmentPoints, readError } from "@/lib/clientAI";
+import {
+  stashJudgmentPoints,
+  stashReportGeneration,
+  readError,
+} from "@/lib/clientAI";
 import { OUTCOMES, outcomeDef } from "@/lib/outcome";
 import { FLOW_STAGES, TERMINAL_STAGES, STAGE_LABELS } from "@/lib/stages";
 import type { FinancialData } from "@/lib/types";
 import { ProjectManagementPanel } from "./ProjectManagementPanel";
+import { DeepResearchJobPanel } from "./DeepResearchJobPanel";
 
 type Tab = "analysis" | "decision" | "post";
 
@@ -166,6 +171,10 @@ export function ProjectDetail({
     initialPoints.length > 0 ? initialPoints : ["", "", ""]
   );
   const [error, setError] = useState("");
+  const [deepProfile, setDeepProfile] = useState<
+    "auto" | "early_stage" | "comprehensive"
+  >("auto");
+  const [deepDecisionContext, setDeepDecisionContext] = useState("");
   const [financials, setFinancials] = useState<FinancialData | null>(
     initialFinancialData
   );
@@ -360,6 +369,33 @@ export function ProjectDetail({
     router.push(`/projects/${projectId}/report?generate=1`);
   }
 
+  function handleGenerateDeepResearch() {
+    if (!hasParsedDoc) {
+      setError("请先上传并解析至少一份项目材料");
+      return;
+    }
+    const filled = points.map((point) => point.trim()).filter(Boolean);
+    setError("");
+    stashReportGeneration(projectId, {
+      mode: "deep_research",
+      profile: deepProfile,
+      judgmentPoints: filled.slice(0, 10),
+      decisionContext: deepDecisionContext.trim(),
+      sourceCutoffDate: new Date().toLocaleDateString("sv-SE"),
+    });
+    router.push(`/projects/${projectId}/report?generate=1`);
+  }
+
+  function focusDeepResearch() {
+    setTab("analysis");
+    window.setTimeout(() => {
+      document.getElementById("deep-research-workbench")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  }
+
   const parsedDocCount = docMeta.filter((d) => d.parseStatus === "done").length;
   const bpDocCount = docMeta.filter((d) => d.docKind === "bp").length;
   const judgmentCount = judgments.length;
@@ -452,6 +488,13 @@ export function ProjectDetail({
                 查看报告
               </Link>
             )}
+            <button
+              onClick={focusDeepResearch}
+              disabled={!hasParsedDoc}
+              className="rounded-lg border border-accent bg-white px-3 py-2 text-sm font-medium text-accent hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
+            >
+              深度投研
+            </button>
             <button
               onClick={handleGenerate}
               className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
@@ -606,6 +649,77 @@ export function ProjectDetail({
                 </section>
 
                 <section className="space-y-6 rounded-lg border border-line bg-white p-5">
+                  <div id="deep-research-workbench" className="scroll-mt-6 rounded-lg border border-[#d8c8b2] bg-[#fffdfa] p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-wide text-accent">
+                          Deep Research
+                        </p>
+                        <h2 className="mt-1 text-base font-semibold text-ink">
+                          一次完成单项目深度投研
+                        </h2>
+                        <p className="mt-1 text-xs leading-5 text-ink-soft">
+                          自动按项目阶段选择早期七项框架或成长/中后期16章框架，形成事实、反方、测算、进退动作和分级尽调清单。
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent">
+                        项目级完整报告
+                      </span>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                      <label className="text-xs text-ink-soft">
+                        分析框架
+                        <select
+                          value={deepProfile}
+                          onChange={(event) =>
+                            setDeepProfile(
+                              event.target.value as
+                                | "auto"
+                                | "early_stage"
+                                | "comprehensive"
+                            )
+                          }
+                          className="mt-1 w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+                        >
+                          <option value="auto">按项目阶段自动选择</option>
+                          <option value="early_stage">早期项目七项框架</option>
+                          <option value="comprehensive">成长/中后期16章框架</option>
+                        </select>
+                      </label>
+                      <label className="text-xs text-ink-soft">
+                        决策参数（选填）
+                        <textarea
+                          value={deepDecisionContext}
+                          onChange={(event) => setDeepDecisionContext(event.target.value)}
+                          rows={2}
+                          placeholder="例如：拟投金额、估值、持有期、目标回报、机构红线；留空也可生成"
+                          className="mt-1 w-full resize-none rounded-md border border-line bg-white px-3 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent"
+                        />
+                      </label>
+                    </div>
+
+                    <DeepResearchJobPanel
+                      projectId={projectId}
+                      hasParsedDoc={hasParsedDoc}
+                      profile={deepProfile}
+                      decisionContext={deepDecisionContext}
+                    />
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-xs leading-5 text-ink-faint">
+                        外部证据与材料事实分开标注；无法核验的信息会进入P0/P1/P2清单。
+                      </p>
+                      <button
+                        onClick={handleGenerateDeepResearch}
+                        disabled={!hasParsedDoc}
+                        className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-[#265b42] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        仅基于现有材料快速生成
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
                     <h2 className="text-sm font-semibold text-ink">
                       判断要点
@@ -774,7 +888,9 @@ function ICMemoWorkspace({
   const latestJudgment = judgments[0] ?? null;
   const parsedDocs = docMeta.filter((doc) => doc.parseStatus === "done");
   const analysisReports = reports.filter((report) =>
-    ["analysis", "brief", "competitive_landscape"].includes(report.kind)
+    ["analysis", "deep_research", "brief", "competitive_landscape"].includes(
+      report.kind
+    )
   );
   const memoReadiness = buildMemoReadiness({
     parsedDocCount: parsedDocs.length,
@@ -1532,6 +1648,7 @@ interface ActivityItem {
 
 const REPORT_KIND_LABEL: Record<string, string> = {
   analysis: "分析报告",
+  deep_research: "深度投研",
   brief: "简要分析",
   term_sheet: "Term Sheet",
   committee: "投委会总报告",

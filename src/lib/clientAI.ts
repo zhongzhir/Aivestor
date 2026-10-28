@@ -81,18 +81,69 @@ export async function readTextStream(
   if (pending) onChunk(pending);
 }
 
-// 用于在项目页与报告页之间传递本轮判断要点
-export function stashJudgmentPoints(projectId: string, points: string[]) {
-  sessionStorage.setItem(`iw_gen_${projectId}`, JSON.stringify(points));
+export interface ReportGenerationRequest {
+  mode: "standard" | "deep_research";
+  judgmentPoints: string[];
+  profile?: "auto" | "early_stage" | "comprehensive";
+  decisionContext?: string;
+  sourceCutoffDate?: string;
 }
 
-export function popJudgmentPoints(projectId: string): string[] | null {
+// 用于在项目页与报告页之间传递一次报告生成任务。
+export function stashReportGeneration(
+  projectId: string,
+  request: ReportGenerationRequest
+) {
+  sessionStorage.setItem(`iw_gen_${projectId}`, JSON.stringify(request));
+}
+
+export function popReportGeneration(
+  projectId: string
+): ReportGenerationRequest | null {
   const raw = sessionStorage.getItem(`iw_gen_${projectId}`);
   if (!raw) return null;
   try {
     const v = JSON.parse(raw);
-    return Array.isArray(v) ? v : null;
+    // 兼容历史版本只保存 string[] 的会话数据。
+    if (Array.isArray(v)) {
+      return {
+        mode: "standard",
+        judgmentPoints: v.map(String),
+      };
+    }
+    if (
+      v &&
+      (v.mode === "standard" || v.mode === "deep_research") &&
+      Array.isArray(v.judgmentPoints)
+    ) {
+      return {
+        mode: v.mode,
+        judgmentPoints: v.judgmentPoints.map(String),
+        profile:
+          v.profile === "early_stage" ||
+          v.profile === "comprehensive" ||
+          v.profile === "auto"
+            ? v.profile
+            : undefined,
+        decisionContext:
+          typeof v.decisionContext === "string" ? v.decisionContext : undefined,
+        sourceCutoffDate:
+          typeof v.sourceCutoffDate === "string" ? v.sourceCutoffDate : undefined,
+      };
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+export function stashJudgmentPoints(projectId: string, points: string[]) {
+  stashReportGeneration(projectId, {
+    mode: "standard",
+    judgmentPoints: points,
+  });
+}
+
+export function popJudgmentPoints(projectId: string): string[] | null {
+  return popReportGeneration(projectId)?.judgmentPoints ?? null;
 }

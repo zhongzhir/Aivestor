@@ -1,5 +1,6 @@
 export type FormalReportProfileKey =
   | "project_initiation"
+  | "deep_research"
   | "investment_committee"
   | "lp"
   | "post_investment"

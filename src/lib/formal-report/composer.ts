@@ -63,6 +63,7 @@ const SECTION_PATTERNS: Array<[SectionKey, RegExp]> = [
 ];
 
 const TEMPLATES: Record<FormalReportProfileKey, TemplateSection[]> = {
+  deep_research: [],
   project_initiation: [
     { key: "executive", title: "执行摘要", required: true },
     { key: "overview", title: "项目概览", required: true },
@@ -271,6 +272,17 @@ export function composeFormalReport(input: {
   metadata: FormalReportMetadata;
 }): FormalReportComposition {
   const blocks = parseFormalReportMarkdown(input.markdown);
+  // 深度投研的早期七项框架与成长/中后期16章框架均由研究任务确定。
+  // 正式导出只做清洗与排版，不按通用模板重新归类，以免破坏研究顺序和固定尾章。
+  if (input.profile.key === "deep_research") {
+    return {
+      markdown: blocks.map(serializeBlock).filter(Boolean).join("\n\n").trim(),
+      applied: true,
+      profileKey: input.profile.key,
+      populatedSections: blocks.length ? ["appendix"] : [],
+      missingSections: [],
+    };
+  }
   const chunks = blocksToChunks(blocks);
   const template = TEMPLATES[input.profile.key];
   const grouped = new Map<SectionKey, SourceChunk[]>();

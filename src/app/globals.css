@@ -296,7 +296,7 @@ b {
   text-underline-offset: 2px;
 }
 
-/* 报告溯源徽章：[src:doc] / [src:data] / [src:ai] 渲染产物 */
+/* 报告溯源徽章渲染产物 */
 .src-badge {
   display: inline-flex;
   align-items: center;
@@ -323,6 +323,21 @@ b {
   border: 1px solid #ff6b35;
   color: #ff6b35;
   background: #ff6b3508;
+}
+.src-external {
+  border: 1px solid #236b62;
+  color: #236b62;
+  background: #236b620d;
+}
+.src-gap {
+  border: 1px solid #a66b1f;
+  color: #8a5b1f;
+  background: #a66b1f0d;
+}
+.src-inconsistent {
+  border: 1px solid #b94a40;
+  color: #a33c32;
+  background: #b94a400d;
 }
 
 /* 流式输出的打字机光标 */

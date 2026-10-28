@@ -9,6 +9,7 @@ import {
 import { describeImage, isQwenVLAvailable } from "@/lib/qwenVL";
 import { consumeQuota } from "@/lib/freeQuota";
 import { processDocumentChunks } from "@/lib/documentChunks";
+import { normalizeSourceMap, sourceMapText, type SourceMapEntry } from "@/lib/sourceMap";
 
 export const maxDuration = 300;
 
@@ -36,8 +37,9 @@ export async function POST(
     doc_kind: string;
     extracted_text: string | null;
     image_analysis: ImageAnalysisItem[] | null;
+    source_map: unknown;
   }>(
-    `SELECT id, file_type, file_url, doc_kind, extracted_text, image_analysis
+    `SELECT id, file_type, file_url, doc_kind, extracted_text, image_analysis, source_map
        FROM documents
       WHERE id = $1 AND user_id = $2`,
     [params.id, session.user.id]
@@ -116,30 +118,35 @@ export async function POST(
   await consumeQuota(session.user.id, tokensIn, tokensOut, "image_recognition");
 
   // 识别结果拼入 extracted_text（文末追加，标注来源位置便于报告引用与溯源）
+  const sourceMap = normalizeSourceMap(doc.source_map);
   let newText = doc.extracted_text ?? "";
   if (results.length > 0) {
-    const blocks = results.map(
-      (r, i) => `[图片${i + 1}描述]（${r.position}）：${r.description}`
-    );
+    const imageEntries: SourceMapEntry[] = results.map((result, index) => ({
+      locator: `IMG${index + 1}@${result.position}`,
+      locatorType: "image_region",
+      label: `${result.position} 图片${index + 1}（AI识别）`,
+      text: result.description,
+    }));
+    sourceMap.push(...imageEntries);
+    newText = sourceMapText(sourceMap);
     if (extraction.skippedCount > 0) {
-      blocks.push(`（另有 ${extraction.skippedCount} 张图片未处理）`);
+      newText += `\n\n（另有 ${extraction.skippedCount} 张图片未处理）`;
     }
-    newText = `${newText}\n\n=== 图片信息（AI 识别） ===\n${blocks.join("\n\n")}`;
   }
 
   // 持久化：image_analysis 非 NULL（含空数组）即表示已识别过，避免重复触发
   await query(
     `UPDATE documents
-        SET image_analysis = $1, extracted_text = $2, updated_at = NOW()
-      WHERE id = $3`,
-    [JSON.stringify(results), newText, doc.id]
+        SET image_analysis = $1, extracted_text = $2, source_map = $3, updated_at = NOW()
+      WHERE id = $4`,
+    [JSON.stringify(results), newText, JSON.stringify(sourceMap), doc.id]
   );
 
   // 文本变化后重建 chunk（先清旧再重切，保证检索一致性）
   if (results.length > 0) {
     try {
       await query("DELETE FROM document_chunks WHERE document_id = $1", [doc.id]);
-      await processDocumentChunks(doc.id, session.user.id, newText);
+      await processDocumentChunks(doc.id, session.user.id, newText, sourceMap);
     } catch (e) {
       console.error("[image-analysis] 重建 chunk 失败:", e);
     }

@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:formal-report": "node -r ts-node/register -r tsconfig-paths/register scripts/formal-report-composer.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/formal-report.test.ts",
+    "test:deep-research": "node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-report.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-evidence.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-job.test.ts && npm run test:formal-report",
     "test:user-profile-context": "node -r ts-node/register -r tsconfig-paths/register scripts/user-profile-context.test.ts",
     "test:project-management": "node -r ts-node/register -r tsconfig-paths/register scripts/project-management.test.ts",
     "test:export-publishing": "node -r ts-node/register -r tsconfig-paths/register scripts/export-publishing.test.ts",
@@ -28,10 +29,13 @@
     "db:migrate": "node --env-file=.env.local scripts/apply-migration.mjs",
     "db:migrate-chunks": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/migrate-chunks.ts",
     "db:backfill-embeddings": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/backfill-embeddings.ts",
+    "db:backfill-source-maps": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/backfill-document-source-maps.ts",
     "db:grant-app": "node --env-file=.env.local scripts/grant-app-db-permissions.mjs",
     "db:check-production": "node --env-file=.env.local scripts/check-production-schema.mjs",
     "intelligence:collect": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/collect-intelligence-sources.ts",
     "research:benchmark": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/intelligence-benchmark.ts",
+    "deep-research:worker": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/run-deep-research-worker.ts --loop",
+    "deep-research:worker-once": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/run-deep-research-worker.ts",
     "test:research-live": "node --env-file=.env.local -r ts-node/register -r tsconfig-paths/register scripts/research-infrastructure-live-validation.ts"
   },
   "dependencies": {

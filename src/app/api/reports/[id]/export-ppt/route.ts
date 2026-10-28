@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
+import { extractEvidenceLedger } from "@/lib/deepResearchWorkpaper";
 import { BRAND } from "@/lib/brand";
 import { buildPptReportBuffer } from "@/lib/ppt-report";
 import {
@@ -46,7 +47,7 @@ export async function GET(
 
   const report = rows[0];
   const markdown = stripSourceBadges(
-    extractConfidence(report.content).cleanContent
+    extractConfidence(extractEvidenceLedger(report.content).cleanContent).cleanContent
   );
   const buffer = await buildPptReportBuffer({
     markdown,

@@ -60,7 +60,9 @@ export async function GET(
   // 个人版退化为 "user_id = $2"——与现状逐字节等价。
   const child = scopedProjectChildWhere(scope, 2);
   const documents = await query(
-    `SELECT id, filename, file_type, doc_kind, parse_status, created_at
+    `SELECT id, filename, file_type, doc_kind, parse_status,
+            jsonb_array_length(COALESCE(source_map, '[]'::jsonb)) AS source_locator_count,
+            created_at
        FROM documents
       WHERE project_id = $1 AND ${child.sql}
       ORDER BY created_at DESC`,
@@ -163,8 +165,8 @@ export async function POST(
   const rows = await query<{ id: string }>(
     `INSERT INTO documents
        (user_id, project_id, filename, file_type, file_url, file_size,
-        doc_kind, extracted_text, parse_status, org_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'done', $9)
+        doc_kind, extracted_text, source_map, parse_status, org_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'done', $10)
      RETURNING id`,
     [
       session.user.id,
@@ -175,6 +177,7 @@ export async function POST(
       buffer.length,
       docKind,
       parsed.text,
+      JSON.stringify(parsed.sourceMap),
       projectOrgId,
     ]
   );
@@ -182,7 +185,12 @@ export async function POST(
   const documentId = rows[0].id;
 
   // 切分并向量化文档（await 确保 Vercel 上可靠写入）
-  await processDocumentChunks(documentId, session.user.id, parsed.text);
+  await processDocumentChunks(
+    documentId,
+    session.user.id,
+    parsed.text,
+    parsed.sourceMap
+  );
 
   // Excel：直接从单元格结构化提取财务数据并写入 projects.financial_data
   if (fileType === "xlsx" || fileType === "xls") {
@@ -220,6 +228,7 @@ export async function POST(
       id: documentId,
       filename,
       charCount: parsed.text.length,
+      sourceLocatorCount: parsed.sourceMap.length,
       warning: parsed.warning,
       imageCount,
       estimatedTokens,

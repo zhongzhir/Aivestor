@@ -21,6 +21,13 @@ export const FORMAL_REPORT_PROFILES: Record<
     confidentiality: "内部机密 · 仅供立项审议",
     ...BASE_THEME,
   },
+  deep_research: {
+    key: "deep_research",
+    label: "深度投研报告",
+    subtitle: "单项目证据驱动研究与投资决策底稿",
+    confidentiality: "严格保密 · 仅供投资研究与决策使用",
+    ...BASE_THEME,
+  },
   investment_committee: {
     key: "investment_committee",
     label: "投决会报告",
@@ -73,7 +80,9 @@ export function inferFormalReportProfile(
   }
 
   const key: FormalReportProfileKey =
-    kind === "committee"
+    kind === "deep_research"
+      ? "deep_research"
+      : kind === "committee"
       ? "investment_committee"
       : kind === "lp_report"
         ? "lp"

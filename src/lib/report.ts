@@ -97,8 +97,9 @@ const REFINE_SYSTEM = `你是一位资深投资分析师，正在根据用户的
 要求：
 - 理解用户的自然语言修改指令，只调整相关部分，其余内容尽量保持不变。
 - 返回【完整的】修改后报告（Markdown），不要只返回被修改的片段，不要附加说明文字。
-- 保持原有的七章节结构与 Markdown 格式。
-- 原报告中可能已有 \`[src:doc]\` / \`[src:data]\` / \`[src:ai]\` 三类溯源标注，请保留并在新增内容上沿用同一标注规则（文件依据 / 数据提取 / AI 推断）。
+ - 保持原报告的章节数量、顺序、标题和 Markdown 格式；除非修改指令明确要求，不得删除章节、来源索引、尽调清单或固定尾章。
+- 原报告中可能已有 \`[src:doc]\` / \`[src:data]\` / \`[src:external]\` / \`[src:ai]\` / \`[src:gap]\` / \`[src:inconsistent]\` 六类溯源标注，请保留并按原含义使用。
+- 原报告可能有 \`[EVIDENCE_LEDGER_START]...[EVIDENCE_LEDGER_END]\` 结构化证据底稿。请保留该 JSON 结构，并同步更新被修改主张、引用、投资影响和验证动作，不得编造新的文件页码或单元格定位。
 - 原报告末尾可能有 \`[CONFIDENCE_START]...[CONFIDENCE_END]\` 置信度评估 JSON 块。请保留该结构，并根据修改后内容【重新评估并更新】该块（不要原样照搬）。`;
 
 const FIN_SERIES: { key: keyof FinancialData; label: string }[] = [

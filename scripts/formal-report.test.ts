@@ -5,6 +5,7 @@ import { parseFormalReportMarkdown } from "../src/lib/formal-report/markdown";
 import { buildFormalDocxBuffer } from "../src/lib/formal-report/docx";
 import { FORMAL_REPORT_PROFILES } from "../src/lib/formal-report/profiles";
 import { stripSourceBadges } from "../src/lib/reportBadges";
+import { renderSourceBadges } from "../src/lib/reportBadges";
 
 const markdown = `好的，作为资深的一级股权投资专家，我将严格遵循您的指令并完成分析。
 
@@ -61,9 +62,13 @@ assert.ok(
   )
 );
 assert.equal(
-  stripSourceBadges("事实[src:doc]，冲突[src:inconsistent]"),
-  "事实，冲突"
+  stripSourceBadges(
+    "事实[src:doc]，外部[src:external]，待补[src:gap]，冲突[src:inconsistent]"
+  ),
+  "事实，外部，待补，冲突"
 );
+assert.match(renderSourceBadges("外部[src:external]"), /src-external/);
+assert.match(renderSourceBadges("待补[src:gap]"), /src-gap/);
 
 async function main() {
   const buffer = await buildFormalDocxBuffer({

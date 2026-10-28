@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
-import { popJudgmentPoints, readTextStream, readError } from "@/lib/clientAI";
+import {
+  popReportGeneration,
+  readTextStream,
+  readError,
+} from "@/lib/clientAI";
 import { FinancialCharts } from "./FinancialCharts";
 import { DigestCard } from "@/components/report/DigestCard";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -15,6 +19,12 @@ import { ConfidencePanel } from "@/components/report/ConfidencePanel";
 import { ExportDownloadButton } from "@/components/shared/ExportDownloadButton";
 import type { FinancialData } from "@/lib/types";
 import { ResultNextActions } from "@/components/shared/ResultNextActions";
+import {
+  assessDeepResearchReport,
+  type DeepResearchGate,
+  type DeepResearchMetadata,
+} from "@/lib/deepResearchWorkpaper";
+import type { ResolvedDeepResearchProfile } from "@/lib/deepResearch";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -37,9 +47,12 @@ interface Props {
   projectId: string;
   projectName: string;
   initialReportId: string | null;
+  initialReportTitle?: string | null;
+  initialReportKind?: string | null;
   initialContent: string;
   initialHistory: HistoryItem[];
   initialFinancialData: FinancialData | null;
+  initialResearchMetadata: DeepResearchMetadata | null;
   autoGenerate: boolean;
 }
 
@@ -49,15 +62,28 @@ export function ReportView({
   projectId,
   projectName,
   initialReportId,
+  initialReportTitle,
+  initialReportKind,
   initialContent,
   initialHistory,
   initialFinancialData,
+  initialResearchMetadata,
   autoGenerate,
 }: Props) {
   const router = useRouter();
 
   const [content, setContent] = useState(initialContent);
   const [reportId, setReportId] = useState(initialReportId);
+  const [reportTitle, setReportTitle] = useState(
+    initialReportTitle || `${projectName} · 项目分析报告`
+  );
+  const [reportKind, setReportKind] = useState(initialReportKind || "analysis");
+  const [researchProfile, setResearchProfile] = useState<ResolvedDeepResearchProfile | null>(
+    initialResearchMetadata?.profile ?? null
+  );
+  const [researchMetadata, setResearchMetadata] = useState<DeepResearchMetadata | null>(
+    initialResearchMetadata
+  );
   const [history, setHistory] = useState<HistoryItem[]>(initialHistory);
   const [mode, setMode] = useState<Mode>("idle");
   const [instruction, setInstruction] = useState("");
@@ -101,26 +127,46 @@ export function ReportView({
   }
 
   async function generate() {
-    const points = popJudgmentPoints(projectId);
-    if (!points || points.length < 3) {
-      setError("未找到判断要点，请回到项目页重新填写并生成");
+    const request = popReportGeneration(projectId);
+    if (!request) {
+      setError("未找到本轮生成任务，请回到项目页重新发起");
+      return;
+    }
+    if (request.mode === "standard" && request.judgmentPoints.length < 3) {
+      setError("标准分析报告需要 3-10 条判断要点，请回到项目页补充");
       return;
     }
     setError("");
     setMode("generating");
     setContent("");
+    setResearchMetadata(null);
+    setReportKind(request.mode === "deep_research" ? "deep_research" : "analysis");
+    setReportTitle(
+      request.mode === "deep_research"
+        ? `${projectName} · 深度投研报告`
+        : `${projectName} · 项目分析报告`
+    );
     try {
       const res = await fetch(`/api/projects/${projectId}/reports`, {
         method: "POST",
         headers: JSON_HEADERS,
-        body: JSON.stringify({ judgmentPoints: points }),
+        body: JSON.stringify(request),
       });
       if (!res.ok) {
         throw new Error(await readError(res, "生成失败"));
       }
       const rid = res.headers.get("X-Report-Id");
       if (rid) setReportId(rid);
+      const kind = res.headers.get("X-Report-Kind");
+      if (kind) setReportKind(kind);
+      const profile = res.headers.get("X-Research-Profile");
+      if (profile === "early_stage" || profile === "comprehensive") {
+        setResearchProfile(profile);
+      }
       await readTextStream(res, (t) => setContent((c) => c + t));
+      if (rid && request.mode === "deep_research") {
+        await refreshResearchMetadata(rid);
+      }
     } catch (e) {
       setContent("");
       setReportId(null);
@@ -148,12 +194,29 @@ export function ReportView({
         throw new Error(await readError(res, "修改失败"));
       }
       await readTextStream(res, (t) => setContent((c) => c + t));
+      if (reportKind === "deep_research") {
+        await refreshResearchMetadata(reportId);
+      }
       setHistory((h) => [...h, { instruction: text, ts: new Date().toISOString() }]);
       setInstruction("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "修改失败");
     } finally {
       setMode("idle");
+    }
+  }
+
+  async function refreshResearchMetadata(id: string) {
+    try {
+      const response = await fetch(`/api/reports/${id}/quality`, { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json() as { researchMetadata?: DeepResearchMetadata };
+      if (data.researchMetadata?.profile) {
+        setResearchMetadata(data.researchMetadata);
+        setResearchProfile(data.researchMetadata.profile);
+      }
+    } catch {
+      // 正文已经保存；门禁元数据读取失败时仍可用本地解析结果展示。
     }
   }
 
@@ -171,12 +234,14 @@ export function ReportView({
       <div className="flex items-center justify-between border-b border-line pb-4">
         <div>
           <h1 className="text-lg font-semibold text-ink">
-            {projectName} · 项目分析报告
+            {reportTitle}
           </h1>
           <p className="mt-0.5 text-xs text-ink-faint">
             {streaming
               ? mode === "generating"
-                ? "正在生成…"
+                ? reportKind === "deep_research"
+                  ? "正在按深度投研框架生成…"
+                  : "正在生成…"
                 : "正在修改…"
               : `共 ${history.length} 轮修改`}
           </p>
@@ -267,7 +332,12 @@ export function ReportView({
           );
         }
         // 流式过程中保留原始内容（标记尚未完整，extractConfidence 会返回原文）
-        const { confidence, cleanContent } = extractConfidence(content);
+        const workpaper = reportKind === "deep_research" && researchProfile
+          ? assessDeepResearchReport({ content, profile: researchProfile })
+          : null;
+        const { confidence, cleanContent } = extractConfidence(
+          workpaper?.cleanContent ?? content
+        );
         const rendered = renderSourceBadges(cleanContent);
         return (
           <>
@@ -276,6 +346,12 @@ export function ReportView({
               {streaming && <span className="type-cursor" />}
             </article>
             {confidence && !streaming && <ConfidencePanel data={confidence} />}
+            {workpaper && !streaming && (
+              <DeepResearchGatePanel
+                gate={researchMetadata?.gate ?? workpaper.gate}
+                ledger={researchMetadata?.evidenceLedger ?? workpaper.ledger}
+              />
+            )}
             {!streaming && <SourceLegend />}
           </>
         );
@@ -284,8 +360,16 @@ export function ReportView({
       {reportId && content && !streaming && (
         <div className="mt-6">
           <ResultNextActions
-            title="报告完成后继续推进项目"
-            description="报告已保存在项目中，可以直接进入决策讨论或回到项目维护下一步。"
+            title={
+              reportKind === "deep_research"
+                ? "深度投研底稿已进入项目档案"
+                : "报告完成后继续推进项目"
+            }
+            description={
+              reportKind === "deep_research"
+                ? "优先处理报告中的 P0 缺口和反方证据，再进入投资决策或正式导出。"
+                : "报告已保存在项目中，可以直接进入决策讨论或回到项目维护下一步。"
+            }
             actions={[
               { label: "返回项目", href: `/projects/${projectId}`, primary: true },
               { label: "进入 IC", href: `/projects/${projectId}?tab=decision&focus=ic` },
@@ -347,6 +431,52 @@ export function ReportView({
   );
 }
 
+function DeepResearchGatePanel({
+  gate,
+  ledger,
+}: {
+  gate: DeepResearchGate;
+  ledger: DeepResearchMetadata["evidenceLedger"];
+}) {
+  const style = gate.status === "pass"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+    : gate.status === "blocked"
+      ? "border-red-200 bg-red-50 text-red-800"
+      : "border-amber-200 bg-amber-50 text-amber-900";
+  const label = gate.status === "pass" ? "已通过" : gate.status === "blocked" ? "未通过" : "需复核";
+  return (
+    <section className={`mt-6 rounded-lg border p-4 ${style}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">深度投研质量门禁 · {label}</h2>
+        <p className="text-xs">
+          章节 {gate.coveredSectionCount}/{gate.requiredSectionCount} · 证据主张 {gate.evidenceItemCount} · 定位引用 {gate.locatedEvidenceCount}
+        </p>
+      </div>
+      {gate.issues.length > 0 && (
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+          {gate.issues.map((issue) => <li key={issue}>{issue}</li>)}
+        </ul>
+      )}
+      {ledger.length > 0 && (
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer font-medium">查看结构化证据底稿</summary>
+          <div className="mt-2 space-y-2">
+            {ledger.slice(0, 20).map((item) => (
+              <div key={item.id} className="rounded border border-current/20 bg-white/60 p-2">
+                <p className="font-medium">{item.id} · {item.priority} · {item.claim}</p>
+                <p className="mt-1 opacity-80">
+                  状态：{item.status}；定位：{item.citations.join("、") || "无"}
+                </p>
+                {item.verificationAction && <p className="mt-1">验证动作：{item.verificationAction}</p>}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  );
+}
+
 // 报告溯源图例：解释正文中三种徽章的含义
 function SourceLegend() {
   return (
@@ -364,6 +494,18 @@ function SourceLegend() {
         <span className="inline-flex items-center gap-1.5">
           <span className="src-badge src-ai">🤖 AI 推断</span>
           基于行业经验的判断，建议核实
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="src-badge src-external">🔗 外部证据</span>
+          具有可追踪出处的外部或机构资料
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="src-badge src-gap">待补</span>
+          当前材料无法支持，进入补充尽调
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="src-badge src-inconsistent">冲突</span>
+          材料数字或口径存在矛盾
         </span>
       </div>
     </div>

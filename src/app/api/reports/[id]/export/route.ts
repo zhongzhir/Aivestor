@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
+import { extractEvidenceLedger } from "@/lib/deepResearchWorkpaper";
 import { buildDocxBuffer } from "@/lib/docx";
 import { buildFormalDocxBuffer } from "@/lib/formal-report/docx";
 import { BRAND } from "@/lib/brand";
@@ -58,6 +59,7 @@ export async function GET(
     term_sheet: "TermSheet",
     brief: "简要分析",
     analysis: "项目分析报告",
+    deep_research: "深度投研报告",
     committee: "投决会报告",
     lp_report: "LP报告",
     post_investment: "投后报告",
@@ -72,7 +74,7 @@ export async function GET(
   // 导出前剥离溯源标记 [src:doc]/[src:data]/[src:ai]——它们仅用于前端徽章渲染，
   // 在 Word 导出中是纯文本噪声。对全部 kind 统一剥离，自然覆盖对外文档 lp_report。
   const cleanContent = stripSourceBadges(
-    extractConfidence(report.content).cleanContent
+    extractConfidence(extractEvidenceLedger(report.content).cleanContent).cleanContent
   );
   const url = new URL(req.url);
   const formal = url.searchParams.get("formal") === "1";
