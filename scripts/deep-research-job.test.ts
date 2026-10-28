@@ -91,6 +91,9 @@ assert.match(worker, /attempt_count < max_attempts/);
 assert.match(worker, /if \(reportId\)/);
 assert.match(worker, /SET phase = 'task_creation'[\s\S]*report_id = \$1/);
 
+const packageJson = fs.readFileSync("package.json", "utf8");
+assert.match(packageJson, /ts-node\/register\/transpile-only[^"]*run-deep-research-worker\.ts --loop/);
+
 const externalResearch = fs.readFileSync("src/lib/deepResearchExternal.ts", "utf8");
 assert.match(externalResearch, /retrieval-first-fallback/);
 assert.match(externalResearch, /resolveExternalFindingStatus/);
