@@ -5,6 +5,7 @@ import { accessErrorResponse, assertProjectAccess, buildAccessScope } from "@/li
 import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
 import { isDeepResearchProfile } from "@/lib/deepResearch";
 import type { DeepResearchJobRow } from "@/lib/deepResearchJobs";
+import { canUseDeepResearchBeta } from "@/lib/deepResearchAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,9 @@ export async function GET(
 ) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!(await canUseDeepResearchBeta(session.user.id))) {
+    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
+  }
   const scope = await buildAccessScope(session.user.id);
   try {
     await assertProjectAccess(scope, params.id, "read");
@@ -39,6 +43,9 @@ export async function POST(
 ) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!(await canUseDeepResearchBeta(session.user.id))) {
+    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
+  }
   let body: { profile?: unknown; decisionContext?: unknown; sourceCutoffDate?: unknown };
   try {
     body = await req.json();
@@ -113,6 +120,9 @@ export async function PATCH(
 ) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!(await canUseDeepResearchBeta(session.user.id))) {
+    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
+  }
   let body: { jobId?: unknown; action?: unknown };
   try {
     body = await req.json();

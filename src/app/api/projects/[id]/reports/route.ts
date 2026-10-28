@@ -26,6 +26,7 @@ import {
 import { buildDeepResearchMetadata } from "@/lib/deepResearchWorkpaper";
 import { normalizeSourceMap } from "@/lib/sourceMap";
 import type { DeepResearchExternalResult } from "@/lib/deepResearchExternal";
+import { canUseDeepResearchBeta } from "@/lib/deepResearchAccess";
 
 export const maxDuration = 300;
 
@@ -81,6 +82,9 @@ export async function POST(
         .filter((p) => p.length > 0)
     : [];
   const deepResearch = body.mode === "deep_research";
+  if (deepResearch && !(await canUseDeepResearchBeta(session.user.id))) {
+    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
+  }
   if ((!deepResearch && judgmentPoints.length < 3) || judgmentPoints.length > 10) {
     return NextResponse.json(
       {

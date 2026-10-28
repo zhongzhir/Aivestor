@@ -128,6 +128,7 @@ interface Props {
   isOrgProject?: boolean;
   hasOrg?: boolean;
   currentUserId?: string;
+  deepResearchBetaEnabled?: boolean;
 }
 
 export function ProjectDetail({
@@ -153,6 +154,7 @@ export function ProjectDetail({
   isOrgProject = false,
   hasOrg = false,
   currentUserId,
+  deepResearchBetaEnabled = false,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -488,13 +490,15 @@ export function ProjectDetail({
                 查看报告
               </Link>
             )}
-            <button
-              onClick={focusDeepResearch}
-              disabled={!hasParsedDoc}
-              className="rounded-lg border border-accent bg-white px-3 py-2 text-sm font-medium text-accent hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
-            >
-              深度投研
-            </button>
+            {deepResearchBetaEnabled && (
+              <button
+                onClick={focusDeepResearch}
+                disabled={!hasParsedDoc}
+                className="rounded-lg border border-accent bg-white px-3 py-2 text-sm font-medium text-accent hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
+              >
+                深度投研 Beta
+              </button>
+            )}
             <button
               onClick={handleGenerate}
               className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
@@ -649,6 +653,7 @@ export function ProjectDetail({
                 </section>
 
                 <section className="space-y-6 rounded-lg border border-line bg-white p-5">
+                  {deepResearchBetaEnabled && (
                   <div id="deep-research-workbench" className="scroll-mt-6 rounded-lg border border-[#d8c8b2] bg-[#fffdfa] p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
@@ -719,6 +724,7 @@ export function ProjectDetail({
                       </button>
                     </div>
                   </div>
+                  )}
 
                   <div>
                     <h2 className="text-sm font-semibold text-ink">

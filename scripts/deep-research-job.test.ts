@@ -2,6 +2,7 @@ import assert from "assert";
 import fs from "fs";
 import { parseExternalResearchReport, resolveExternalFindingStatus } from "../src/lib/deepResearchExternal";
 import { buildDueDiligenceTasks } from "../src/lib/deepResearchTasks";
+import { isDeepResearchBetaWhitelisted } from "../src/lib/deepResearchAccess";
 
 const allowed = new Set(["https://gov.example.cn/company/1", "https://media.example.com/a"]);
 const parsed = parseExternalResearchReport(
@@ -48,6 +49,9 @@ assert.equal(resolveExternalFindingStatus("reported", [
   { domain: "exchange.cn", sourceTier: "S" },
 ]), "reported");
 assert.equal(resolveExternalFindingStatus("confirmed", []), "gap");
+assert.equal(isDeepResearchBetaWhitelisted("user-1", "user-1,user-2"), true);
+assert.equal(isDeepResearchBetaWhitelisted("user-3", "user-1,user-2"), false);
+assert.equal(isDeepResearchBetaWhitelisted("user-3", "*"), true);
 
 const tasks = buildDueDiligenceTasks(
   [

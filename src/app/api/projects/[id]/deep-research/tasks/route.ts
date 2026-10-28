@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { accessErrorResponse, assertProjectAccess, buildAccessScope } from "@/lib/resourceAccess";
+import { canUseDeepResearchBeta } from "@/lib/deepResearchAccess";
 
 export async function GET(
   _req: Request,
@@ -9,6 +10,9 @@ export async function GET(
 ) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!(await canUseDeepResearchBeta(session.user.id))) {
+    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
+  }
   const scope = await buildAccessScope(session.user.id);
   try {
     await assertProjectAccess(scope, params.id, "read");
@@ -34,6 +38,9 @@ export async function PATCH(
 ) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "未登录" }, { status: 401 });
+  if (!(await canUseDeepResearchBeta(session.user.id))) {
+    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
+  }
   let body: { taskId?: unknown; status?: unknown; owner?: unknown; dueDate?: unknown };
   try {
     body = await req.json();

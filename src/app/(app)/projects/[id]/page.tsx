@@ -4,6 +4,7 @@ import { query } from "@/lib/db";
 import { ProjectDetail } from "@/components/project/ProjectDetail";
 import type { Judgment } from "@/components/project/StageProgress";
 import type { FinancialData } from "@/lib/types";
+import { canUseDeepResearchBeta } from "@/lib/deepResearchAccess";
 import {
   buildAccessScope,
   assertProjectAccess,
@@ -80,6 +81,7 @@ export default async function ProjectDetailPage({
   params: { id: string };
 }) {
   const session = await requireAuth();
+  const deepResearchBetaEnabled = await canUseDeepResearchBeta(session.user.id);
 
   // 访问校验：个人项目仅本人；组织项目按角色/共享可见（与 API 同一规则）。
   const scope = await buildAccessScope(session.user.id);
@@ -283,6 +285,7 @@ export default async function ProjectDetailPage({
       isOrgProject={isOrgProject}
       hasOrg={!!scope.org}
       currentUserId={session.user.id}
+      deepResearchBetaEnabled={deepResearchBetaEnabled}
     />
   );
 }
