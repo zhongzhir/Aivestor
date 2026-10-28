@@ -112,7 +112,7 @@ export async function GET(
     );
   }
   const filename = encodeURIComponent(
-    `${docName}${formal ? `_${profile.label}_正式版` : ""}.docx`
+    `${docName}${formal ? `_${profile.label}_${report.kind === "deep_research" ? "审核稿" : "正式版"}` : ""}.docx`
   );
 
   return new NextResponse(new Uint8Array(buffer), {

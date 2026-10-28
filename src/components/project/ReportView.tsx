@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import {
@@ -245,6 +246,11 @@ export function ReportView({
                 : "正在修改…"
               : `共 ${history.length} 轮修改`}
           </p>
+          {reportKind === "deep_research" && !streaming && (
+            <p className="mt-1 text-xs font-medium text-amber-700">
+              AI生成审核稿 · 完成经办人复核后进入正式流转
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -269,7 +275,7 @@ export function ReportView({
           />
           <ExportDownloadButton
             href={`/api/reports/${reportId ?? ""}/export?formal=1`}
-            label="正式版 Word"
+            label="专业版 Word（审核稿）"
             disabled={!reportId || streaming}
             className={`rounded-md border px-3 py-1.5 text-sm ${
               reportId && !streaming
@@ -342,7 +348,12 @@ export function ReportView({
         return (
           <>
             <article className="report-body mt-6 min-h-[200px]">
-              <ReactMarkdown rehypePlugins={[rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA]]}>{rendered}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                rehypePlugins={[rehypeRaw, [rehypeSanitize, SANITIZE_SCHEMA]]}
+              >
+                {rendered}
+              </ReactMarkdown>
               {streaming && <span className="type-cursor" />}
             </article>
             {confidence && !streaming && <ConfidencePanel data={confidence} />}
@@ -463,7 +474,7 @@ function DeepResearchGatePanel({
           <div className="mt-2 space-y-2">
             {ledger.slice(0, 20).map((item) => (
               <div key={item.id} className="rounded border border-current/20 bg-white/60 p-2">
-                <p className="font-medium">{item.id} · {item.priority} · {item.claim}</p>
+                <p className="font-medium">{item.id} · {item.priority} · {item.claimClass || "未分类"} · {item.claim}</p>
                 <p className="mt-1 opacity-80">
                   状态：{item.status}；定位：{item.citations.join("、") || "无"}
                 </p>

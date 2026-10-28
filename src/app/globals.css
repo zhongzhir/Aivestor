@@ -139,6 +139,25 @@ b {
   @apply text-ink;
   font-weight: 700;
 }
+.report-body table {
+  @apply my-5 w-full border-collapse overflow-hidden rounded-md text-left text-sm;
+  display: block;
+  overflow-x: auto;
+}
+.report-body thead {
+  @apply bg-slate-800 text-white;
+}
+.report-body th,
+.report-body td {
+  @apply whitespace-normal border border-slate-200 px-3 py-2 align-top;
+  min-width: 7rem;
+}
+.report-body tbody tr:nth-child(even) {
+  @apply bg-slate-50;
+}
+.report-body a {
+  @apply break-all text-blue-700 underline decoration-blue-300 underline-offset-2;
+}
 
 /* Skill 结果：面向快速阅读的独立 Markdown 排版，不复用正式报告正文。 */
 .skill-result {

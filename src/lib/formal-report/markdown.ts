@@ -1,4 +1,5 @@
 import type { FormalReportBlock } from "@/lib/formal-report/types";
+import { normalizeChineseTypography } from "@/lib/reportText";
 
 function splitTableRow(line: string): string[] {
   return line
@@ -24,7 +25,7 @@ function flushParagraph(parts: string[], out: FormalReportBlock[]) {
 }
 
 export function normalizeFormalReportMarkdown(markdown: string): string {
-  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  const lines = normalizeChineseTypography(markdown).split("\n");
   const firstContent = lines.findIndex((line) => line.trim());
   if (
     firstContent >= 0 &&

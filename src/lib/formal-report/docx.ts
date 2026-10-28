@@ -2,6 +2,7 @@ import {
   AlignmentType,
   BorderStyle,
   Document,
+  ExternalHyperlink,
   Footer,
   Header,
   HeadingLevel,
@@ -29,6 +30,7 @@ import type {
   FormalReportProfile,
 } from "@/lib/formal-report/types";
 import { BRAND, type BrandConfig } from "@/lib/brand";
+import { stripActualHtmlTags } from "@/lib/reportText";
 
 const FONT_BODY = "宋体";
 const FONT_HEADING = "微软雅黑";
@@ -45,8 +47,7 @@ const PAGE_HEIGHT_DXA = 16838;
 const CONTENT_WIDTH_DXA = 9026;
 
 function plainMarkdown(text: string): string {
-  return text
-    .replace(/<[^>]+>/g, "")
+  return stripActualHtmlTags(text)
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1（$2）")
     .replace(/`([^`]+)`/g, "$1")
@@ -59,19 +60,46 @@ function plainMarkdown(text: string): string {
 function inlineRuns(
   text: string,
   options?: { color?: string; size?: number; bold?: boolean }
-): TextRun[] {
-  return plainMarkdown(text)
-    .split("**")
-    .map(
-      (segment, index) =>
-        new TextRun({
-          text: segment,
-          bold: options?.bold || index % 2 === 1,
-          color: options?.color ?? COLOR_INK,
-          size: options?.size ?? 22,
-          font: FONT_BODY,
-        })
-    );
+): ParagraphChild[] {
+  const prepared = stripActualHtmlTags(text)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/\\([\\`*{}\[\]()#+.!_>\-])/g, "$1");
+  const children: ParagraphChild[] = [];
+  const addText = (value: string) => {
+    value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).forEach((segment) => {
+      const emphasized = /^\*\*[^*]+\*\*$/.test(segment);
+      children.push(new TextRun({
+        text: emphasized ? segment.slice(2, -2) : segment,
+        bold: Boolean(options?.bold || emphasized),
+        color: options?.color ?? COLOR_INK,
+        size: options?.size ?? 22,
+        font: FONT_BODY,
+      }));
+    });
+  };
+  const linkPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s<>()]+)/g;
+  let cursor = 0;
+  for (const match of prepared.matchAll(linkPattern)) {
+    const start = match.index ?? 0;
+    addText(prepared.slice(cursor, start));
+    const url = match[2] || match[3];
+    const label = match[1] || url;
+    children.push(new ExternalHyperlink({
+      link: url,
+      children: [new TextRun({
+        text: label,
+        color: "245A9A",
+        underline: {},
+        size: options?.size ?? 22,
+        font: FONT_BODY,
+      })],
+    }));
+    cursor = start + match[0].length;
+  }
+  addText(prepared.slice(cursor));
+  return children;
 }
 
 function bodyParagraph(text: string): Paragraph {
@@ -200,7 +228,7 @@ function markdownTable(rows: string[][], profile: FormalReportProfile): Table {
       (row, rowIndex) =>
         new TableRow({
           tableHeader: rowIndex === 0,
-          cantSplit: true,
+          cantSplit: rowIndex === 0,
           children: Array.from({ length: columnCount }, (_, cellIndex) => {
             const isHeader = rowIndex === 0;
             return new TableCell({
@@ -268,7 +296,7 @@ function renderContent(
             : HeadingLevel.HEADING_3;
       if (block.level === 1) primarySectionIndex += 1;
       const secondaryColors = secondaryHeadingColors(block.text);
-      const headingChildren: TextRun[] = [];
+      const headingChildren: ParagraphChild[] = [];
       if (block.level === 1) {
         headingChildren.push(
           new TextRun({
@@ -300,7 +328,10 @@ function renderContent(
             before: block.level === 1 ? 480 : block.level === 2 ? 320 : 230,
             after: block.level === 1 ? 250 : 160,
           },
-          pageBreakBefore: block.level === 1 && children.length > 0,
+          pageBreakBefore:
+            block.level === 1 &&
+            children.length > 0 &&
+            profile.key !== "deep_research",
           keepNext: true,
           widowControl: true,
           indent:
@@ -472,6 +503,7 @@ function coverChildren(
   }).format(metadata.reportDate);
   const detailRows: [string, string][] = [
     ["报告类型", profile.label],
+    ["文档状态", "AI生成审核稿"],
     ["出具日期", date],
   ];
   if (metadata.organizationName) detailRows.unshift(["出具机构", metadata.organizationName]);
@@ -567,7 +599,7 @@ function coverChildren(
     labelValueTable(detailRows),
     new Paragraph({ spacing: { after: 520 } }),
     callout(
-      `${profile.confidentiality}。本报告基于现有项目材料与系统记录整理，正式使用前须由经办人员复核。`,
+      `${profile.confidentiality}。本报告基于现有项目材料与系统记录生成，当前处于复核流程；完成经办人确认后可进入正式流转。`,
       profile,
       "note"
     ),
@@ -578,7 +610,9 @@ function staticTableOfContents(
   entries: { title: string; level: 1 | 2 | 3 }[],
   profile: FormalReportProfile
 ): FileChild[] {
-  const visible = entries.filter((entry) => entry.level <= 2);
+  const visible = entries.filter((entry) =>
+    entry.level === 1 || (profile.key !== "deep_research" && entry.level === 2)
+  );
   if (visible.length === 0) {
     return [bodyParagraph("正文未使用可识别的章节标题。")];
   }
@@ -742,26 +776,6 @@ export async function buildFormalDocxBuffer(input: {
           ...staticTableOfContents(tocEntries, profile),
           new Paragraph({ children: [new PageBreak()] }),
           ...renderContent(markdown, profile, metadata.title),
-          new Paragraph({
-            heading: HeadingLevel.HEADING_1,
-            pageBreakBefore: true,
-            shading: { type: ShadingType.CLEAR, fill: profile.accentDark },
-            border: {
-              left: { style: BorderStyle.SINGLE, size: 18, color: profile.accent },
-            },
-            indent: { left: 180, right: 120 },
-            spacing: { before: 0, after: 260, line: 340 },
-            children: inlineRuns("文档说明", {
-              color: "FFFFFF",
-              size: 31,
-              bold: true,
-            }),
-          }),
-          callout(
-            `本报告由 ${brand.name} 基于用户提供的材料、结构化数据及投资判断整理生成。报告中的事实、预测、估值和投资建议应在正式提交前完成独立复核；本报告不构成对任何主体的公开投资建议或承诺。`,
-            profile,
-            "note"
-          ),
         ],
       },
     ],

@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:formal-report": "node -r ts-node/register -r tsconfig-paths/register scripts/formal-report-composer.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/formal-report.test.ts",
-    "test:deep-research": "node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-report.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-evidence.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-job.test.ts && npm run test:formal-report",
+    "test:deep-research": "node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-report.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-evidence.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-job.test.ts && node -r ts-node/register -r tsconfig-paths/register scripts/deep-research-publishing.test.ts && npm run test:formal-report",
     "test:user-profile-context": "node -r ts-node/register -r tsconfig-paths/register scripts/user-profile-context.test.ts",
     "test:project-management": "node -r ts-node/register -r tsconfig-paths/register scripts/project-management.test.ts",
     "test:export-publishing": "node -r ts-node/register -r tsconfig-paths/register scripts/export-publishing.test.ts",

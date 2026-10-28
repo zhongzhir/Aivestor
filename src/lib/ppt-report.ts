@@ -4,6 +4,8 @@ import pptxgen from "pptxgenjs";
 import { parseFormalReportMarkdown } from "@/lib/formal-report/markdown";
 import type { FormalReportBlock } from "@/lib/formal-report/types";
 import type { BrandConfig } from "@/lib/brand";
+import { stripActualHtmlTags } from "@/lib/reportText";
+import type { FinancialData } from "@/lib/types";
 
 const WHITE = "FFFFFF";
 const INK = "1F2937";
@@ -32,16 +34,18 @@ export interface PptReportBuildInput {
   markdown: string;
   metadata: PptReportMetadata;
   brand: BrandConfig;
+  mode?: "full" | "deep_research_ic";
+  financialData?: FinancialData | null;
 }
 
 function plain(text: string): string {
-  return text
-    .replace(/<[^>]+>/g, "")
+  return stripActualHtmlTags(text)
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1（$2）")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/~~([^~]+)~~/g, "$1")
     .replace(/\*\*|__/g, "")
+    .replace(/\[src:(?:doc|data|ai|external|gap|inconsistent)\]/g, "")
     .trim();
 }
 
@@ -418,6 +422,124 @@ function addContentSlide(
   return slide;
 }
 
+interface IcSlideSpec {
+  title: string;
+  patterns: RegExp[];
+  fallback: string;
+  visual?: "evidence" | "financial" | "decision";
+}
+
+const IC_SLIDES: IcSlideSpec[] = [
+  { title: "投资结论与核心判断", patterns: [/执行摘要|综合评级|投资建议|综合研判/], fallback: "报告尚未形成可直接上会的结论摘要。", visual: "decision" },
+  { title: "证据成熟度与研究边界", patterns: [/研究身份|证据分级|数据来源|重要声明/], fallback: "证据成熟度需结合来源索引与质量门禁复核。", visual: "evidence" },
+  { title: "公司、产品与技术", patterns: [/公司概览|核心产品|技术|业务架构/], fallback: "公司与产品事实仍需补充可定位材料。" },
+  { title: "商业化、客户与收入证据", patterns: [/客户|市场|商业化|商业模型|上下游/], fallback: "客户、合同、交付、回款与复购证据仍待补充。" },
+  { title: "财务趋势与经营质量", patterns: [/财务分析|发展阶段与财务|收入|毛利|现金流/], fallback: "尚未形成可复核的结构化财务趋势。", visual: "financial" },
+  { title: "估值参数与敏感性", patterns: [/估值|敏感性|P\/S|EV\/EBITDA|市销率|市盈率|毛利率/], fallback: "估值参数或敏感性尚未形成可复核测算。" },
+  { title: "团队与组织能力", patterns: [/核心团队|团队|组织架构|人才缺口/], fallback: "关键人员履历、全职状态和组织能力仍待核验。" },
+  { title: "竞争格局与护城河", patterns: [/竞争对手|竞争格局|护城河|第一曲线|第二曲线/], fallback: "竞争对比与可持续壁垒证据仍待补充。" },
+  { title: "核心风险与缓释", patterns: [/核心瓶颈|风险缓释|风险提示|负面事实/], fallback: "风险应区分已确认事实、证据缺口与情景推演。" },
+  { title: "P0尽调门禁", patterns: [/分级尽调|补充尽调|证据缺口|前置条件/], fallback: "请把会改变投不投、估值、金额、条款或时点的事项列为P0。" },
+  { title: "进入方式与退出路径", patterns: [/投资价值|适配度|进入方式|退出|融资历史|机构分析/], fallback: "进入方式、交易参数与退出路径仍待机构参数补齐。" },
+  { title: "下一步动作与决策触发器", patterns: [/触发器|行动|下一步|建议验证阈值|综合研判/], fallback: "建议把关键补证任务落实到责任人、时限和升级/否决触发器。", visual: "decision" },
+];
+
+function blockToInsight(block: FormalReportBlock): string[] {
+  if (block.type === "divider" || block.type === "heading") return [];
+  if (block.type === "table") {
+    return block.rows.slice(1).map((row) => plain(row.join("："))).filter(Boolean);
+  }
+  return splitLongText(block.text, 110);
+}
+
+function icInsights(markdown: string, spec: IcSlideSpec): string[] {
+  const sections = parsePptSections(markdown);
+  const preferred = sections.filter((section) =>
+    spec.patterns.some((pattern) => pattern.test(section.title))
+  );
+  const secondary = sections.filter((section) =>
+    !preferred.includes(section) &&
+    spec.patterns.some((pattern) => pattern.test(section.blocks.map((block) =>
+      block.type === "table" ? block.rows.flat().join(" ") : "text" in block ? block.text : ""
+    ).join(" ")))
+  );
+  const seen = new Set<string>();
+  const insights: string[] = [];
+  for (const section of [...preferred, ...secondary]) {
+    for (const value of section.blocks.flatMap(blockToInsight)) {
+      const clean = plain(value).replace(/^[-•\d.、\s]+/, "").trim();
+      if (clean.length < 8 || seen.has(clean)) continue;
+      seen.add(clean);
+      insights.push(clean);
+      if (insights.length >= 5) return insights;
+    }
+  }
+  return insights.length ? insights : [spec.fallback];
+}
+
+function addEvidenceVisual(
+  pptx: pptxgen,
+  slide: pptxgen.Slide,
+  markdown: string,
+  brand: BrandConfig
+) {
+  const items = [
+    ["文件依据", (markdown.match(/\[src:doc\]/g) || []).length, "496FA8"],
+    ["数据提取", (markdown.match(/\[src:data\]/g) || []).length, "287A5A"],
+    ["外部证据", (markdown.match(/\[src:external\]/g) || []).length, "8A5A12"],
+    ["待补缺口", (markdown.match(/\[src:gap\]/g) || []).length, "A33A3A"],
+  ] as const;
+  const max = Math.max(1, ...items.map((item) => item[1]));
+  items.forEach(([label, value, color], index) => {
+    const y = 4.55 + index * 0.48;
+    slide.addText(label, { x: CONTENT_X, y, w: 1.35, h: 0.28, fontSize: 12, color: INK_SOFT, margin: 0 });
+    slide.addShape(pptx.ShapeType.rect, { x: 2.15, y: y + 0.02, w: 3.2, h: 0.2, fill: { color: "E9EDF3" }, line: { color: "E9EDF3" } });
+    slide.addShape(pptx.ShapeType.rect, { x: 2.15, y: y + 0.02, w: Math.max(0.08, 3.2 * value / max), h: 0.2, fill: { color }, line: { color } });
+    slide.addText(String(value), { x: 5.48, y, w: 0.55, h: 0.28, fontSize: 12, bold: true, color: brand.colors.deep.replace("#", ""), margin: 0 });
+  });
+}
+
+function addFinancialVisual(
+  pptx: pptxgen,
+  slide: pptxgen.Slide,
+  financialData?: FinancialData | null
+) {
+  const points = (financialData?.revenue || []).slice(-4);
+  if (!points.length) return;
+  const max = Math.max(1, ...points.map((point) => Math.abs(point.value)));
+  points.forEach((point, index) => {
+    const x = CONTENT_X + index * 1.45;
+    const height = Math.max(0.15, 1.15 * Math.abs(point.value) / max);
+    slide.addShape(pptx.ShapeType.rect, { x, y: 6.05 - height, w: 0.78, h: height, fill: { color: point.type === "actual" ? "287A5A" : "8BA6C8" }, line: { color: WHITE } });
+    slide.addText(`${point.year}${point.type === "forecast" ? "E" : "A"}`, { x: x - 0.15, y: 6.12, w: 1.08, h: 0.25, fontSize: 10, align: "center", margin: 0, color: INK_SOFT });
+    slide.addText(String(point.value), { x: x - 0.2, y: 4.68 - height, w: 1.18, h: 0.25, fontSize: 10, align: "center", margin: 0, color: INK });
+  });
+}
+
+function addIcSlide(
+  pptx: pptxgen,
+  spec: IcSlideSpec,
+  insights: string[],
+  input: PptReportBuildInput,
+  date: string,
+  sourceNotes: string
+) {
+  const slide = pptx.addSlide();
+  addHeader(pptx, slide, spec.title, input.brand, date, false);
+  insights.slice(0, 5).forEach((insight, index) => {
+    const y = CONTENT_TOP + index * 0.52;
+    slide.addShape(pptx.ShapeType.ellipse, { x: CONTENT_X, y: y + 0.1, w: 0.14, h: 0.14, fill: { color: index === 0 ? input.brand.colors.accent.replace("#", "") : "A9B4C6" }, line: { color: WHITE } });
+    slide.addText(insight, { x: CONTENT_X + 0.28, y, w: CONTENT_W - 0.28, h: 0.43, fontSize: 18, color: index === 0 ? INK : INK_SOFT, bold: index === 0, margin: 0, fit: "shrink", valign: "middle" });
+  });
+  if (spec.visual === "evidence") addEvidenceVisual(pptx, slide, input.markdown, input.brand);
+  if (spec.visual === "financial") addFinancialVisual(pptx, slide, input.financialData);
+  if (spec.visual === "decision") {
+    slide.addShape(pptx.ShapeType.roundRect, { x: 7.2, y: 4.75, w: 5.4, h: 1.08, fill: { color: "F4F5F7" }, line: { color: "D9DEE7" }, rectRadius: 0.04 });
+    slide.addText("证据补齐  →  参数复核  →  条件触发  →  投资决策", { x: 7.45, y: 5.06, w: 4.9, h: 0.38, fontSize: 17, bold: true, color: input.brand.colors.deep.replace("#", ""), align: "center", margin: 0, fit: "shrink" });
+  }
+  if (sourceNotes) slide.addNotes(sourceNotes);
+}
+
 export async function buildPptReportBuffer(input: PptReportBuildInput): Promise<Buffer> {
   const { metadata, brand } = input;
   const sections = parsePptSections(input.markdown);
@@ -479,6 +601,55 @@ export async function buildPptReportBuffer(input: PptReportBuildInput): Promise<
     margin: 0,
     align: "right",
   });
+
+  if (input.mode === "deep_research_ic") {
+    cover.addText("投委会摘要 · AI生成审核稿", {
+      x: CONTENT_X,
+      y: 5.22,
+      w: CONTENT_W,
+      h: 0.38,
+      fontSize: 17,
+      color: "C7D0E0",
+      margin: 0,
+    });
+    const sourceNotes = Array.from(
+      new Set(input.markdown.match(/https?:\/\/[^\s)】]+/g) || [])
+    ).slice(0, 40).join("\n");
+    for (const spec of IC_SLIDES) {
+      addIcSlide(
+        pptx,
+        spec,
+        icInsights(input.markdown, spec),
+        input,
+        date,
+        sourceNotes
+      );
+    }
+    const end = pptx.addSlide();
+    end.background = { color: brand.colors.deep.replace("#", "") };
+    end.addText("决策建议", {
+      x: CONTENT_X,
+      y: 2.5,
+      w: CONTENT_W,
+      h: 0.7,
+      fontSize: 40,
+      bold: true,
+      color: WHITE,
+      align: "center",
+      margin: 0,
+    });
+    end.addText("基于已核验证据作出判断 · 将关键缺口转化为可执行尽调任务", {
+      x: CONTENT_X,
+      y: 3.65,
+      w: CONTENT_W,
+      h: 0.5,
+      fontSize: 18,
+      color: brand.colors.accent.replace("#", ""),
+      align: "center",
+      margin: 0,
+    });
+    return (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+  }
 
   const toc = pptx.addSlide();
   addHeader(pptx, toc, "目录", brand, date, false);

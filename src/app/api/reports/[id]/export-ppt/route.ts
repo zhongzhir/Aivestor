@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { stripSourceBadges } from "@/lib/reportBadges";
 import { extractConfidence } from "@/lib/reportConfidence";
 import { extractEvidenceLedger } from "@/lib/deepResearchWorkpaper";
 import { BRAND } from "@/lib/brand";
@@ -10,6 +9,7 @@ import {
   buildAccessScope,
   scopedProjectChildWhere,
 } from "@/lib/resourceAccess";
+import type { FinancialData } from "@/lib/types";
 
 // GET /api/reports/[id]/export-ppt — 从已保存报告内容生成 PPT，不重新调用 AI。
 export async function GET(
@@ -33,9 +33,11 @@ export async function GET(
     industry: string | null;
     stage: string | null;
     created_at: string;
+    kind: string | null;
+    financial_data: FinancialData | null;
   }>(
-    `SELECT r.title, r.content, r.created_at,
-            p.name AS project_name, p.industry, p.stage
+    `SELECT r.title, r.content, r.created_at, r.kind,
+            p.name AS project_name, p.industry, p.stage, p.financial_data
        FROM reports r
        JOIN projects p ON p.id = r.project_id
       WHERE r.id = $1 AND ${child.sql}`,
@@ -46,12 +48,14 @@ export async function GET(
   }
 
   const report = rows[0];
-  const markdown = stripSourceBadges(
-    extractConfidence(extractEvidenceLedger(report.content).cleanContent).cleanContent
-  );
+  const markdown = extractConfidence(
+    extractEvidenceLedger(report.content).cleanContent
+  ).cleanContent;
   const buffer = await buildPptReportBuffer({
     markdown,
     brand: BRAND,
+    mode: report.kind === "deep_research" ? "deep_research_ic" : "full",
+    financialData: report.financial_data,
     metadata: {
       title: report.title,
       projectName: report.project_name,
@@ -61,7 +65,7 @@ export async function GET(
     },
   });
   const filename = encodeURIComponent(
-    `${report.project_name}-${BRAND.shortProductName}-报告.pptx`
+    `${report.project_name}-${BRAND.shortProductName}-${report.kind === "deep_research" ? "投委会摘要_审核稿" : "报告"}.pptx`
   );
 
   return new NextResponse(new Uint8Array(buffer), {

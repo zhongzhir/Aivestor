@@ -2,6 +2,13 @@ import type { ResolvedDeepResearchProfile } from "@/lib/deepResearch";
 
 export type EvidenceStatus = "document" | "data" | "external" | "analysis" | "gap" | "inconsistent";
 export type ResearchGateStatus = "pass" | "review" | "blocked";
+export type EvidenceClaimClass =
+  | "fact"
+  | "negative_fact"
+  | "evidence_gap"
+  | "suggested_threshold"
+  | "institution_parameter"
+  | "analysis";
 
 export interface EvidenceLedgerItem {
   id: string;
@@ -11,6 +18,7 @@ export interface EvidenceLedgerItem {
   investmentImpact: string;
   verificationAction: string;
   priority: "P0" | "P1" | "P2";
+  claimClass?: EvidenceClaimClass;
 }
 
 export interface DeepResearchGate {
@@ -31,6 +39,7 @@ export interface DeepResearchMetadata {
   evidenceLedger: EvidenceLedgerItem[];
   gate: DeepResearchGate;
   generatedAt: string;
+  reviewStatus?: "ai_draft" | "reviewed";
 }
 
 const LEDGER_RE = /\[EVIDENCE_LEDGER_START\]([\s\S]*?)\[EVIDENCE_LEDGER_END\]/;
@@ -41,6 +50,14 @@ const VALID_STATUS = new Set<EvidenceStatus>([
   "analysis",
   "gap",
   "inconsistent",
+]);
+const VALID_CLAIM_CLASS = new Set<EvidenceClaimClass>([
+  "fact",
+  "negative_fact",
+  "evidence_gap",
+  "suggested_threshold",
+  "institution_parameter",
+  "analysis",
 ]);
 
 const REQUIRED_SECTIONS: Record<ResolvedDeepResearchProfile, string[]> = {
@@ -92,6 +109,11 @@ function normalizeLedgerItem(value: unknown, index: number): EvidenceLedgerItem 
     ? (item.status as EvidenceStatus)
     : "analysis";
   const priority = item.priority === "P0" || item.priority === "P2" ? item.priority : "P1";
+  const inferredClass: EvidenceClaimClass = status === "gap"
+    ? "evidence_gap"
+    : status === "analysis"
+      ? "analysis"
+      : "fact";
   return {
     id: typeof item.id === "string" && item.id.trim() ? item.id.trim() : `C${index + 1}`,
     claim,
@@ -100,6 +122,9 @@ function normalizeLedgerItem(value: unknown, index: number): EvidenceLedgerItem 
     investmentImpact: typeof item.investmentImpact === "string" ? item.investmentImpact.trim() : "",
     verificationAction: typeof item.verificationAction === "string" ? item.verificationAction.trim() : "",
     priority,
+    claimClass: VALID_CLAIM_CLASS.has(item.claimClass as EvidenceClaimClass)
+      ? item.claimClass as EvidenceClaimClass
+      : inferredClass,
   };
 }
 
@@ -154,6 +179,9 @@ export function assessDeepResearchReport(input: {
   if (ledger.some((item) => ["gap", "inconsistent"].includes(item.status) && !item.verificationAction)) {
     issues.push("部分缺口或冲突没有验证动作");
   }
+  if (ledger.some((item) => item.claimClass === "suggested_threshold" && !item.verificationAction)) {
+    issues.push("部分建议验证阈值缺少适用依据或调整条件");
+  }
   if (invalidCitations.length > 0) issues.push("存在无法匹配材料定位表的引用");
   if (!/\[CONFIDENCE_START\][\s\S]*?\[CONFIDENCE_END\]/.test(input.content)) {
     issues.push("缺少置信度结构块");
@@ -191,5 +219,6 @@ export function buildDeepResearchMetadata(input: {
     evidenceLedger: assessed.ledger,
     gate: assessed.gate,
     generatedAt: new Date().toISOString(),
+    reviewStatus: "ai_draft",
   };
 }

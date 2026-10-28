@@ -1,6 +1,6 @@
 import assert from "assert";
 import fs from "fs";
-import { parseExternalResearchReport, resolveExternalFindingStatus } from "../src/lib/deepResearchExternal";
+import { applySubjectMatchGate, parseExternalResearchReport, resolveExternalFindingStatus } from "../src/lib/deepResearchExternal";
 import { buildDueDiligenceTasks } from "../src/lib/deepResearchTasks";
 import { isDeepResearchBetaWhitelisted } from "../src/lib/deepResearchAccess";
 
@@ -18,6 +18,8 @@ const parsed = parseExternalResearchReport(
         publishedAt: "2026-10-20",
         evidenceNote: "官方主体登记",
         investmentImpact: "确认交易主体",
+        subjectMatch: "confirmed",
+        relationshipNote: "法定全称和登记地址一致",
       },
       {
         id: "E2",
@@ -28,6 +30,8 @@ const parsed = parseExternalResearchReport(
         publishedAt: null,
         evidenceNote: "无正文证据",
         investmentImpact: "影响收入质量",
+        subjectMatch: "ambiguous",
+        relationshipNote: "只有简称相同",
       },
     ],
     searchedAreas: ["主体", "客户"],
@@ -38,6 +42,16 @@ const parsed = parseExternalResearchReport(
 );
 assert.deepEqual(parsed.findings[0].sourceUrls, ["https://gov.example.cn/company/1"]);
 assert.equal(parsed.findings[1].status, "gap");
+assert.equal(parsed.findings[0].subjectMatch, "confirmed");
+const excluded = applySubjectMatchGate({
+  ...parsed.findings[0],
+  topic: "司法合规",
+  claim: "同名主体涉及调查",
+  subjectMatch: "excluded",
+  relationshipNote: "注册地和法定代表人均不一致",
+});
+assert.equal(excluded.status, "gap");
+assert.match(excluded.investmentImpact, /不计入目标主体风险判断/);
 assert.equal(resolveExternalFindingStatus("confirmed", [{ domain: "gov.cn", sourceTier: "S" }]), "confirmed");
 assert.equal(resolveExternalFindingStatus("confirmed", [{ domain: "media.example", sourceTier: "B" }]), "reported");
 assert.equal(resolveExternalFindingStatus("confirmed", [

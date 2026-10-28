@@ -5,6 +5,7 @@ import type {
   FormalReportProfile,
   FormalReportProfileKey,
 } from "@/lib/formal-report/types";
+import { stripActualHtmlTags } from "@/lib/reportText";
 
 type SectionKey =
   | "executive"
@@ -118,8 +119,7 @@ const TEMPLATES: Record<FormalReportProfileKey, TemplateSection[]> = {
 };
 
 function plainText(value: string): string {
-  return value
-    .replace(/<[^>]+>/g, "")
+  return stripActualHtmlTags(value)
     .replace(/\*\*|__/g, "")
     .replace(/\\([\\`*{}\[\]()#+\-.!_>])/g, "$1")
     .trim();

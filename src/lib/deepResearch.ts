@@ -40,6 +40,10 @@ const SHARED_SYSTEM = `你是一位资深的一级股权投资研究负责人，
 5. 每个高优先级判断至少包含：结论、证据、成因、比较或失败案例、最强反方、敏感性、投资影响、验证动作。
 6. 关键结论必须说明会改变投不投、估值、金额、条款还是时点；没有证据时降低置信度并进入尽调清单。
 7. 不得声称已经完成未实际执行的公开检索、工商司法核验、客户访谈、技术测试或付费数据库查询。
+8. 明确区分“已确认负面事实”“尚未取得的证据”“建议验证阈值”。材料未上传或证据未取得是信息缺口，不得直接写成公司负面事实、一票否决或违规。
+9. 只有用户或机构明确给出的门槛才可称为“机构标准/红线”；模型提出的数量、比例、期限或倍数一律标为“建议验证阈值”，说明依据和可调整性，不得伪装成既定规则。
+10. 外部信息必须先做主体唯一性判断。同名、近似名或关联关系未证实的司法、监管和舆情信息，只能进入“同名排除/主体待核验”，不得归因于目标公司。
+11. 报告状态默认为“AI生成审核稿”。只有经过用户明确复核确认后，才可称为正式版或已批准结论。
 
 溯源标记必须紧跟对应句子：
 - 上传材料中的事实或主张：\`[src:doc]\`，并在句内引用材料编号，如“【M1】”。
@@ -48,6 +52,11 @@ const SHARED_SYSTEM = `你是一位资深的一级股权投资研究负责人，
 - 分析推断、机制判断或情景假设：\`[src:ai]\`。
 - 缺失、无法核验或需要授权取得的信息：\`[src:gap]\`。
 - 材料间口径冲突或逻辑矛盾：\`[src:inconsistent]\`。
+
+来源索引要求：
+- 上传材料列出材料编号、文件名、页码/幻灯片/工作表定位及其支持的关键主张。
+- 外部来源使用可点击 Markdown 链接，列出发现编号、支持主张、发布者/域名、标题、发布日期、研究截止日、主体匹配状态和URL。
+- 已运行外部取证时，如实写明已执行的检索与正文读取；未运行时才可写“尚未执行”。不得同时列出E编号又声称未执行公开检索。
 
 输出简体中文 Markdown。表格应短而可读；禁止空泛扩写。最后必须输出置信度 JSON 块：
 [CONFIDENCE_START]
@@ -116,17 +125,32 @@ function financialContext(financialData?: FinancialData | null): string {
 function externalResearchContext(external?: DeepResearchExternalResult | null): string {
   if (!external) return "（尚未运行项目级外部取证；不得自行声称已联网核验）";
   const sourceIds = new Map(external.sources.map((source) => [source.url, source.id]));
-  const findings = external.findings.map((finding, index) => [
+  const usable = external.findings.filter((finding) =>
+    finding.subjectMatch === "confirmed" || finding.subjectMatch === "related"
+  );
+  const exclusions = external.findings.filter((finding) =>
+    !finding.subjectMatch || finding.subjectMatch === "ambiguous" || finding.subjectMatch === "excluded"
+  );
+  const renderFinding = (finding: DeepResearchExternalResult["findings"][number], index: number) => [
     `### 【E${index + 1}】${finding.topic}｜${finding.status}`,
     finding.claim,
+    `- 主体匹配：${finding.subjectMatch || "ambiguous"}｜${finding.relationshipNote || "未提供匹配依据"}`,
     `- 来源：${finding.sourceUrls.map((url) => `${sourceIds.get(url) || "E-S?"} ${url}`).join("；") || "无"}`,
     `- 证据说明：${finding.evidenceNote || "无"}`,
     `- 投资影响：${finding.investmentImpact || "待判断"}`,
-  ].join("\n")).join("\n\n");
+  ].join("\n");
+  const findings = usable.map((finding) =>
+    renderFinding(finding, external.findings.indexOf(finding))
+  ).join("\n\n");
+  const excludedFindings = exclusions.map((finding) => {
+    const originalIndex = external.findings.indexOf(finding);
+    return renderFinding(finding, originalIndex);
+  }).join("\n\n");
   const sources = external.sources.map((source) =>
-    `- 【${source.id}】${source.publisher || source.domain}｜${source.title}｜${source.publishedAt || "日期未确认"}｜等级${source.sourceTier}｜${source.evidenceStatus}｜${source.url}`
+    `- 【${source.id}】[${source.publisher || source.domain}｜${source.title}](${source.url})｜发布/更新：${source.publishedAt || "日期未确认"}｜访问截止：研究任务截止日｜等级${source.sourceTier}｜${source.evidenceStatus}`
   ).join("\n");
-  return `${external.summary}\n\n${findings}\n\n### 外部来源索引\n${sources || "（无可用来源）"}\n\n### 未解决缺口\n${external.unresolvedGaps.map((gap) => `- ${gap}`).join("\n") || "- 无"}`;
+  const execution = JSON.stringify(external.telemetry ?? {}).slice(0, 2_000);
+  return `${external.summary}\n\n### 实际执行记录\n${execution || "（无遥测记录）"}\n\n### 可归属于目标主体/已证实关联主体的发现\n${findings || "（无）"}\n\n### 同名排除与主体待核验线索（不得归因于目标主体）\n${excludedFindings || "（无）"}\n\n### 外部来源索引\n${sources || "（无可用来源）"}\n\n### 未解决缺口\n${external.unresolvedGaps.map((gap) => `- ${gap}`).join("\n") || "- 无"}`;
 }
 
 export function isDeepResearchProfile(value: unknown): value is DeepResearchProfile {
@@ -207,15 +231,18 @@ ${buildDeepResearchMaterialContext(input.materials)}
 1. 先完成主体、时间和决策边界定锚，再形成研究命题；不要按BP页码复述。
 2. 对每个关键数字列入口径或缺口；对关键主张形成“主张-证据状态-反方-投资影响-验证动作”。
 3. 上传材料只能支撑[src:doc]/[src:data]；只有“项目级外部取证结果”中实际存在的E编号及URL才可标[src:external]，并在句内引用【E编号】。
-4. 结论必须落到建议类型、前置条件、进入方式、退出路径和升级/维持/否决触发器。
-5. 输出一份可以直接进入项目讨论、继续补证和正式导出的完整报告。`;
+4. 外部取证只允许把 subjectMatch=confirmed/related 的发现归于目标主体；ambiguous/excluded 必须单列为排除或待核验线索。
+5. 对数字门槛逐项标明“机构输入”或“建议验证阈值”；没有输入依据时不得写成硬性红线。建议阈值须说明适用目的和调整条件。
+6. 报告中单列“已确认负面事实、证据缺口、建议验证阈值”三类清单，不得混写。
+7. 结论必须落到建议类型、前置条件、进入方式、退出路径和升级/维持/否决触发器。
+8. 输出一份可以直接进入项目讨论、继续补证和导出审核稿的完整报告。`;
 
   const evidenceLedgerInstruction = `
 
 ## 结构化证据底稿（机器可读，必须输出）
 在全部业务章节之后、置信度块之前输出以下 JSON。每个关键主张一条；引用必须使用材料上下文中实际存在的定位，例如 M1·P3、M2·SLIDE5、M3·SHEET:财务预测!A1:F20，或外部取证编号E1。没有细粒度定位的旧材料只能引用M1，不能编造页码、单元格或外部来源。
 [EVIDENCE_LEDGER_START]
-{"items":[{"id":"C1","claim":"关键主张","status":"document|data|external|analysis|gap|inconsistent","citations":["M1·P3"],"investmentImpact":"影响投不投、估值、金额、条款或时点","verificationAction":"下一步验证动作；已充分核验可为空","priority":"P0|P1|P2"}]}
+{"items":[{"id":"C1","claim":"关键主张","claimClass":"fact|negative_fact|evidence_gap|suggested_threshold|institution_parameter|analysis","status":"document|data|external|analysis|gap|inconsistent","citations":["M1·P3"],"investmentImpact":"影响投不投、估值、金额、条款或时点","verificationAction":"下一步验证动作；建议阈值填写适用依据和调整条件；已充分核验可为空","priority":"P0|P1|P2"}]}
 [EVIDENCE_LEDGER_END]`;
 
   return {

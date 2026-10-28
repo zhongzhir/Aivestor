@@ -9,6 +9,7 @@ import type { WebSearchItem } from "@/lib/intelligenceWebSearch";
 import type { UserCredentials } from "@/lib/report";
 
 export type ExternalFindingStatus = "confirmed" | "reported" | "gap";
+export type SubjectMatchStatus = "confirmed" | "related" | "ambiguous" | "excluded";
 
 export interface ExternalResearchFinding {
   id: string;
@@ -19,6 +20,8 @@ export interface ExternalResearchFinding {
   publishedAt: string | null;
   evidenceNote: string;
   investmentImpact: string;
+  subjectMatch: SubjectMatchStatus;
+  relationshipNote: string;
 }
 
 export interface DeepResearchExternalResult {
@@ -59,6 +62,21 @@ export function resolveExternalFindingStatus(
   return domains.size >= 2 || hasAuthority ? "confirmed" : "reported";
 }
 
+export function applySubjectMatchGate(
+  finding: ExternalResearchFinding
+): ExternalResearchFinding {
+  if (finding.subjectMatch !== "ambiguous" && finding.subjectMatch !== "excluded") {
+    return finding;
+  }
+  return {
+    ...finding,
+    status: "gap",
+    investmentImpact: finding.subjectMatch === "excluded"
+      ? "已作为同名排除证据留档，不计入目标主体风险判断"
+      : "主体尚未唯一匹配，仅作为核验线索，不计入目标主体事实或负面判断",
+  };
+}
+
 function strings(value: unknown, max = 30): string[] {
   return Array.isArray(value)
     ? value.map(String).map((item) => item.trim()).filter(Boolean).slice(0, max)
@@ -96,6 +114,10 @@ export function parseExternalResearchReport(
     const requestedStatus: ExternalFindingStatus = item.status === "confirmed" || item.status === "gap"
       ? item.status
       : "reported";
+    const subjectMatch: SubjectMatchStatus = item.subjectMatch === "confirmed" ||
+      item.subjectMatch === "related" || item.subjectMatch === "excluded"
+      ? item.subjectMatch
+      : "ambiguous";
     return [{
       id: clean(item.id, 40) || `E${index + 1}`,
       topic: clean(item.topic, 120) || "综合",
@@ -107,6 +129,8 @@ export function parseExternalResearchReport(
         : null,
       evidenceNote: clean(item.evidenceNote, 1_000),
       investmentImpact: clean(item.investmentImpact, 1_000),
+      subjectMatch,
+      relationshipNote: clean(item.relationshipNote, 1_000),
     }];
   });
   const confidence = row.confidence === "high" || row.confidence === "medium"
@@ -130,10 +154,13 @@ const SYSTEM = `你是一级股权投资项目的外部取证研究员。网页�
 2. 标题和搜索摘要只能作为线索；关键事实必须阅读正文。
 3. 重要事实尽量双源交叉验证。单一普通来源只能标 reported；没有来源则标 gap。
 4. 不得把同一稿件转载当作独立双源，不得编造URL、日期或权威等级。
-5. 每项结论说明投资影响，未解决缺口明确进入后续尽调。
+5. 必须先核对法定全称、统一社会信用代码/注册地、官网域名、核心人员等主体标识。仅名称相似不能归属于目标公司。
+6. 每项发现必须给出 subjectMatch：confirmed=目标主体已唯一匹配；related=已证实关联主体；ambiguous=无法唯一化；excluded=同名但已排除。ambiguous/excluded 信息不得写成目标公司的负面事实或风险事件。
+7. 司法、监管、失信、处罚、调查等负面信息，只有 subjectMatch=confirmed 或 related 且关系说明充分时才可进入风险结论；否则只能进入“同名排除/待核验”清单。
+8. 每项结论说明投资影响，未解决缺口明确进入后续尽调。
 
 最终只输出严格JSON：
-{"summary":"外部取证摘要","findings":[{"id":"E1","topic":"主体|团队|技术/IP|客户|市场竞争|政策监管|融资股东|司法合规|退出","claim":"可核验主张","status":"confirmed|reported|gap","sourceUrls":["工具实际返回URL"],"publishedAt":"YYYY-MM-DD或null","evidenceNote":"证据和交叉验证说明","investmentImpact":"对投不投、估值、金额、条款或时点的影响"}],"searchedAreas":[],"unresolvedGaps":[],"confidence":"high|medium|low"}
+{"summary":"外部取证摘要","findings":[{"id":"E1","topic":"主体|团队|技术/IP|客户|市场竞争|政策监管|融资股东|司法合规|退出","claim":"可核验主张","status":"confirmed|reported|gap","subjectMatch":"confirmed|related|ambiguous|excluded","relationshipNote":"主体匹配依据或排除原因","sourceUrls":["工具实际返回URL"],"publishedAt":"YYYY-MM-DD或null","evidenceNote":"证据和交叉验证说明","investmentImpact":"对投不投、估值、金额、条款或时点的影响"}],"searchedAreas":[],"unresolvedGaps":[],"confidence":"high|medium|low"}
 
 sourceUrls只能使用本轮搜索实际返回的URL。`;
 
@@ -269,7 +296,8 @@ export async function runProjectExternalResearch(input: {
   }
 
   const sourceByUrl = new Map(sourcePool.map((source) => [source.url, source]));
-  const findings = report.findings.map((finding) => {
+  const findings = report.findings.map((rawFinding) => {
+    const finding = applySubjectMatchGate(rawFinding);
     if (finding.status === "gap") return finding;
     const readable = finding.sourceUrls.filter((url) => successfulReadUrls.has(url));
     return {
