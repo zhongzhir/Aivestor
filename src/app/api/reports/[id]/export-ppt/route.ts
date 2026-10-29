@@ -10,6 +10,8 @@ import {
   scopedProjectChildWhere,
 } from "@/lib/resourceAccess";
 import type { FinancialData } from "@/lib/types";
+import type { DeepResearchExternalResult } from "@/lib/deepResearchExternal";
+import { reportExportSources } from "@/lib/reportExportSources";
 
 // GET /api/reports/[id]/export-ppt — 从已保存报告内容生成 PPT，不重新调用 AI。
 export async function GET(
@@ -35,8 +37,9 @@ export async function GET(
     created_at: string;
     kind: string | null;
     financial_data: FinancialData | null;
+    project_id: string;
   }>(
-    `SELECT r.title, r.content, r.created_at, r.kind,
+    `SELECT r.title, r.content, r.created_at, r.kind, r.project_id,
             p.name AS project_name, p.industry, p.stage, p.financial_data
        FROM reports r
        JOIN projects p ON p.id = r.project_id
@@ -48,6 +51,21 @@ export async function GET(
   }
 
   const report = rows[0];
+  const externalRows = report.kind === "deep_research"
+    ? await query<{ external_research: DeepResearchExternalResult | null }>(
+        `SELECT result->'externalResearch' AS external_research
+           FROM deep_research_jobs
+          WHERE (report_id = $1 OR (project_id = $2 AND status = 'completed'))
+            AND result ? 'externalResearch'
+          ORDER BY CASE WHEN report_id = $1 THEN 0 ELSE 1 END,
+                   completed_at DESC NULLS LAST
+          LIMIT 1`,
+        [params.id, report.project_id]
+      )
+    : [];
+  const externalSources = reportExportSources(
+    externalRows[0]?.external_research
+  );
   const markdown = extractConfidence(
     extractEvidenceLedger(report.content).cleanContent
   ).cleanContent;
@@ -56,6 +74,7 @@ export async function GET(
     brand: BRAND,
     mode: report.kind === "deep_research" ? "deep_research_ic" : "full",
     financialData: report.financial_data,
+    externalSources,
     metadata: {
       title: report.title,
       projectName: report.project_name,

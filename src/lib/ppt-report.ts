@@ -1,11 +1,16 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
 import pptxgen from "pptxgenjs";
+import JSZip from "jszip";
 import { parseFormalReportMarkdown } from "@/lib/formal-report/markdown";
 import type { FormalReportBlock } from "@/lib/formal-report/types";
 import type { BrandConfig } from "@/lib/brand";
 import { stripActualHtmlTags } from "@/lib/reportText";
 import type { FinancialData } from "@/lib/types";
+import {
+  reportExportSourceNotes,
+  type ReportExportSource,
+} from "@/lib/reportExportSources";
 
 const WHITE = "FFFFFF";
 const INK = "1F2937";
@@ -36,6 +41,7 @@ export interface PptReportBuildInput {
   brand: BrandConfig;
   mode?: "full" | "deep_research_ic";
   financialData?: FinancialData | null;
+  externalSources?: ReportExportSource[];
 }
 
 function plain(text: string): string {
@@ -424,24 +430,26 @@ function addContentSlide(
 
 interface IcSlideSpec {
   title: string;
-  patterns: RegExp[];
+  sectionPatterns: RegExp[];
+  bodyPatterns?: RegExp[];
+  excludedSections?: RegExp[];
   fallback: string;
   visual?: "evidence" | "financial" | "decision";
 }
 
 const IC_SLIDES: IcSlideSpec[] = [
-  { title: "投资结论与核心判断", patterns: [/执行摘要|综合评级|投资建议|综合研判/], fallback: "报告尚未形成可直接上会的结论摘要。", visual: "decision" },
-  { title: "证据成熟度与研究边界", patterns: [/研究身份|证据分级|数据来源|重要声明/], fallback: "证据成熟度需结合来源索引与质量门禁复核。", visual: "evidence" },
-  { title: "公司、产品与技术", patterns: [/公司概览|核心产品|技术|业务架构/], fallback: "公司与产品事实仍需补充可定位材料。" },
-  { title: "商业化、客户与收入证据", patterns: [/客户|市场|商业化|商业模型|上下游/], fallback: "客户、合同、交付、回款与复购证据仍待补充。" },
-  { title: "财务趋势与经营质量", patterns: [/财务分析|发展阶段与财务|收入|毛利|现金流/], fallback: "尚未形成可复核的结构化财务趋势。", visual: "financial" },
-  { title: "估值参数与敏感性", patterns: [/估值|敏感性|P\/S|EV\/EBITDA|市销率|市盈率|毛利率/], fallback: "估值参数或敏感性尚未形成可复核测算。" },
-  { title: "团队与组织能力", patterns: [/核心团队|团队|组织架构|人才缺口/], fallback: "关键人员履历、全职状态和组织能力仍待核验。" },
-  { title: "竞争格局与护城河", patterns: [/竞争对手|竞争格局|护城河|第一曲线|第二曲线/], fallback: "竞争对比与可持续壁垒证据仍待补充。" },
-  { title: "核心风险与缓释", patterns: [/核心瓶颈|风险缓释|风险提示|负面事实/], fallback: "风险应区分已确认事实、证据缺口与情景推演。" },
-  { title: "P0尽调门禁", patterns: [/分级尽调|补充尽调|证据缺口|前置条件/], fallback: "请把会改变投不投、估值、金额、条款或时点的事项列为P0。" },
-  { title: "进入方式与退出路径", patterns: [/投资价值|适配度|进入方式|退出|融资历史|机构分析/], fallback: "进入方式、交易参数与退出路径仍待机构参数补齐。" },
-  { title: "下一步动作与决策触发器", patterns: [/触发器|行动|下一步|建议验证阈值|综合研判/], fallback: "建议把关键补证任务落实到责任人、时限和升级/否决触发器。", visual: "decision" },
+  { title: "投资结论与核心判断", sectionPatterns: [/执行摘要|综合评级|投资建议|综合研判/], fallback: "报告尚未形成可直接上会的结论摘要。", visual: "decision" },
+  { title: "证据成熟度与研究边界", sectionPatterns: [/研究身份|证据分级|数据来源|重要声明/], fallback: "证据成熟度需结合来源索引与质量门禁复核。", visual: "evidence" },
+  { title: "公司、产品与技术", sectionPatterns: [/公司概览|核心产品|技术|业务架构/], fallback: "公司与产品事实仍需补充可定位材料。" },
+  { title: "商业化、客户与收入证据", sectionPatterns: [/客户|市场|商业化|商业模型|上下游/], fallback: "客户、合同、交付、回款与复购证据仍待补充。" },
+  { title: "财务趋势与经营质量", sectionPatterns: [/财务分析|发展阶段与财务/], bodyPatterns: [/收入|利润|毛利|现金流/], fallback: "尚未形成可复核的结构化财务趋势。", visual: "financial" },
+  { title: "估值参数与敏感性", sectionPatterns: [/财务分析|投资价值|适配度|融资历史|机构分析|估值/], bodyPatterns: [/估值|敏感性|P\/S|EV\/EBITDA|市销率|市盈率|毛利率/], excludedSections: [/研究身份|重要声明|数据来源/], fallback: "估值参数或敏感性尚未形成可复核测算。" },
+  { title: "团队与组织能力", sectionPatterns: [/核心团队|团队|组织架构|人才缺口/], fallback: "关键人员履历、全职状态和组织能力仍待核验。" },
+  { title: "竞争格局与护城河", sectionPatterns: [/竞争对手|竞争格局|护城河|第一曲线|第二曲线/], fallback: "竞争对比与可持续壁垒证据仍待补充。" },
+  { title: "核心风险与缓释", sectionPatterns: [/核心瓶颈|风险缓释|风险提示|负面事实/], fallback: "风险应区分已确认事实、证据缺口与情景推演。" },
+  { title: "P0尽调门禁", sectionPatterns: [/分级尽调|补充尽调|风险提示|证据缺口|前置条件/], bodyPatterns: [/P0|尽调|验证动作/], fallback: "请把会改变投不投、估值、金额、条款或时点的事项列为P0。" },
+  { title: "进入方式与退出路径", sectionPatterns: [/投资价值|适配度|进入方式|退出|融资历史|机构分析/], fallback: "进入方式、交易参数与退出路径仍待机构参数补齐。" },
+  { title: "下一步动作与决策触发器", sectionPatterns: [/执行摘要|综合评级|风险提示|补充尽调|触发器|行动|下一步|综合研判/], bodyPatterns: [/触发器|验证动作|P0/], fallback: "建议把关键补证任务落实到责任人、时限和升级/否决触发器。", visual: "decision" },
 ];
 
 function blockToInsight(block: FormalReportBlock): string[] {
@@ -454,27 +462,41 @@ function blockToInsight(block: FormalReportBlock): string[] {
 
 function icInsights(markdown: string, spec: IcSlideSpec): string[] {
   const sections = parsePptSections(markdown);
-  const preferred = sections.filter((section) =>
-    spec.patterns.some((pattern) => pattern.test(section.title))
+  const allowed = sections.filter((section) =>
+    !(spec.excludedSections ?? []).some((pattern) => pattern.test(section.title))
+  );
+  const preferred = allowed.filter((section) =>
+    spec.sectionPatterns.some((pattern) => pattern.test(section.title))
   );
   const secondary = sections.filter((section) =>
+    allowed.includes(section) &&
     !preferred.includes(section) &&
-    spec.patterns.some((pattern) => pattern.test(section.blocks.map((block) =>
+    (spec.bodyPatterns ?? spec.sectionPatterns).some((pattern) => pattern.test(section.blocks.map((block) =>
       block.type === "table" ? block.rows.flat().join(" ") : "text" in block ? block.text : ""
     ).join(" ")))
   );
   const seen = new Set<string>();
   const insights: string[] = [];
   for (const section of [...preferred, ...secondary]) {
-    for (const value of section.blocks.flatMap(blockToInsight)) {
-      const clean = plain(value).replace(/^[-•\d.、\s]+/, "").trim();
-      if (clean.length < 8 || seen.has(clean)) continue;
-      seen.add(clean);
-      insights.push(clean);
-      if (insights.length >= 5) return insights;
+    const values = section.blocks.flatMap(blockToInsight);
+    const matched = spec.bodyPatterns
+      ? values.filter((value) => spec.bodyPatterns!.some((pattern) => pattern.test(value)))
+      : values;
+    const candidates = matched.length ? [...matched, ...values.filter((value) => !matched.includes(value))] : values;
+    for (const value of candidates) {
+      const normalized = plain(value).replace(/\s+/g, " ").replace(/^[-•\d.、\s]+/, "").trim();
+      if (normalized.length < 8 || seen.has(normalized)) continue;
+      seen.add(normalized);
+      insights.push(normalized);
+      if (insights.length >= 4) return insights;
     }
   }
   return insights.length ? insights : [spec.fallback];
+}
+
+function displayInsight(value: string, maxChars: number): string {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length > maxChars ? `${clean.slice(0, maxChars - 1)}…` : clean;
 }
 
 function addEvidenceVisual(
@@ -490,12 +512,32 @@ function addEvidenceVisual(
     ["待补缺口", (markdown.match(/\[src:gap\]/g) || []).length, "A33A3A"],
   ] as const;
   const max = Math.max(1, ...items.map((item) => item[1]));
+  slide.addText("证据结构", {
+    x: 7.55,
+    y: 2.06,
+    w: 4.9,
+    h: 0.32,
+    fontSize: 13,
+    bold: true,
+    color: brand.colors.deep.replace("#", ""),
+    margin: 0,
+  });
   items.forEach(([label, value, color], index) => {
-    const y = 4.55 + index * 0.48;
-    slide.addText(label, { x: CONTENT_X, y, w: 1.35, h: 0.28, fontSize: 12, color: INK_SOFT, margin: 0 });
-    slide.addShape(pptx.ShapeType.rect, { x: 2.15, y: y + 0.02, w: 3.2, h: 0.2, fill: { color: "E9EDF3" }, line: { color: "E9EDF3" } });
-    slide.addShape(pptx.ShapeType.rect, { x: 2.15, y: y + 0.02, w: Math.max(0.08, 3.2 * value / max), h: 0.2, fill: { color }, line: { color } });
-    slide.addText(String(value), { x: 5.48, y, w: 0.55, h: 0.28, fontSize: 12, bold: true, color: brand.colors.deep.replace("#", ""), margin: 0 });
+    const y = 2.58 + index * 0.68;
+    slide.addText(label, { x: 7.55, y, w: 1.22, h: 0.28, fontSize: 11.5, color: INK_SOFT, margin: 0 });
+    slide.addShape(pptx.ShapeType.rect, { x: 8.82, y: y + 0.03, w: 2.75, h: 0.19, fill: { color: "E9EDF3" }, line: { color: "E9EDF3" } });
+    slide.addShape(pptx.ShapeType.rect, { x: 8.82, y: y + 0.03, w: Math.max(0.08, 2.75 * value / max), h: 0.19, fill: { color }, line: { color } });
+    slide.addText(String(value), { x: 11.72, y, w: 0.48, h: 0.28, fontSize: 11.5, bold: true, color: brand.colors.deep.replace("#", ""), margin: 0 });
+  });
+  slide.addText("数量用于呈现当前报告的证据构成，不能替代证据质量复核", {
+    x: 7.55,
+    y: 5.5,
+    w: 4.6,
+    h: 0.5,
+    fontSize: 10.5,
+    color: "7D8797",
+    margin: 0,
+    fit: "shrink",
   });
 }
 
@@ -505,14 +547,102 @@ function addFinancialVisual(
   financialData?: FinancialData | null
 ) {
   const points = (financialData?.revenue || []).slice(-4);
-  if (!points.length) return;
+  slide.addText("收入趋势", {
+    x: 7.55,
+    y: 2.06,
+    w: 4.9,
+    h: 0.32,
+    fontSize: 13,
+    bold: true,
+    color: "0D1B3E",
+    margin: 0,
+  });
+  if (!points.length) {
+    slide.addShape(pptx.ShapeType.line, { x: 7.55, y: 4.95, w: 4.55, h: 0, line: { color: "D9DEE7", width: 1 } });
+    [0.35, 0.72, 1.08, 1.42].forEach((height, index) => {
+      slide.addShape(pptx.ShapeType.rect, {
+        x: 7.85 + index * 1.02,
+        y: 4.95 - height,
+        w: 0.58,
+        h: height,
+        fill: { color: index === 0 ? "C8D1DF" : "E3E7ED" },
+        line: { color: WHITE },
+      });
+    });
+    slide.addText("结构化财务趋势待补\n当前仅呈现报告中的公司口径与核验缺口", {
+      x: 7.55,
+      y: 5.2,
+      w: 4.55,
+      h: 0.65,
+      fontSize: 11,
+      color: INK_SOFT,
+      margin: 0,
+      align: "center",
+    });
+    return;
+  }
   const max = Math.max(1, ...points.map((point) => Math.abs(point.value)));
   points.forEach((point, index) => {
-    const x = CONTENT_X + index * 1.45;
-    const height = Math.max(0.15, 1.15 * Math.abs(point.value) / max);
-    slide.addShape(pptx.ShapeType.rect, { x, y: 6.05 - height, w: 0.78, h: height, fill: { color: point.type === "actual" ? "287A5A" : "8BA6C8" }, line: { color: WHITE } });
-    slide.addText(`${point.year}${point.type === "forecast" ? "E" : "A"}`, { x: x - 0.15, y: 6.12, w: 1.08, h: 0.25, fontSize: 10, align: "center", margin: 0, color: INK_SOFT });
-    slide.addText(String(point.value), { x: x - 0.2, y: 4.68 - height, w: 1.18, h: 0.25, fontSize: 10, align: "center", margin: 0, color: INK });
+    const x = 7.7 + index * 1.08;
+    const height = Math.max(0.2, 2.1 * Math.abs(point.value) / max);
+    slide.addShape(pptx.ShapeType.rect, { x, y: 5.15 - height, w: 0.66, h: height, fill: { color: point.type === "actual" ? "287A5A" : "8BA6C8" }, line: { color: WHITE } });
+    slide.addText(`${point.year}${point.type === "forecast" ? "E" : "A"}`, { x: x - 0.16, y: 5.28, w: 0.98, h: 0.25, fontSize: 10, align: "center", margin: 0, color: INK_SOFT });
+    slide.addText(String(point.value), { x: x - 0.18, y: 4.86 - height, w: 1.02, h: 0.25, fontSize: 10, align: "center", margin: 0, color: INK });
+  });
+}
+
+function addDecisionVisual(pptx: pptxgen, slide: pptxgen.Slide) {
+  const labels = ["证据补齐", "参数复核", "条件触发", "投资决策"];
+  slide.addText("决策路径", {
+    x: 7.55,
+    y: 2.06,
+    w: 4.9,
+    h: 0.32,
+    fontSize: 13,
+    bold: true,
+    color: "0D1B3E",
+    margin: 0,
+  });
+  labels.forEach((label, index) => {
+    const y = 2.58 + index * 0.76;
+    if (index < labels.length - 1) {
+      slide.addShape(pptx.ShapeType.line, {
+        x: 7.83,
+        y: y + 0.42,
+        w: 0,
+        h: 0.48,
+        line: { color: "CCD3DE", width: 1.2 },
+      });
+    }
+    slide.addShape(pptx.ShapeType.ellipse, {
+      x: 7.62,
+      y,
+      w: 0.42,
+      h: 0.42,
+      fill: { color: index === labels.length - 1 ? "F26B38" : "0D1B3E" },
+      line: { color: WHITE },
+    });
+    slide.addText(String(index + 1), {
+      x: 7.62,
+      y: y + 0.05,
+      w: 0.42,
+      h: 0.25,
+      fontSize: 10,
+      bold: true,
+      color: WHITE,
+      align: "center",
+      margin: 0,
+    });
+    slide.addText(label, {
+      x: 8.25,
+      y: y + 0.02,
+      w: 3.5,
+      h: 0.34,
+      fontSize: 15,
+      bold: index === labels.length - 1,
+      color: index === labels.length - 1 ? "C14A20" : INK,
+      margin: 0,
+    });
   });
 }
 
@@ -522,21 +652,131 @@ function addIcSlide(
   insights: string[],
   input: PptReportBuildInput,
   date: string,
-  sourceNotes: string
+  sourceNotes: string,
+  slideIndex: number
 ) {
   const slide = pptx.addSlide();
   addHeader(pptx, slide, spec.title, input.brand, date, false);
-  insights.slice(0, 5).forEach((insight, index) => {
-    const y = CONTENT_TOP + index * 0.52;
-    slide.addShape(pptx.ShapeType.ellipse, { x: CONTENT_X, y: y + 0.1, w: 0.14, h: 0.14, fill: { color: index === 0 ? input.brand.colors.accent.replace("#", "") : "A9B4C6" }, line: { color: WHITE } });
-    slide.addText(insight, { x: CONTENT_X + 0.28, y, w: CONTENT_W - 0.28, h: 0.43, fontSize: 18, color: index === 0 ? INK : INK_SOFT, bold: index === 0, margin: 0, fit: "shrink", valign: "middle" });
+  slide.addText(`${String(slideIndex).padStart(2, "0")} / ${IC_SLIDES.length}`, {
+    x: 11.35,
+    y: 0.52,
+    w: 1.25,
+    h: 0.24,
+    fontSize: 9.5,
+    color: "8993A4",
+    align: "right",
+    margin: 0,
   });
+  const hasVisual = Boolean(spec.visual);
+  const insightWidth = hasVisual ? 6.2 : CONTENT_W;
+  const [primary = spec.fallback, ...supporting] = insights;
+  const primaryText = displayInsight(primary, hasVisual ? 76 : 96);
+  const primaryFontSize = primaryText.length > 68 ? 16 : primaryText.length > 48 ? 17.5 : 19;
+  slide.addText("核心判断", {
+    x: CONTENT_X,
+    y: 1.86,
+    w: insightWidth,
+    h: 0.22,
+    fontSize: 10,
+    bold: true,
+    color: input.brand.colors.accent.replace("#", ""),
+    charSpacing: 1.2,
+    margin: 0,
+  });
+  slide.addShape(pptx.ShapeType.roundRect, {
+    x: CONTENT_X,
+    y: 2.12,
+    w: insightWidth,
+    h: 1.2,
+    fill: { color: "F5F7FA" },
+    line: { color: "E2E6EC", width: 0.8 },
+    rectRadius: 0.04,
+  });
+  slide.addShape(pptx.ShapeType.rect, {
+    x: CONTENT_X,
+    y: 2.12,
+    w: 0.08,
+    h: 1.2,
+    fill: { color: input.brand.colors.accent.replace("#", "") },
+    line: { color: input.brand.colors.accent.replace("#", "") },
+  });
+  slide.addText(primaryText, {
+    x: CONTENT_X + 0.25,
+    y: 2.29,
+    w: insightWidth - 0.48,
+    h: 0.86,
+    fontSize: primaryFontSize,
+    bold: true,
+    color: INK,
+    margin: 0,
+    fit: "shrink",
+    valign: "middle",
+  });
+  slide.addText("证据与影响", {
+    x: CONTENT_X,
+    y: 3.54,
+    w: insightWidth,
+    h: 0.22,
+    fontSize: 10,
+    bold: true,
+    color: "8993A4",
+    charSpacing: 1.2,
+    margin: 0,
+  });
+  supporting.slice(0, 3).forEach((insight, index) => {
+    const y = 3.88 + index * 0.82;
+    slide.addShape(pptx.ShapeType.roundRect, {
+      x: CONTENT_X,
+      y: y - 0.13,
+      w: insightWidth,
+      h: 0.69,
+      fill: { color: index % 2 === 0 ? "FAFBFC" : "F6F8FA" },
+      line: { color: "EEF1F4", width: 0.5 },
+      rectRadius: 0.025,
+    });
+    slide.addText(String(index + 1).padStart(2, "0"), {
+      x: CONTENT_X,
+      y: y + 0.06,
+      w: 0.34,
+      h: 0.3,
+      fontSize: 10.5,
+      bold: true,
+      color: input.brand.colors.accent.replace("#", ""),
+      margin: 0,
+    });
+    slide.addText(displayInsight(insight, hasVisual ? 64 : 92), {
+      x: CONTENT_X + 0.48,
+      y: y - 0.03,
+      w: insightWidth - 0.48,
+      h: 0.56,
+      fontSize: 14.5,
+      color: INK_SOFT,
+      margin: 0,
+      fit: "shrink",
+      valign: "top",
+    });
+  });
+  if (hasVisual) {
+    slide.addShape(pptx.ShapeType.line, {
+      x: 7.18,
+      y: 1.92,
+      w: 0,
+      h: 4.55,
+      line: { color: "E5E7EB", width: 1 },
+    });
+  }
   if (spec.visual === "evidence") addEvidenceVisual(pptx, slide, input.markdown, input.brand);
   if (spec.visual === "financial") addFinancialVisual(pptx, slide, input.financialData);
-  if (spec.visual === "decision") {
-    slide.addShape(pptx.ShapeType.roundRect, { x: 7.2, y: 4.75, w: 5.4, h: 1.08, fill: { color: "F4F5F7" }, line: { color: "D9DEE7" }, rectRadius: 0.04 });
-    slide.addText("证据补齐  →  参数复核  →  条件触发  →  投资决策", { x: 7.45, y: 5.06, w: 4.9, h: 0.38, fontSize: 17, bold: true, color: input.brand.colors.deep.replace("#", ""), align: "center", margin: 0, fit: "shrink" });
-  }
+  if (spec.visual === "decision") addDecisionVisual(pptx, slide);
+  slide.addText(sourceNotes ? "来源链接见演讲者备注" : "当前无可用外部来源链接", {
+    x: CONTENT_X,
+    y: 6.56,
+    w: 3.1,
+    h: 0.2,
+    fontSize: 8.5,
+    color: "8993A4",
+    margin: 0,
+  });
   if (sourceNotes) slide.addNotes(sourceNotes);
 }
 
@@ -612,17 +852,21 @@ export async function buildPptReportBuffer(input: PptReportBuildInput): Promise<
       color: "C7D0E0",
       margin: 0,
     });
-    const sourceNotes = Array.from(
+    const sourceNotes = [
+      reportExportSourceNotes(input.externalSources ?? []),
+      Array.from(
       new Set(input.markdown.match(/https?:\/\/[^\s)】]+/g) || [])
-    ).slice(0, 40).join("\n");
-    for (const spec of IC_SLIDES) {
+      ).slice(0, 40).join("\n"),
+    ].filter(Boolean).join("\n");
+    for (const [index, spec] of IC_SLIDES.entries()) {
       addIcSlide(
         pptx,
         spec,
         icInsights(input.markdown, spec),
         input,
         date,
-        sourceNotes
+        sourceNotes,
+        index + 1
       );
     }
     const end = pptx.addSlide();
@@ -648,7 +892,7 @@ export async function buildPptReportBuffer(input: PptReportBuildInput): Promise<
       align: "center",
       margin: 0,
     });
-    return (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+    return sanitizePptxPackage((await pptx.write({ outputType: "nodebuffer" })) as Buffer);
   }
 
   const toc = pptx.addSlide();
@@ -728,5 +972,20 @@ export async function buildPptReportBuffer(input: PptReportBuildInput): Promise<
     margin: 0,
   });
 
-  return (await pptx.write({ outputType: "nodebuffer" })) as Buffer;
+  return sanitizePptxPackage((await pptx.write({ outputType: "nodebuffer" })) as Buffer);
+}
+
+async function sanitizePptxPackage(buffer: Buffer): Promise<Buffer> {
+  const zip = await JSZip.loadAsync(buffer);
+  const contentTypesFile = zip.file("[Content_Types].xml");
+  if (!contentTypesFile) return buffer;
+  const existing = new Set(Object.keys(zip.files));
+  const contentTypes = await contentTypesFile.async("string");
+  const cleaned = contentTypes.replace(
+    /<Override\b[^>]*PartName="\/([^"]+)"[^>]*\/>/g,
+    (entry, part: string) => existing.has(part) ? entry : ""
+  );
+  if (cleaned === contentTypes) return buffer;
+  zip.file("[Content_Types].xml", cleaned);
+  return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }

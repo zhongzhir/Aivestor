@@ -9,6 +9,8 @@ import { buildFormalDocxBuffer } from "@/lib/formal-report/docx";
 import { BRAND } from "@/lib/brand";
 import { composeFormalReport } from "@/lib/formal-report/composer";
 import { inferFormalReportProfile } from "@/lib/formal-report/profiles";
+import type { DeepResearchExternalResult } from "@/lib/deepResearchExternal";
+import { reportExportSources } from "@/lib/reportExportSources";
 import {
   buildAccessScope,
   scopedProjectChildWhere,
@@ -39,8 +41,9 @@ export async function GET(
     industry: string | null;
     stage: string | null;
     version: number | null;
+    project_id: string | null;
   }>(
-    `SELECT r.title, r.content, r.kind, r.version,
+    `SELECT r.title, r.content, r.kind, r.version, r.project_id,
             p.name AS project_name, p.industry, p.stage,
             o.name AS organization_name
        FROM reports r
@@ -53,6 +56,21 @@ export async function GET(
     return NextResponse.json({ error: "报告不存在" }, { status: 404 });
   }
   const report = rows[0];
+  const externalRows = report.kind === "deep_research" && report.project_id
+    ? await query<{ external_research: DeepResearchExternalResult | null }>(
+        `SELECT result->'externalResearch' AS external_research
+           FROM deep_research_jobs
+          WHERE (report_id = $1 OR (project_id = $2 AND status = 'completed'))
+            AND result ? 'externalResearch'
+          ORDER BY CASE WHEN report_id = $1 THEN 0 ELSE 1 END,
+                   completed_at DESC NULLS LAST
+          LIMIT 1`,
+        [params.id, report.project_id]
+      )
+    : [];
+  const externalSources = reportExportSources(
+    externalRows[0]?.external_research
+  );
 
   // 文件名前缀按 kind 区分，兜底用 title
   const kindPrefixMap: Record<string, string> = {
@@ -102,6 +120,7 @@ export async function GET(
         brand: BRAND,
         metadata: formalMetadata,
         markdown: composed!.markdown,
+        externalSources,
       })
     : await buildDocxBuffer(report.title, cleanContent);
   if (report.kind === "post_investment") {

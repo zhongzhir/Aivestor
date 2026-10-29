@@ -31,6 +31,7 @@ import type {
 } from "@/lib/formal-report/types";
 import { BRAND, type BrandConfig } from "@/lib/brand";
 import { stripActualHtmlTags } from "@/lib/reportText";
+import type { ReportExportSource } from "@/lib/reportExportSources";
 
 const FONT_BODY = "宋体";
 const FONT_HEADING = "微软雅黑";
@@ -53,9 +54,19 @@ function plainMarkdown(text: string): string {
     .replace(/`([^`]+)`/g, "$1")
     .replace(/~~([^~]+)~~/g, "$1")
     .replace(/\*\*|__/g, "")
+    .replace(/\[src:(?:doc|data|ai|external|gap|inconsistent)\]/g, "")
     .replace(/\\([\\`*{}\[\]()#+.!_>\-])/g, "$1")
     .trim();
 }
+
+const SOURCE_TAG_LABELS: Record<string, { label: string; color: string }> = {
+  doc: { label: "文件依据", color: "245A9A" },
+  data: { label: "结构化数据", color: "256D4B" },
+  external: { label: "外部证据", color: "8A5A12" },
+  gap: { label: "待补证", color: COLOR_RISK },
+  inconsistent: { label: "口径冲突", color: COLOR_RISK },
+  ai: { label: "分析判断", color: "6B4BA1" },
+};
 
 function inlineRuns(
   text: string,
@@ -68,16 +79,30 @@ function inlineRuns(
     .replace(/\\([\\`*{}\[\]()#+.!_>\-])/g, "$1");
   const children: ParagraphChild[] = [];
   const addText = (value: string) => {
-    value.split(/(\*\*[^*]+\*\*)/g).filter(Boolean).forEach((segment) => {
-      const emphasized = /^\*\*[^*]+\*\*$/.test(segment);
-      children.push(new TextRun({
-        text: emphasized ? segment.slice(2, -2) : segment,
-        bold: Boolean(options?.bold || emphasized),
-        color: options?.color ?? COLOR_INK,
-        size: options?.size ?? 22,
-        font: FONT_BODY,
-      }));
-    });
+    value.split(/(\*\*[^*]+\*\*|\[src:(?:doc|data|ai|external|gap|inconsistent)\])/g)
+      .filter(Boolean)
+      .forEach((segment) => {
+        const sourceTag = segment.match(/^\[src:([^\]]+)\]$/)?.[1];
+        if (sourceTag && SOURCE_TAG_LABELS[sourceTag]) {
+          const tag = SOURCE_TAG_LABELS[sourceTag];
+          children.push(new TextRun({
+            text: ` 〔${tag.label}〕`,
+            bold: true,
+            color: tag.color,
+            size: Math.max(15, (options?.size ?? 22) - 5),
+            font: FONT_HEADING,
+          }));
+          return;
+        }
+        const emphasized = /^\*\*[^*]+\*\*$/.test(segment);
+        children.push(new TextRun({
+          text: emphasized ? segment.slice(2, -2) : segment,
+          bold: Boolean(options?.bold || emphasized),
+          color: options?.color ?? COLOR_INK,
+          size: options?.size ?? 22,
+          font: FONT_BODY,
+        }));
+      });
   };
   const linkPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s<>()]+)/g;
   let cursor = 0;
@@ -102,10 +127,14 @@ function inlineRuns(
   return children;
 }
 
-function bodyParagraph(text: string): Paragraph {
+function bodyParagraph(text: string, compact = false): Paragraph {
   return new Paragraph({
     children: inlineRuns(text),
-    spacing: { line: 345, lineRule: LineRuleType.AUTO, after: 170 },
+    spacing: {
+      line: compact ? 315 : 345,
+      lineRule: LineRuleType.AUTO,
+      after: compact ? 115 : 170,
+    },
     widowControl: true,
   });
 }
@@ -366,7 +395,11 @@ function renderContent(
 
     if (block.type === "paragraph") {
       const kind = calloutKind(block.text);
-      children.push(kind ? callout(block.text, profile, kind) : bodyParagraph(block.text));
+      children.push(
+        kind
+          ? callout(block.text, profile, kind)
+          : bodyParagraph(block.text, profile.key === "deep_research")
+      );
       if (kind) children.push(new Paragraph({ spacing: { after: 100 } }));
       continue;
     }
@@ -376,7 +409,11 @@ function renderContent(
         new Paragraph({
           bullet: { level: block.level },
           children: inlineRuns(block.text),
-          spacing: { line: 330, lineRule: LineRuleType.AUTO, after: 110 },
+          spacing: {
+            line: profile.key === "deep_research" ? 300 : 330,
+            lineRule: LineRuleType.AUTO,
+            after: profile.key === "deep_research" ? 65 : 110,
+          },
           widowControl: true,
         })
       );
@@ -618,6 +655,7 @@ function staticTableOfContents(
   }
 
   let sectionIndex = 0;
+  const compact = profile.key === "deep_research";
   return [
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
@@ -638,7 +676,12 @@ function staticTableOfContents(
               width: { size: 13, type: WidthType.PERCENTAGE },
               verticalAlign: VerticalAlign.CENTER,
               borders: { bottom: bottomBorder },
-              margins: { top: 150, bottom: 150, left: 60, right: 80 },
+              margins: {
+                top: compact ? 55 : 150,
+                bottom: compact ? 55 : 150,
+                left: 60,
+                right: 80,
+              },
               children: [
                 new Paragraph({
                   children: [
@@ -648,7 +691,7 @@ function staticTableOfContents(
                         : "—",
                       bold: isPrimary,
                       color: isPrimary ? profile.accent : COLOR_MUTED,
-                      size: isPrimary ? 24 : 18,
+                      size: compact ? 19 : isPrimary ? 24 : 18,
                       font: FONT_HEADING,
                     }),
                   ],
@@ -660,8 +703,8 @@ function staticTableOfContents(
               verticalAlign: VerticalAlign.CENTER,
               borders: { bottom: bottomBorder },
               margins: {
-                top: isPrimary ? 180 : 120,
-                bottom: isPrimary ? 180 : 120,
+                top: compact ? 65 : isPrimary ? 180 : 120,
+                bottom: compact ? 65 : isPrimary ? 180 : 120,
                 left: isPrimary ? 100 : 360,
                 right: 80,
               },
@@ -669,7 +712,7 @@ function staticTableOfContents(
                 new Paragraph({
                   children: inlineRuns(entry.title, {
                     color: isPrimary ? profile.accentDark : COLOR_MUTED,
-                    size: isPrimary ? 23 : 19,
+                    size: compact ? 19 : isPrimary ? 23 : 19,
                     bold: isPrimary,
                   }),
                 }),
@@ -682,11 +725,60 @@ function staticTableOfContents(
   ];
 }
 
+function externalSourceAppendix(
+  sources: ReportExportSource[],
+  profile: FormalReportProfile
+): FileChild[] {
+  if (!sources.length) return [];
+  return [
+    new Paragraph({
+      heading: HeadingLevel.HEADING_2,
+      children: inlineRuns("外部来源链接附录", {
+        color: profile.accentDark,
+        size: 25,
+        bold: true,
+      }),
+      spacing: { before: 280, after: 130 },
+      keepNext: true,
+      border: {
+        left: {
+          style: BorderStyle.SINGLE,
+          size: 14,
+          color: profile.accent,
+          space: 8,
+        },
+      },
+      indent: { left: 160, right: 100 },
+    }),
+    ...sources.map((source) => {
+      const detail = [
+        source.publishedAt || "日期未确认",
+        source.sourceTier ? `等级${source.sourceTier}` : "",
+        source.evidenceStatus || "",
+      ].filter(Boolean).join("｜");
+      return new Paragraph({
+        children: [
+          ...inlineRuns(`【${source.id}】[${source.publisher}｜${source.title}](${source.url})`),
+          new TextRun({
+            text: detail ? `｜${detail}` : "",
+            color: COLOR_MUTED,
+            size: 18,
+            font: FONT_BODY,
+          }),
+        ],
+        spacing: { line: 300, lineRule: LineRuleType.AUTO, after: 90 },
+        widowControl: true,
+      });
+    }),
+  ];
+}
+
 export async function buildFormalDocxBuffer(input: {
   profile: FormalReportProfile;
   metadata: FormalReportMetadata;
   markdown: string;
   brand?: BrandConfig;
+  externalSources?: ReportExportSource[];
 }): Promise<Buffer> {
   const { profile, metadata, markdown } = input;
   const brand = input.brand ?? BRAND;
@@ -776,6 +868,7 @@ export async function buildFormalDocxBuffer(input: {
           ...staticTableOfContents(tocEntries, profile),
           new Paragraph({ children: [new PageBreak()] }),
           ...renderContent(markdown, profile, metadata.title),
+          ...externalSourceAppendix(input.externalSources ?? [], profile),
         ],
       },
     ],

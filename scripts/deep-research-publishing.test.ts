@@ -66,6 +66,17 @@ P0：取得合同、发票、验收与回款流水。
 当前缺少审计报告。
 `;
 
+const externalSources = [{
+  id: "E-S1",
+  title: "主体登记存档",
+  url: "https://archive.example.gov.cn/company/1",
+  publisher: "示例监管机构",
+  domain: "example.gov.cn",
+  publishedAt: "2026-10-20",
+  sourceTier: "S",
+  evidenceStatus: "full",
+}];
+
 async function main() {
   const blocks = parseFormalReportMarkdown(markdown);
   const financialTable = blocks.find((block) => block.type === "table");
@@ -81,6 +92,7 @@ async function main() {
       version: 1,
     },
     markdown,
+    externalSources,
   });
   const docxZip = await JSZip.loadAsync(docx);
   const documentXml = await docxZip.file("word/document.xml")!.async("string");
@@ -88,6 +100,7 @@ async function main() {
   assert.match(documentXml, /&lt;30%情景需复核/);
   assert.match(documentXml, /AI生成审核稿/);
   assert.match(relsXml, /https:\/\/example\.gov\.cn\/company\/1/);
+  assert.match(relsXml, /https:\/\/archive\.example\.gov\.cn\/company\/1/);
   assert.doesNotMatch(documentXml, /文档说明/);
 
   const pptx = await buildPptReportBuffer({
@@ -114,16 +127,29 @@ async function main() {
       stage: "成长期",
       reportDate: new Date("2026-10-28T00:00:00+08:00"),
     },
+    externalSources,
   });
   const pptxZip = await JSZip.loadAsync(pptx);
   const slideCount = Object.keys(pptxZip.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name)).length;
   assert.equal(slideCount, 14, "IC deck should stay within 15 slides");
+  const valuationSlide = await pptxZip.file("ppt/slides/slide7.xml")!.async("string");
+  assert.match(valuationSlide, /估值参数与敏感性/);
+  assert.doesNotMatch(valuationSlide, /研究身份/);
   const notes = await Promise.all(
     Object.keys(pptxZip.files)
       .filter((name) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(name))
       .map((name) => pptxZip.file(name)!.async("string"))
   );
   assert.match(notes.join("\n"), /https:\/\/example\.gov\.cn\/company\/1/);
+  assert.match(notes.join("\n"), /https:\/\/archive\.example\.gov\.cn\/company\/1/);
+  const notesWithSources = notes.filter((note) => /https:\/\//.test(note));
+  assert.equal(notesWithSources.length, 12, "all IC content slides should carry source notes");
+  const contentTypes = await pptxZip.file("[Content_Types].xml")!.async("string");
+  const missingTargets = Array.from(
+    contentTypes.matchAll(/<Override\b[^>]*PartName="\/([^"]+)"[^>]*\/>/g),
+    (match) => match[1]
+  ).filter((part) => !pptxZip.file(part));
+  assert.deepEqual(missingTargets, [], "PPTX content types must not reference missing parts");
 
   console.log("deep research publishing tests passed");
 }
