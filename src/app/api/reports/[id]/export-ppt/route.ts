@@ -80,7 +80,8 @@ export async function GET(
       projectName: report.project_name,
       industry: report.industry,
       stage: report.stage,
-      reportDate: new Date(report.created_at),
+      reportDate: new Date(),
+      dataCutoffDate: new Date(report.created_at),
     },
   });
   const filename = encodeURIComponent(
