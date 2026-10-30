@@ -131,6 +131,8 @@ P1.1 尚未部署，也未对线上“云合智能”报告重新生成。部署
 
 同日已将相同公共源码同步到中鉴智投白标站 `aivestor.com.cn`：使用独立 Release `/var/www/zhongjian-releases/d56efa56eec2554d182ed1a9a10d5569b8ccdc91`，白标部署提交为 `8625befc4e67ffe2c7978bf4a46c3ec2c629b47f`，原目录 `/var/www/zhongjian-zhitou` 保留为回滚点。迁移 048—050、应用账号精确 DML 权限、Web/独立 Worker、本机与公网健康及未登录项目页 307 均通过。过期证书已改用 Nginx 验证重新签发至 2027-01-28，并通过自动续期演练；中鉴品牌、数据库、域名和环境变量继续独立。真实样本仍随下一次自然业务使用验收，不为同步部署额外消耗模型额度。
 
+中鉴白标站随后将 `DEEP_RESEARCH_BETA_USER_IDS` 设为 `*`，仅对 `aivestor.com.cn` 的全部已登录注册用户开放深度投研，便于在真实使用中发现问题；`aivestor.cn` 主站门禁不变。变更前确认活动研究任务为0，Web与Worker计划内重启后均online，访问门禁与公网健康通过，环境备份位于 `/var/backups/zhongjian-deep-research-access/20261030-154300`。
+
 - 统一 TAM/SAM/SOM、单位经济、现金跑道、盈亏平衡和敏感性模板。
 - 三情景 IRR/MOIC、进入方式和退出路径使用用户参数与可追溯外部参数；缺参数时明确停步。
 - 生成同源网页、Word、PDF和PPT，冻结同一内容快照并执行结构/版式门禁。
