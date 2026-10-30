@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { parseFormalReportMarkdown } from "../src/lib/formal-report/markdown";
 import { buildFormalDocxBuffer } from "../src/lib/formal-report/docx";
 import { FORMAL_REPORT_PROFILES } from "../src/lib/formal-report/profiles";
+import { composeFormalReport } from "../src/lib/formal-report/composer";
 import { buildPptReportBuffer } from "../src/lib/ppt-report";
 import { BRAND } from "../src/lib/brand";
 
@@ -10,9 +11,13 @@ const markdown = `# 研究身份与边界
 
 当前为AI生成审核稿，已运行项目级外部检索和正文读取。
 
+使用材料包括项目文件与系统已保存的外部取证；未另行执行公开检索、工商司法核验、客户访谈、技术测试或付费数据库查询。
+
 # 执行摘要
 
-建议暂缓，先补齐客户回款与主体证明。【M1·P6】[src:doc]
+建议类型：暂缓。当前不进入TS；先完成主体、股权、审计报表、客户合同、产品测试五项P0核验，再决定是否进入条件式投资。【M1·P6】[src:doc]
+
+为什么必须暂缓：
 
 # 二、公司概览
 
@@ -26,7 +31,11 @@ const markdown = `# 研究身份与边界
 
 # 四、客户、市场与商业化能力
 
-收入确认链条尚未闭合。[src:gap]
+市场数字先统一口径：
+
+行业规模口径存在重复计算风险。[src:gap]
+
+客户合同、中标、验收与回款证据缺失，收入确认链条尚未闭合。[src:gap]
 
 # 五、核心团队深度分析
 
@@ -63,7 +72,8 @@ const markdown = `# 研究身份与边界
 
 | 级别 | 类别 | 验证动作 |
 | --- | --- | --- |
-| P0 | 主体与股权 | 取得工商档案、股东名册和历史变更材料 |
+| P0 | 主体证照与穿透 | 取得营业执照、统一社会信用代码和工商档案 |
+| P0 | 股权与关联关系 | 取得股东名册、历史变更、董事会和关联交易材料 |
 | P0 | 财务与审计 | 取得审计报告、总账和纳税申报表 |
 | P0 | 客户与收入 | 取得合同、发票、验收与回款流水 |
 | P0 | 产品与技术 | 完成产品测试并留存测试报告 |
@@ -99,15 +109,21 @@ async function main() {
   assert.ok(financialTable && financialTable.type === "table");
   assert.equal(financialTable.rows[2][2], "<30%情景需复核");
 
+  const docxMetadata = {
+    title: "示例项目深度投研报告",
+    projectName: "示例项目",
+    reportDate: new Date("2026-10-28T00:00:00+08:00"),
+    version: 1,
+  };
+  const composed = composeFormalReport({
+    profile: FORMAL_REPORT_PROFILES.deep_research,
+    metadata: docxMetadata,
+    markdown,
+  });
   const docx = await buildFormalDocxBuffer({
     profile: FORMAL_REPORT_PROFILES.deep_research,
-    metadata: {
-      title: "示例项目深度投研报告",
-      projectName: "示例项目",
-      reportDate: new Date("2026-10-28T00:00:00+08:00"),
-      version: 1,
-    },
-    markdown,
+    metadata: docxMetadata,
+    markdown: composed.markdown,
     externalSources,
   });
   const docxZip = await JSZip.loadAsync(docx);
@@ -115,6 +131,11 @@ async function main() {
   const relsXml = await docxZip.file("word/_rels/document.xml.rels")!.async("string");
   assert.match(documentXml, /&lt;30%情景需复核/);
   assert.match(documentXml, /AI生成审核稿/);
+  assert.doesNotMatch(documentXml, /为什么必须暂缓/);
+  assert.doesNotMatch(documentXml, /未另行执行公开检索/);
+  assert.match(documentXml, /未开展额外人工检索/);
+  assert.match(documentXml, /系统已保存的外部取证/);
+  assert.match(documentXml, /6类P0门禁核验/);
   assert.match(relsXml, /https:\/\/example\.gov\.cn\/company\/1/);
   assert.match(relsXml, /https:\/\/archive\.example\.gov\.cn\/company\/1/);
   assert.doesNotMatch(documentXml, /文档说明/);
@@ -158,6 +179,15 @@ async function main() {
   const evidenceSlide = await pptxZip.file("ppt/slides/slide3.xml")!.async("string");
   assert.match(evidenceSlide, /来源标记出现次数/);
   assert.match(evidenceSlide, /非去重证据条数/);
+  assert.match(evidenceSlide, /未开展额外人工检索/);
+  assert.doesNotMatch(evidenceSlide, /未另行执行公开检索/);
+  const conclusionSlide = await pptxZip.file("ppt/slides/slide2.xml")!.async("string");
+  assert.doesNotMatch(conclusionSlide, /为什么必须暂缓/);
+  assert.match(conclusionSlide, /6类P0门禁核验/);
+  const commercialSlide = await pptxZip.file("ppt/slides/slide5.xml")!.async("string");
+  assert.match(commercialSlide, /客户合同/);
+  assert.match(commercialSlide, /验收与回款/);
+  assert.doesNotMatch(commercialSlide, /市场数字先统一口径/);
   const p0Slide = await pptxZip.file("ppt/slides/slide11.xml")!.async("string");
   assert.match(p0Slide, /产品测试/);
   assert.match(p0Slide, /BOM/);
@@ -169,10 +199,17 @@ async function main() {
   assert.match(entryExitSlide, /退出路径/);
   const actionSlide = await pptxZip.file("ppt/slides/slide13.xml")!.async("string");
   assert.match(actionSlide, /责任人、完成时点、交付材料和复核结论/);
+  assert.match(actionSlide, /主体证照与穿透/);
+  assert.match(actionSlide, /股权与关联关系/);
+  assert.match(actionSlide, /财务与审计/);
+  assert.match(actionSlide, /客户与收入/);
+  assert.match(actionSlide, /产品测试与供应链/);
+  assert.match(actionSlide, /模型算法与数据授权/);
+  assert.match(actionSlide, /待指定/);
   assert.match(actionSlide, /决策触发/);
-  assert.doesNotMatch(actionSlide, /建议暂缓，先补齐客户回款与主体证明/);
   const endSlide = await pptxZip.file("ppt/slides/slide14.xml")!.async("string");
-  assert.match(endSlide, /建议暂缓，先补齐客户回款与主体证明/);
+  assert.match(endSlide, /6类P0门禁核验/);
+  assert.doesNotMatch(endSlide, /五项P0/);
   const slideXml = await Promise.all(
     Object.keys(pptxZip.files)
       .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))

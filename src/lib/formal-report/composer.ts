@@ -6,6 +6,7 @@ import type {
   FormalReportProfileKey,
 } from "@/lib/formal-report/types";
 import { stripActualHtmlTags } from "@/lib/reportText";
+import { normalizeDeepResearchExportMarkdown } from "@/lib/deepResearchExport";
 
 type SectionKey =
   | "executive"
@@ -271,7 +272,10 @@ export function composeFormalReport(input: {
   profile: FormalReportProfile;
   metadata: FormalReportMetadata;
 }): FormalReportComposition {
-  const blocks = parseFormalReportMarkdown(input.markdown);
+  const sourceMarkdown = input.profile.key === "deep_research"
+    ? normalizeDeepResearchExportMarkdown(input.markdown)
+    : input.markdown;
+  const blocks = parseFormalReportMarkdown(sourceMarkdown);
   // 深度投研的早期七项框架与成长/中后期16章框架均由研究任务确定。
   // 正式导出只做清洗与排版，不按通用模板重新归类，以免破坏研究顺序和固定尾章。
   if (input.profile.key === "deep_research") {

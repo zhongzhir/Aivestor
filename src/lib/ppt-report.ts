@@ -11,6 +11,10 @@ import {
   reportExportSourceNotes,
   type ReportExportSource,
 } from "@/lib/reportExportSources";
+import {
+  extractDeepResearchP0Items,
+  normalizeDeepResearchExportMarkdown,
+} from "@/lib/deepResearchExport";
 
 const WHITE = "FFFFFF";
 const INK = "1F2937";
@@ -445,7 +449,7 @@ const IC_SLIDES: IcSlideSpec[] = [
   { id: "conclusion", title: "投资结论与核心判断", sectionPatterns: [/执行摘要|综合评级|投资建议|综合研判/], fallback: "报告尚未形成可直接上会的结论摘要。", visual: "decision" },
   { id: "evidence", title: "证据成熟度与研究边界", sectionPatterns: [/研究身份|证据分级|数据来源|重要声明/], fallback: "证据成熟度需结合来源索引与质量门禁复核。", visual: "evidence", includeAllSources: true },
   { id: "company", title: "公司、产品与技术", sectionPatterns: [/公司概览|核心产品|技术|业务架构/], fallback: "公司与产品事实仍需补充可定位材料。" },
-  { id: "commercial", title: "商业化、客户与收入证据", sectionPatterns: [/客户|市场|商业化|商业模型|上下游/], fallback: "客户、合同、交付、回款与复购证据仍待补充。" },
+  { id: "commercial", title: "商业化、客户与收入证据", sectionPatterns: [/客户|市场|商业化|商业模型|上下游/], bodyPatterns: [/客户|合同|中标|验收|回款|复购|收入质量|收入确认|商业化/], fallback: "客户、合同、交付、回款与复购证据仍待补充。" },
   { id: "financial", title: "财务趋势与经营质量", sectionPatterns: [/财务分析|发展阶段与财务/], bodyPatterns: [/收入|利润|毛利|现金流/], fallback: "尚未形成可复核的结构化财务趋势。", visual: "financial" },
   { id: "valuation", title: "估值参数与敏感性", sectionPatterns: [/财务分析|投资价值|适配度|融资历史|机构分析|估值/], bodyPatterns: [/估值|敏感性|P\/S|EV\/EBITDA|市销率|市盈率|毛利率/], excludedSections: [/研究身份|重要声明|数据来源/], fallback: "估值参数或敏感性尚未形成可复核测算。" },
   { id: "team", title: "团队与组织能力", sectionPatterns: [/核心团队|团队|组织架构|人才缺口/], fallback: "关键人员履历、全职状态和组织能力仍待核验。" },
@@ -523,7 +527,8 @@ function icInsights(markdown: string, spec: IcSlideSpec): string[] {
     const candidates = matched.length ? [...matched, ...values.filter((value) => !matched.includes(value))] : values;
     for (const value of candidates) {
       const normalized = plain(value).replace(/\s+/g, " ").replace(/^[-•\d.、\s]+/, "").trim();
-      if (normalized.length < 8 || seen.has(normalized)) continue;
+      const emptyLabel = /^(?:为什么|核心|结论|判断|说明|备注|市场数字|退出路径比较)[^。；]{0,40}[：:]$/.test(normalized);
+      if (normalized.length < 8 || emptyLabel || seen.has(normalized)) continue;
       seen.add(normalized);
       insights.push(normalized);
       if (insights.length >= (spec.maxInsights ?? 4)) return insights;
@@ -538,6 +543,10 @@ function displayInsight(value: string): string {
 
 function finalizeIcInsights(markdown: string, spec: IcSlideSpec): string[] {
   const base = icInsights(markdown, spec);
+  const p0Items = extractDeepResearchP0Items(markdown);
+  if (spec.id === "p0" && p0Items.length) {
+    return p0Items.map((item) => `P0：${item.label}｜${item.detail}`);
+  }
   if (spec.id === "entry_exit") {
     const result = [...base];
     if (!result.some((value) => /进入|投资方式|分期出资|里程碑|估值|条款/.test(value))) {
@@ -549,10 +558,14 @@ function finalizeIcInsights(markdown: string, spec: IcSlideSpec): string[] {
     return result.slice(0, spec.maxInsights ?? 6);
   }
   if (spec.id === "actions") {
-    const tasks = base.filter((value) => value !== spec.fallback).slice(0, 3);
+    const groups = p0Items.length
+      ? Array.from({ length: Math.ceil(p0Items.length / 2) }, (_, index) =>
+          p0Items.slice(index * 2, index * 2 + 2).map((item) => item.label).join("、")
+        )
+      : base.filter((value) => value !== spec.fallback).slice(0, 3);
     return [
-      "行动规则：每项P0必须明确责任人、完成时点、交付材料和复核结论；完成前不进入TS或估值锚定。",
-      ...tasks.map((value) => `交付任务：${value}`),
+      "行动规则：全部P0门禁均须指定责任人、完成时点、交付材料和复核结论；缺失信息显示为待指定，完成前不进入TS或估值锚定。",
+      ...groups.map((value, index) => `任务组${index + 1}：${value}；交付材料按P0清单；责任人、完成时点、复核结论：待指定。`),
       "决策触发：P0全部通过后进入估值、条款与分期出资决策；任一一票否决项未通过则维持暂缓或否决。",
     ].slice(0, spec.maxInsights ?? 5);
   }
@@ -870,8 +883,12 @@ function addIcSlide(
 }
 
 export async function buildPptReportBuffer(input: PptReportBuildInput): Promise<Buffer> {
-  const { metadata, brand } = input;
-  const sections = parsePptSections(input.markdown);
+  const markdown = input.mode === "deep_research_ic"
+    ? normalizeDeepResearchExportMarkdown(input.markdown)
+    : input.markdown;
+  const renderInput = markdown === input.markdown ? input : { ...input, markdown };
+  const { metadata, brand } = renderInput;
+  const sections = parsePptSections(markdown);
   const pptx = new pptxgen();
   pptx.layout = "LAYOUT_WIDE";
   pptx.author = brand.productName;
@@ -946,19 +963,19 @@ export async function buildPptReportBuffer(input: PptReportBuildInput): Promise<
       color: "C7D0E0",
       margin: 0,
     });
-    const conclusionInsights = finalizeIcInsights(input.markdown, IC_SLIDES[0]);
+    const conclusionInsights = finalizeIcInsights(markdown, IC_SLIDES[0]);
     for (const [index, spec] of IC_SLIDES.entries()) {
-      const insights = finalizeIcInsights(input.markdown, spec);
+      const insights = finalizeIcInsights(markdown, spec);
       const sourceNotes = buildIcSlideNotes(
         insights,
-        input.externalSources ?? [],
+        renderInput.externalSources ?? [],
         spec.includeAllSources
       );
       addIcSlide(
         pptx,
         spec,
         insights,
-        input,
+        renderInput,
         date,
         sourceNotes,
         index + 1
