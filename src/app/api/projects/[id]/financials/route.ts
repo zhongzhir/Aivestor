@@ -10,6 +10,11 @@ import {
   accessErrorResponse,
 } from "@/lib/resourceAccess";
 import type { FinancialData } from "@/lib/types";
+import {
+  buildDeepResearchMaterialContext,
+  type DeepResearchMaterial,
+} from "@/lib/deepResearch";
+import { normalizeSourceMap } from "@/lib/sourceMap";
 
 export const maxDuration = 120;
 
@@ -41,7 +46,7 @@ const SYSTEM_PROMPT = `你是专业的财务数据提取助手，专门从投资
    - burn_rate：月均净消耗 / Monthly Burn Rate / 月均烧钱速度（负数），如只有年度数据则除以12换算
    - runway_months：现金跑道月数 / Runway（如 BP 中明确写"预计可支撑 X 个月"则直接提取；否则用 cash / |burn_rate| 推算）
      - runway_months 用 FinKeyMetric 格式，label="现金跑道"，value="XX个月"，year=最新年份，confidence=high（直接披露）/ low（推算值）
-5. 对每个数据点，记录：数值、年份/期间、货币单位
+5. 对每个数据点，记录：数值、年份/期间、货币单位和 source。source.locator 必须使用用户材料中真实存在的 M 编号及定位，例如 M1·P3、M2·SHEET:预测!B2 或 M3·PARA12-15；旧材料没有细粒度定位时只能写 M1，不得编造页码、单元格或段落。
 6. 区分历史数据（actual）和预测数据（forecast）：
    如果表格列标注了 PF/forecast/projected/预测/E（如 2024E），type 标为 forecast；
    否则标为 actual
@@ -55,7 +60,7 @@ const SYSTEM_PROMPT = `你是专业的财务数据提取助手，专门从投资
   "unit": "万/百万/...",
   "extraction_quality": "high/medium/low",
   "extraction_note": "说明提取质量，如有低置信度数据请注明",
-  "revenue": [{ "year": 2023, "value": 5.8, "type": "actual", "confidence": "high" }],
+  "revenue": [{ "year": 2023, "value": 5.8, "type": "actual", "confidence": "high", "source": {"kind":"document","locator":"M1·P3","label":"收入预测表"} }],
   "ebitda": [{ "year": 2023, "value": 0.5, "type": "actual", "confidence": "high" }],
   "ebit": [],
   "net_income": [],
@@ -67,7 +72,7 @@ const SYSTEM_PROMPT = `你是专业的财务数据提取助手，专门从投资
   "mrr": [],
   "cash": [{ "year": 2024, "value": 500, "type": "actual", "confidence": "high" }],
   "burn_rate": [{ "year": 2024, "value": -80, "type": "actual", "confidence": "high" }],
-  "runway_months": [{ "label": "现金跑道", "value": "6个月", "year": 2024, "confidence": "low", "note": "由现金/烧钱速度推算" }],
+  "runway_months": [{ "label": "现金跑道", "value": "6个月", "year": 2024, "confidence": "low", "note": "由现金/烧钱速度推算", "source": {"kind":"document","locator":"M1·P8"} }],
   "valuation": [],
   "key_metrics": [{ "label": "...", "value": "...", "year": 2023, "confidence": "high", "note": "" }]
 }
@@ -110,6 +115,20 @@ const EMPTY: FinancialData = {
   key_metrics: [],
 };
 
+function coerceSource(value: unknown): FinancialData["revenue"][number]["source"] {
+  if (!value || typeof value !== "object") return undefined;
+  const source = value as Record<string, unknown>;
+  const locator = typeof source.locator === "string" ? source.locator.trim() : "";
+  if (!/^M\d+(?:·.+)?$/.test(locator)) return undefined;
+  return {
+    kind: "document",
+    locator,
+    ...(typeof source.label === "string" && source.label.trim()
+      ? { label: source.label.trim().slice(0, 100) }
+      : {}),
+  };
+}
+
 function coercePoints(v: unknown): FinancialData["revenue"] {
   if (!Array.isArray(v)) return [];
   return v
@@ -120,6 +139,7 @@ function coercePoints(v: unknown): FinancialData["revenue"] {
       type: o.type === "forecast" ? ("forecast" as const) : ("actual" as const),
       confidence:
         o.confidence === "low" ? ("low" as const) : ("high" as const),
+      source: coerceSource(o.source),
     }))
     .filter((p) => p.year > 0);
 }
@@ -135,6 +155,7 @@ function coerceMetrics(v: unknown): FinancialData["key_metrics"] {
       confidence:
         o.confidence === "low" ? ("low" as const) : ("high" as const),
       note: String(o.note ?? ""),
+      source: coerceSource(o.source),
     }));
 }
 
@@ -167,6 +188,37 @@ function extractJson(text: string): FinancialData {
   return result;
 }
 
+function validateFinancialSources(
+  financialData: FinancialData,
+  validLocators: Set<string>
+): FinancialData {
+  let invalidCount = 0;
+  for (const key of POINT_KEYS) {
+    financialData[key] = financialData[key].map((point) => {
+      if (point.source?.locator && validLocators.has(point.source.locator)) return point;
+      invalidCount += 1;
+      return { ...point, confidence: "low" as const, source: undefined };
+    });
+  }
+  for (const key of ["runway_months", "key_metrics"] as const) {
+    financialData[key] = financialData[key].map((metric) => {
+      if (metric.source?.locator && validLocators.has(metric.source.locator)) return metric;
+      invalidCount += 1;
+      return { ...metric, confidence: "low" as const, source: undefined };
+    });
+  }
+  if (invalidCount > 0) {
+    financialData.extraction_note = [
+      financialData.extraction_note,
+      `${invalidCount}个数据点未返回有效原始定位，已降为低置信度并标记待复核`,
+    ].filter(Boolean).join("；");
+    if (financialData.extraction_quality === "high") {
+      financialData.extraction_quality = "medium";
+    }
+  }
+  return financialData;
+}
+
 // POST /api/projects/[id]/financials — 从 BP 提取结构化财务数据
 export async function POST(
   _req: Request,
@@ -192,18 +244,28 @@ export async function POST(
     );
   }
 
-  const docs = await query<{ extracted_text: string | null }>(
-    `SELECT extracted_text FROM documents
+  const docs = await query<{
+    filename: string;
+    doc_kind: string;
+    extracted_text: string | null;
+    source_map: unknown;
+  }>(
+    `SELECT filename, doc_kind, extracted_text, source_map FROM documents
       WHERE project_id = $1
         AND extracted_text IS NOT NULL
         AND doc_kind IN ('bp', 'research', 'financial_model', 'other')
       ORDER BY created_at ASC`,
     [params.id]
   );
-  const bpText = docs
-    .map((d) => d.extracted_text)
-    .filter(Boolean)
-    .join("\n\n---\n\n");
+  const materials = docs
+    .filter((doc): doc is typeof doc & { extracted_text: string } => Boolean(doc.extracted_text))
+    .map<DeepResearchMaterial>((doc) => ({
+      filename: doc.filename,
+      docKind: doc.doc_kind,
+      extractedText: doc.extracted_text,
+      sourceMap: doc.source_map,
+    }));
+  const bpText = buildDeepResearchMaterialContext(materials);
   if (!bpText) {
     return NextResponse.json(
       { error: "该项目尚未上传可解析的 BP 文档" },
@@ -242,6 +304,16 @@ export async function POST(
       { status: 502 }
     );
   }
+
+  const validLocators = new Set<string>();
+  materials.forEach((material, index) => {
+    const documentId = `M${index + 1}`;
+    validLocators.add(documentId);
+    for (const entry of normalizeSourceMap(material.sourceMap)) {
+      validLocators.add(`${documentId}·${entry.locator}`);
+    }
+  });
+  financialData = validateFinancialSources(financialData, validLocators);
 
   await query("UPDATE projects SET financial_data = $1 WHERE id = $2 AND deleted_at IS NULL", [
     JSON.stringify(financialData),

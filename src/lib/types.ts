@@ -78,12 +78,19 @@ export interface KnowledgeBaseEntry {
 export type FinPointType = "actual" | "forecast";
 export type FinConfidence = "high" | "low";
 
+export interface FinSourceRef {
+  kind: "excel" | "document" | "manual" | "derived";
+  locator: string;
+  label?: string;
+}
+
 // 单个时间序列数据点（收入、利润、利润率等）
 export interface FinPoint {
   year: number;
   value: number;
   type: FinPointType;
   confidence: FinConfidence;
+  source?: FinSourceRef;
 }
 
 // 关键指标（自由文本型）
@@ -93,6 +100,7 @@ export interface FinKeyMetric {
   year: number | null;
   confidence: FinConfidence;
   note: string;
+  source?: FinSourceRef;
 }
 
 export interface FinValuation {
@@ -101,6 +109,7 @@ export interface FinValuation {
   value: number | string;
   unit?: string;
   confidence?: FinConfidence;
+  source?: FinSourceRef;
 }
 
 export interface FinancialData {

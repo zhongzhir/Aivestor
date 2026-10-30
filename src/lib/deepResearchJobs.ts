@@ -11,6 +11,7 @@ import { buildAccessScope } from "@/lib/resourceAccess";
 import { injectProfile } from "@/lib/user-profile";
 import { injectMarketContext, injectOrgKnowledge } from "@/lib/orgInject";
 import type { FinancialData } from "@/lib/types";
+import { buildDeepResearchQuantitativeAnalysis } from "@/lib/deepResearchQuantitative";
 
 export type DeepResearchJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type DeepResearchJobPhase = "queued" | "external_research" | "report_generation" | "quality_gate" | "task_creation" | "completed" | "failed";
@@ -186,6 +187,10 @@ export async function runClaimedDeepResearchJob(job: DeepResearchJobRow): Promis
       })),
       financialData: project.financial_data,
       externalResearch: external,
+      quantitativeAnalysis: buildDeepResearchQuantitativeAnalysis({
+        financialData: project.financial_data,
+        decisionContext: job.decision_context,
+      }),
     });
     const scope = await buildAccessScope(job.user_id);
     const retrievalQuery = [project.name, project.company_name, project.industry, ...(project.judgment_points ?? [])]
@@ -222,10 +227,15 @@ export async function runClaimedDeepResearchJob(job: DeepResearchJobRow): Promis
       ),
       ...external.findings.map((_, index) => `E${index + 1}`),
     ];
+    const quantitativeAnalysis = buildDeepResearchQuantitativeAnalysis({
+      financialData: project.financial_data,
+      decisionContext: job.decision_context,
+    });
     const metadata = buildDeepResearchMetadata({
       content,
       profile: generation.resolvedProfile,
       validCitations,
+      quantitativeAnalysis,
     });
     const title = `${project.name} · 深度投研报告`;
     let reportId = job.report_id;

@@ -26,6 +26,7 @@ import {
   type DeepResearchMetadata,
 } from "@/lib/deepResearchWorkpaper";
 import type { ResolvedDeepResearchProfile } from "@/lib/deepResearch";
+import type { DeepResearchQuantitativeAnalysis } from "@/lib/deepResearchQuantitative";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
@@ -363,6 +364,11 @@ export function ReportView({
                 ledger={researchMetadata?.evidenceLedger ?? workpaper.ledger}
               />
             )}
+            {researchMetadata?.quantitativeAnalysis && !streaming && (
+              <DeepResearchQuantitativePanel
+                analysis={researchMetadata.quantitativeAnalysis}
+              />
+            )}
             {!streaming && <SourceLegend />}
           </>
         );
@@ -439,6 +445,101 @@ export function ReportView({
         </div>
       </div>
     </div>
+  );
+}
+
+function DeepResearchQuantitativePanel({
+  analysis,
+}: {
+  analysis: DeepResearchQuantitativeAnalysis;
+}) {
+  const statusLabel = analysis.status === "ready"
+    ? "可计算"
+    : analysis.status === "partial"
+      ? "部分可计算"
+      : "参数不足";
+  const statusStyle = analysis.status === "ready"
+    ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+    : analysis.status === "partial"
+      ? "border-amber-200 bg-amber-50 text-amber-950"
+      : "border-slate-200 bg-slate-50 text-slate-800";
+  const percent = (value: number | null) => value == null
+    ? "—"
+    : `${(value * 100).toFixed(1)}%`;
+  const multiple = (value: number | null) => value == null
+    ? "—"
+    : `${value.toFixed(2)}x`;
+
+  return (
+    <section className={`mt-6 rounded-lg border p-4 ${statusStyle}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">量化分析底稿 · {statusLabel}</h2>
+          <p className="mt-1 text-xs opacity-75">
+            币种/财务单位：{analysis.currency}/{analysis.financialUnit}；计算结果只使用已保存参数，缺参不补猜。
+          </p>
+        </div>
+        <span className="rounded-full border border-current/20 bg-white/60 px-2 py-1 text-xs">
+          模型 v{analysis.version}
+        </span>
+      </div>
+
+      {analysis.metrics.length > 0 && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {analysis.metrics.slice(0, 9).map((metric) => (
+            <div key={metric.id} className="rounded-md border border-current/15 bg-white/70 p-3">
+              <p className="text-xs opacity-70">{metric.label}</p>
+              <p className="mt-1 text-base font-semibold">{metric.displayValue}</p>
+              <p className="mt-1 text-[11px] leading-4 opacity-70">
+                {metric.formula || metric.note}
+              </p>
+              <p className="mt-1 truncate text-[11px] opacity-60" title={metric.sourceRefs.join("；")}>
+                来源：{metric.sourceRefs.join("；") || "待补"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-4 overflow-x-auto rounded-md border border-current/15 bg-white/70">
+        <table className="w-full min-w-[620px] text-left text-xs">
+          <thead className="border-b border-current/10">
+            <tr>
+              <th className="px-3 py-2 font-medium">回报情景</th>
+              <th className="px-3 py-2 font-medium">状态</th>
+              <th className="px-3 py-2 font-medium">持股</th>
+              <th className="px-3 py-2 font-medium">MOIC</th>
+              <th className="px-3 py-2 font-medium">IRR</th>
+              <th className="px-3 py-2 font-medium">缺失参数</th>
+            </tr>
+          </thead>
+          <tbody>
+            {analysis.scenarios.map((scenario) => (
+              <tr key={scenario.id} className="border-b border-current/10 last:border-0">
+                <td className="px-3 py-2 font-medium">{scenario.label}</td>
+                <td className="px-3 py-2">{scenario.status === "computed" ? "已计算" : "已阻断"}</td>
+                <td className="px-3 py-2">{percent(scenario.ownership)}</td>
+                <td className="px-3 py-2">{multiple(scenario.moic)}</td>
+                <td className="px-3 py-2">{percent(scenario.irr)}</td>
+                <td className="px-3 py-2">{scenario.missingInputs.join("、") || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {(analysis.blockers.length > 0 || analysis.warnings.length > 0) && (
+        <details className="mt-3 text-xs">
+          <summary className="cursor-pointer font-medium">
+            查看阻断项与复核提示（{analysis.blockers.length + analysis.warnings.length}）
+          </summary>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {analysis.blockers.map((item) => <li key={`blocker-${item}`}>阻断：{item}</li>)}
+            {analysis.warnings.map((item) => <li key={`warning-${item}`}>复核：{item}</li>)}
+          </ul>
+        </details>
+      )}
+    </section>
   );
 }
 

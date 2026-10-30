@@ -1,4 +1,5 @@
 import type { ResolvedDeepResearchProfile } from "@/lib/deepResearch";
+import type { DeepResearchQuantitativeAnalysis } from "@/lib/deepResearchQuantitative";
 
 export type EvidenceStatus = "document" | "data" | "external" | "analysis" | "gap" | "inconsistent";
 export type ResearchGateStatus = "pass" | "review" | "blocked";
@@ -40,6 +41,7 @@ export interface DeepResearchMetadata {
   gate: DeepResearchGate;
   generatedAt: string;
   reviewStatus?: "ai_draft" | "reviewed";
+  quantitativeAnalysis?: DeepResearchQuantitativeAnalysis;
 }
 
 const LEDGER_RE = /\[EVIDENCE_LEDGER_START\]([\s\S]*?)\[EVIDENCE_LEDGER_END\]/;
@@ -212,13 +214,31 @@ export function buildDeepResearchMetadata(input: {
   content: string;
   profile: ResolvedDeepResearchProfile;
   validCitations?: string[];
+  quantitativeAnalysis?: DeepResearchQuantitativeAnalysis | null;
 }): DeepResearchMetadata {
   const assessed = assessDeepResearchReport(input);
+  const quantitativeIssues = input.quantitativeAnalysis?.status === "ready"
+    ? []
+    : input.quantitativeAnalysis?.status === "partial"
+      ? ["量化分析仅部分可计算，缺失参数对应情景已停止测算"]
+      : input.quantitativeAnalysis
+        ? ["量化分析缺少必要财务或决策参数，未生成回报结论"]
+        : [];
+  const gate = quantitativeIssues.length === 0
+    ? assessed.gate
+    : {
+        ...assessed.gate,
+        status: assessed.gate.status === "pass" ? "review" as const : assessed.gate.status,
+        issues: [...assessed.gate.issues, ...quantitativeIssues],
+      };
   return {
     profile: input.profile,
     evidenceLedger: assessed.ledger,
-    gate: assessed.gate,
+    gate,
     generatedAt: new Date().toISOString(),
     reviewStatus: "ai_draft",
+    ...(input.quantitativeAnalysis
+      ? { quantitativeAnalysis: input.quantitativeAnalysis }
+      : {}),
   };
 }

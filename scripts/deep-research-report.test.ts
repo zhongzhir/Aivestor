@@ -60,6 +60,10 @@ assert.match(early.system, /\[src:external\]/);
 assert.match(early.messages[0].content, /资料截止日：2026-10-26/);
 assert.match(early.messages[0].content, /拟投资2000万元/);
 assert.match(early.messages[0].content, /【M2】财务模型\.xlsx/);
+assert.match(early.messages[0].content, /确定性量化分析底稿/);
+assert.match(early.messages[0].content, /基准情景：停止测算/);
+assert.match(early.messages[0].content, /blocked 项不得补猜/);
+assert.match(early.messages[0].content, /缺少投前估值或投后估值/);
 
 const comprehensive = buildDeepResearchMessages({
   projectName: "成长项目",

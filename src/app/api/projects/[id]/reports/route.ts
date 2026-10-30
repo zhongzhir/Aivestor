@@ -27,6 +27,7 @@ import { buildDeepResearchMetadata } from "@/lib/deepResearchWorkpaper";
 import { normalizeSourceMap } from "@/lib/sourceMap";
 import type { DeepResearchExternalResult } from "@/lib/deepResearchExternal";
 import { canUseDeepResearchBeta } from "@/lib/deepResearchAccess";
+import { buildDeepResearchQuantitativeAnalysis } from "@/lib/deepResearchQuantitative";
 
 export const maxDuration = 300;
 
@@ -159,6 +160,12 @@ export async function POST(
       )
     : [];
   const externalResearch = externalRows[0]?.external_research ?? null;
+  const quantitativeAnalysis = deepResearch
+    ? buildDeepResearchQuantitativeAnalysis({
+        financialData: project.financial_data,
+        decisionContext,
+      })
+    : null;
 
   // 保存本轮判断要点到项目
   await query("UPDATE projects SET judgment_points = $1 WHERE id = $2 AND deleted_at IS NULL", [
@@ -199,6 +206,7 @@ export async function POST(
         })),
         financialData: project.financial_data,
         externalResearch,
+        quantitativeAnalysis,
       })
     : buildGenerationMessages({
         projectName: project.name,
@@ -268,6 +276,7 @@ export async function POST(
           content: fullText,
           profile: resolvedResearchProfile,
           validCitations,
+          quantitativeAnalysis,
         });
         await query(
           "UPDATE reports SET content = $1, research_metadata = $2 WHERE id = $3",

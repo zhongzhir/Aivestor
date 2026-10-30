@@ -2,6 +2,11 @@ import type { ChatMessage } from "@/lib/ai";
 import type { FinancialData } from "@/lib/types";
 import { normalizeSourceMap, type SourceMapEntry } from "@/lib/sourceMap";
 import type { DeepResearchExternalResult } from "@/lib/deepResearchExternal";
+import {
+  buildDeepResearchQuantitativeAnalysis,
+  quantitativeAnalysisPromptBlock,
+  type DeepResearchQuantitativeAnalysis,
+} from "@/lib/deepResearchQuantitative";
 
 export type DeepResearchProfile = "auto" | "early_stage" | "comprehensive";
 export type ResolvedDeepResearchProfile = Exclude<DeepResearchProfile, "auto">;
@@ -25,6 +30,7 @@ export interface DeepResearchMessageInput {
   materials: DeepResearchMaterial[];
   financialData?: FinancialData | null;
   externalResearch?: DeepResearchExternalResult | null;
+  quantitativeAnalysis?: DeepResearchQuantitativeAnalysis | null;
 }
 
 const EARLY_STAGE_PATTERN =
@@ -204,6 +210,11 @@ export function buildDeepResearchMessages(
     .map((point, index) => `${index + 1}. ${point}`)
     .join("\n");
   const sourceCutoffDate = input.sourceCutoffDate || new Date().toISOString().slice(0, 10);
+  const quantitativeAnalysis = input.quantitativeAnalysis
+    ?? buildDeepResearchQuantitativeAnalysis({
+      financialData: input.financialData,
+      decisionContext: input.decisionContext,
+    });
   const userContent = `## 项目与任务
 - 项目名称：${input.projectName}
 - 法定主体：${input.companyName || "待唯一化核验"}
@@ -221,6 +232,9 @@ ${input.decisionContext?.trim() || "（未提供；不阻塞公司与行业研�
 ## 结构化财务数据
 ${financialContext(input.financialData)}
 
+## 确定性量化分析底稿
+${quantitativeAnalysisPromptBlock(quantitativeAnalysis)}
+
 ## 项目级外部取证结果
 ${externalResearchContext(input.externalResearch)}
 
@@ -235,7 +249,8 @@ ${buildDeepResearchMaterialContext(input.materials)}
 5. 对数字门槛逐项标明“机构输入”或“建议验证阈值”；没有输入依据时不得写成硬性红线。建议阈值须说明适用目的和调整条件。
 6. 报告中单列“已确认负面事实、证据缺口、建议验证阈值”三类清单，不得混写。
 7. 结论必须落到建议类型、前置条件、进入方式、退出路径和升级/维持/否决触发器。
-8. 输出一份可以直接进入项目讨论、继续补证和导出审核稿的完整报告。`;
+8. 财务增速、利润率、现金跑道、盈亏平衡、持股比例、MOIC 和 IRR 只允许引用“确定性量化分析底稿”；不得自行重算被阻断的情景或填补缺失参数。
+9. 输出一份可以直接进入项目讨论、继续补证和导出审核稿的完整报告。`;
 
   const evidenceLedgerInstruction = `
 

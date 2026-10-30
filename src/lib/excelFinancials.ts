@@ -86,18 +86,23 @@ function findYearRow(
 }
 
 // 从一个（已使年份位于表头行的）矩阵中收集数据点。
-function harvest(matrix: unknown[][]): { field: keyof FinancialData; point: FinPoint }[] {
+function harvest(
+  matrix: unknown[][],
+  sourceAt: (row: number, column: number) => string
+): { field: keyof FinancialData; point: FinPoint }[] {
   const header = findYearRow(matrix);
   if (!header) return [];
   const out: { field: keyof FinancialData; point: FinPoint }[] = [];
   for (let r = header.rowIdx + 1; r < matrix.length; r++) {
     const row = matrix[r] || [];
     let label = "";
+    let labelColumn = -1;
     for (let c = 0; c < row.length; c++) {
       if (header.cols.has(c)) continue;
       const v = row[c];
       if (v != null && String(v).trim() !== "") {
         label = String(v).trim();
+        labelColumn = c;
         break;
       }
     }
@@ -114,6 +119,11 @@ function harvest(matrix: unknown[][]): { field: keyof FinancialData; point: FinP
           value: num,
           type: year <= CURRENT_YEAR ? "actual" : "forecast",
           confidence: "high",
+          source: {
+            kind: "excel",
+            locator: sourceAt(r, c),
+            label: labelColumn >= 0 ? sourceAt(r, labelColumn) : label,
+          },
         },
       });
     }
@@ -159,8 +169,14 @@ export function extractExcelFinancials(buffer: Buffer): FinancialData | null {
       blankrows: false,
     });
     // 同时尝试行向/列向布局，取识别数据点更多的一种
-    const rowOriented = harvest(matrix);
-    const colOriented = harvest(transpose(matrix));
+    const rowOriented = harvest(
+      matrix,
+      (row, column) => `SHEET:${name}!${XLSX.utils.encode_cell({ r: row, c: column })}`
+    );
+    const colOriented = harvest(
+      transpose(matrix),
+      (row, column) => `SHEET:${name}!${XLSX.utils.encode_cell({ r: column, c: row })}`
+    );
     const chosen =
       rowOriented.length >= colOriented.length ? rowOriented : colOriented;
     for (const { field, point } of chosen) {

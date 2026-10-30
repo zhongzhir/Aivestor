@@ -19,6 +19,7 @@ import {
 } from "@/lib/deepResearchWorkpaper";
 import { resolveDeepResearchProfile } from "@/lib/deepResearch";
 import { normalizeSourceMap } from "@/lib/sourceMap";
+import { quantitativeAnalysisPromptBlock } from "@/lib/deepResearchQuantitative";
 
 export const maxDuration = 120;
 
@@ -120,10 +121,13 @@ export async function POST(
     validCitations.push(...Array.from({ length: externalCount }, (_, index) => `E${index + 1}`));
   }
 
-  const { system, messages } = buildRefineMessages({
+  const refinement = buildRefineMessages({
     currentReport: report.content,
     instruction,
   });
+  const system = deepResearch && report.research_metadata?.quantitativeAnalysis
+    ? `${refinement.system}\n\n以下为已冻结的确定性量化底稿。修改报告时不得改变其数值、公式或来源，不得补算 blocked 情景；如用户要改变决策参数，应重新发起深度投研。\n${quantitativeAnalysisPromptBlock(report.research_metadata.quantitativeAnalysis)}`
+    : refinement.system;
 
   const generator = streamChat({
     provider: creds.provider,
@@ -133,7 +137,7 @@ export async function POST(
     system: await injectProfile(session.user.id, system, {
       explicitInstruction: instruction,
     }),
-    messages,
+    messages: refinement.messages,
   });
 
   return streamTextResponse(generator, async (fullText) => {
@@ -146,6 +150,7 @@ export async function POST(
         content: fullText,
         profile: researchProfile,
         validCitations,
+        quantitativeAnalysis: report.research_metadata?.quantitativeAnalysis,
       });
       await query(
         `UPDATE reports
