@@ -206,13 +206,14 @@ console.log("PASS: deep research worker module loaded");
 NODE
 
 printf '\n===== 6. Database migrations 048-050 =====\n'
-runuser -u postgres -- psql \
-  --dbname=zhongjian_zhitou \
-  --set=ON_ERROR_STOP=1 \
-  --single-transaction \
-  --file=db/migrations/048_deep_research_reports.sql \
-  --file=db/migrations/049_deep_research_evidence.sql \
-  --file=db/migrations/050_deep_research_jobs.sql
+cat \
+  db/migrations/048_deep_research_reports.sql \
+  db/migrations/049_deep_research_evidence.sql \
+  db/migrations/050_deep_research_jobs.sql |
+  runuser -u postgres -- psql \
+    --dbname=zhongjian_zhitou \
+    --set=ON_ERROR_STOP=1 \
+    --single-transaction
 
 runuser -u postgres -- psql \
   --dbname=zhongjian_zhitou \
