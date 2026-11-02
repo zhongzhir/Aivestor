@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { intelligenceFormVisibility } from "@/lib/intelligenceFormVisibility";
 
 type Task = Record<string, any>;
 type Brief = Record<string, any>;
@@ -61,6 +62,10 @@ export default function IntelligenceSubscriptions() {
   const [editing, setEditing] = useState<Task | null>(null);
   const [advancedSeed, setAdvancedSeed] = useState<Task | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [advancedLookbackKind, setAdvancedLookbackKind] = useState("3");
+  const [advancedExecutionMode, setAdvancedExecutionMode] = useState<"manual" | "scheduled">("manual");
+  const [advancedFrequency, setAdvancedFrequency] = useState("weekly");
+  const [showDetailedScope, setShowDetailedScope] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -122,8 +127,20 @@ export default function IntelligenceSubscriptions() {
   }
 
   function openAdvanced(task?: Task, seed?: Task) {
+    const source = task ?? seed ?? {};
+    const lookback = read(source, "lookbackPeriod", "lookback_period", {});
+    const schedule = scheduleOf(source);
     setEditing(task ?? null);
     setAdvancedSeed(seed ?? null);
+    setAdvancedLookbackKind(lookback?.kind === "custom" ? "custom" : String(lookback?.value ?? 3));
+    setAdvancedExecutionMode(read(source, "executionMode", "execution_mode", "manual") === "scheduled" ? "scheduled" : "manual");
+    setAdvancedFrequency(schedule.frequency ?? "weekly");
+    setShowDetailedScope([
+      read(source, "keywords", "keywords", []),
+      read(source, "regions", "regions", []),
+      read(source, "includeRequirements", "include_requirements", []),
+      read(source, "excludeRequirements", "exclude_requirements", []),
+    ].some((value) => Array.isArray(value) && value.length > 0) || lookback?.kind === "custom");
     setShowForm(true);
   }
 
@@ -151,12 +168,18 @@ export default function IntelligenceSubscriptions() {
         : { kind: "days", value: Number(form.get("lookbackKind") ?? 3) };
     } catch { setError("时间范围需要填写完整，请再试一次。 "); setBusy(false); return; }
     try {
+      const frequency = String(form.get("frequency") ?? "daily");
       const payload = {
         name: String(form.get("name") ?? ""), topics: csv("topics"), entities: csv("entities"), keywords: csv("keywords"), regions: csv("regions"),
         includeRequirements: csv("includeRequirements"), excludeRequirements: csv("excludeRequirements"), maxItems: Number(form.get("maxItems") ?? 10),
         lookbackPeriod, outputInstructions: String(form.get("outputInstructions") ?? ""), executionMode,
         isActive: form.get("isActive") === "on",
-        scheduleConfig: executionMode === "scheduled" ? { frequency: String(form.get("frequency") ?? "daily"), time: String(form.get("time") ?? "09:00"), timezone: String(form.get("timezone") ?? "Asia/Shanghai"), weekdays: [Number(form.get("weekday") ?? 1)] } : null,
+        scheduleConfig: executionMode === "scheduled" ? {
+          frequency,
+          time: String(form.get("time") ?? "09:00"),
+          timezone: String(form.get("timezone") ?? "Asia/Shanghai"),
+          ...(frequency === "weekly" ? { weekdays: [Number(form.get("weekday") ?? 1)] } : {}),
+        } : null,
       };
       const url = editing ? `/api/data-apps/intelligence-subscriptions/${editing.id}` : "/api/data-apps/intelligence-subscriptions";
       const response = await fetch(url, { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
@@ -218,6 +241,11 @@ export default function IntelligenceSubscriptions() {
 
   const current = useMemo(() => editing ?? advancedSeed ?? {}, [editing, advancedSeed]);
   const currentSchedule = scheduleOf(current);
+  const advancedVisibility = intelligenceFormVisibility({
+    lookbackKind: advancedLookbackKind,
+    executionMode: advancedExecutionMode,
+    frequency: advancedFrequency,
+  });
   return <div>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="text-xl font-semibold text-ink">🧭 情报订制</h1><p className="mt-1 text-sm text-ink-soft">用一句话说清你关心什么，系统会整理成可持续跟踪的情报任务。</p></div>
@@ -233,7 +261,125 @@ export default function IntelligenceSubscriptions() {
       <div className="mt-5"><p className="text-xs text-ink-faint">可以从这些方向开始</p><div className="mt-2 flex flex-wrap gap-2">{templates.map((template) => <button key={template.label} onClick={() => { setDescription(template.text); window.setTimeout(() => descriptionRef.current?.focus(), 0); }} className="rounded-full border border-line px-3 py-1.5 text-xs text-ink-soft hover:border-[#0D1B3E]">{template.label}</button>)}</div></div>
     </section>
 
-    {showForm && <form onSubmit={saveAdvanced} className="mt-5 rounded-lg border border-line bg-white p-5"><div className="flex items-center justify-between"><h2 className="text-base font-semibold">高级设置</h2><button type="button" onClick={() => { setShowForm(false); setEditing(null); setAdvancedSeed(null); }} className="text-sm text-ink-faint">收起</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><Field label="任务名称" name="name" defaultValue={read(current, "name", "name")} required /><Field label="主题（逗号分隔）" name="topics" defaultValue={listValue(read(current, "topics", "topics", []))} /><Field label="主体或公司" name="entities" defaultValue={listValue(read(current, "entities", "entities", []))} /><Field label="关键词" name="keywords" defaultValue={listValue(read(current, "keywords", "keywords", []))} /><Field label="地域" name="regions" defaultValue={listValue(read(current, "regions", "regions", []))} /><Field label="包含条件" name="includeRequirements" defaultValue={listValue(read(current, "includeRequirements", "include_requirements", []))} /><Field label="排除条件" name="excludeRequirements" defaultValue={listValue(read(current, "excludeRequirements", "exclude_requirements", []))} /><Field label="最多条数" name="maxItems" type="number" defaultValue={read(current, "maxItems", "max_items", 10)} /><label className="text-sm text-ink-soft">时间范围<select name="lookbackKind" defaultValue={read(current, "lookbackPeriod", "lookback_period", {})?.kind === "custom" ? "custom" : String(read(current, "lookbackPeriod", "lookback_period", {})?.value ?? 3)} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="1">最近24小时</option><option value="3">最近3天</option><option value="7">最近7天</option><option value="custom">自定义</option></select></label><Field label="自定义开始时间" name="lookbackStart" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.start ?? "")} /><Field label="自定义结束时间" name="lookbackEnd" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.end ?? "")} /><label className="text-sm text-ink-soft sm:col-span-2">输出要求<textarea name="outputInstructions" defaultValue={read(current, "outputInstructions", "output_instructions", "")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm" placeholder="例如：区分事实与趋势，突出对项目的影响" /></label><label className="text-sm text-ink-soft">生成方式<select name="executionMode" defaultValue={read(current, "executionMode", "execution_mode", "manual")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="manual">手动生成</option><option value="scheduled">定时生成</option></select></label><label className="flex items-end gap-2 pb-2 text-sm text-ink-soft"><input type="checkbox" name="isActive" defaultChecked={read(current, "isActive", "is_active", true) === true} /> 启用</label><label className="text-sm text-ink-soft">生成频率<select name="frequency" defaultValue={currentSchedule.frequency ?? "weekly"} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm"><option value="daily">每天</option><option value="weekly">每周</option></select></label><Field label="生成时间" name="time" type="time" defaultValue={currentSchedule.time ?? "08:00"} /><Field label="时区" name="timezone" defaultValue={currentSchedule.timezone ?? browserTimezone} /><label className="text-sm text-ink-soft">每周哪天<select name="weekday" defaultValue={currentSchedule.weekdays?.[0] ?? 5} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm">{["周日", "周一", "周二", "周三", "周四", "周五", "周六"].map((label, value) => <option key={value} value={value}>{label}</option>)}</select></label></div><button type="submit" disabled={busy} className="mt-4 rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">保存设置</button>{error && <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}</form>}
+    {showForm && (
+      <form onSubmit={saveAdvanced} className="mt-5 rounded-xl border border-line bg-white p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-ink">高级设置</h2>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">常用内容保持在前，只有选择自定义时间或定时生成后才显示对应字段。</p>
+          </div>
+          <button type="button" onClick={() => { setShowForm(false); setEditing(null); setAdvancedSeed(null); }} className="shrink-0 text-sm text-ink-faint hover:text-ink">收起</button>
+        </div>
+
+        <section className="mt-5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#eef4ff] text-xs font-semibold text-accent">1</span>
+            <div>
+              <h3 className="text-sm font-semibold text-ink">关注内容</h3>
+              <p className="text-xs text-ink-faint">说明要跟踪的任务、主题和主体</p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <Field label="任务名称" name="name" defaultValue={read(current, "name", "name")} required />
+            <Field label="主体或公司" name="entities" defaultValue={listValue(read(current, "entities", "entities", []))} />
+            <label className="text-sm text-ink-soft sm:col-span-2">
+              主题（逗号分隔）
+              <input name="topics" defaultValue={listValue(read(current, "topics", "topics", []))} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm" />
+            </label>
+          </div>
+        </section>
+
+        <details
+          className="group mt-5 rounded-lg border border-line bg-surface/40"
+          open={showDetailedScope}
+          onToggle={(event) => setShowDetailedScope(event.currentTarget.open)}
+        >
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
+            <span>
+              <span className="block text-sm font-semibold text-ink">范围与质量</span>
+              <span className="mt-0.5 block text-xs text-ink-faint">关键词、地域、包含/排除条件和时间窗口</span>
+            </span>
+            <span className="text-xs font-medium text-accent group-open:hidden">展开</span>
+            <span className="hidden text-xs font-medium text-accent group-open:inline">收起</span>
+          </summary>
+          <div className="grid gap-3 border-t border-line p-4 sm:grid-cols-2">
+            <Field label="关键词" name="keywords" defaultValue={listValue(read(current, "keywords", "keywords", []))} />
+            <Field label="地域" name="regions" defaultValue={listValue(read(current, "regions", "regions", []))} />
+            <Field label="包含条件" name="includeRequirements" defaultValue={listValue(read(current, "includeRequirements", "include_requirements", []))} />
+            <Field label="排除条件" name="excludeRequirements" defaultValue={listValue(read(current, "excludeRequirements", "exclude_requirements", []))} />
+            <Field label="最多条数" name="maxItems" type="number" defaultValue={read(current, "maxItems", "max_items", 10)} />
+            <label className="text-sm text-ink-soft">
+              时间范围
+              <select name="lookbackKind" value={advancedLookbackKind} onChange={(event) => setAdvancedLookbackKind(event.target.value)} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm">
+                <option value="1">最近24小时</option>
+                <option value="3">最近3天</option>
+                <option value="7">最近7天</option>
+                <option value="custom">自定义</option>
+              </select>
+            </label>
+            {advancedVisibility.showCustomRange && (
+              <>
+                <Field label="自定义开始时间" name="lookbackStart" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.start ?? "")} />
+                <Field label="自定义结束时间" name="lookbackEnd" type="datetime-local" defaultValue={localDateTime(read(current, "lookbackPeriod", "lookback_period", {})?.end ?? "")} />
+              </>
+            )}
+            <label className="text-sm text-ink-soft sm:col-span-2">
+              输出要求
+              <textarea name="outputInstructions" defaultValue={read(current, "outputInstructions", "output_instructions", "")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm" placeholder="例如：区分事实与趋势，突出对项目的影响" />
+            </label>
+          </div>
+        </details>
+
+        <section className="mt-5 rounded-lg border border-line p-4">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#eef4ff] text-xs font-semibold text-accent">2</span>
+            <div>
+              <h3 className="text-sm font-semibold text-ink">生成计划</h3>
+              <p className="text-xs text-ink-faint">需要时生成，或按计划自动整理</p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="text-sm text-ink-soft">
+              生成方式
+              <select name="executionMode" value={advancedExecutionMode} onChange={(event) => setAdvancedExecutionMode(event.target.value === "scheduled" ? "scheduled" : "manual")} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm">
+                <option value="manual">需要时手动生成</option>
+                <option value="scheduled">按计划自动生成</option>
+              </select>
+            </label>
+            <label className="flex items-end gap-2 pb-2 text-sm text-ink-soft">
+              <input type="checkbox" name="isActive" defaultChecked={read(current, "isActive", "is_active", true) === true} /> 启用任务
+            </label>
+            {advancedVisibility.showSchedule && (
+              <>
+                <label className="text-sm text-ink-soft">
+                  生成频率
+                  <select name="frequency" value={advancedFrequency} onChange={(event) => setAdvancedFrequency(event.target.value)} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm">
+                    <option value="daily">每天</option>
+                    <option value="weekly">每周</option>
+                  </select>
+                </label>
+                <Field label="生成时间" name="time" type="time" defaultValue={currentSchedule.time ?? "08:00"} />
+                <Field label="时区" name="timezone" defaultValue={currentSchedule.timezone ?? browserTimezone} />
+                {advancedVisibility.showWeekday && (
+                  <label className="text-sm text-ink-soft">
+                    每周哪天
+                    <select name="weekday" defaultValue={currentSchedule.weekdays?.[0] ?? 5} className="mt-1 block w-full rounded border border-line px-3 py-2 text-sm">
+                      {["周日", "周一", "周二", "周三", "周四", "周五", "周六"].map((label, value) => <option key={value} value={value}>{label}</option>)}
+                    </select>
+                  </label>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <button type="submit" disabled={busy} className="rounded-md bg-[#0D1B3E] px-4 py-2 text-sm text-white disabled:opacity-50">{busy ? "保存中…" : "保存设置"}</button>
+          <button type="button" onClick={() => { setShowForm(false); setEditing(null); setAdvancedSeed(null); }} className="rounded-md border border-line px-4 py-2 text-sm text-ink-soft hover:bg-surface">取消</button>
+        </div>
+        {error && <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+      </form>
+    )}
 
     {tasks.length > 0 && <section id="my-intelligence-tasks" className="mt-7"><h2 className="text-base font-semibold">我的情报任务</h2><div className="mt-3 grid gap-3">{tasks.map((task) => {
       const blocked = quotaAvailable === false && task.is_active;

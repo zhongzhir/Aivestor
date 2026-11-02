@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
 import { loadUserAICredentials } from "@/lib/report";
-import { REPORT_CONTEXT_DOC_KINDS } from "@/lib/report";
+import { isUsableReportContextDocument, REPORT_CONTEXT_DOC_KINDS } from "@/lib/reportContext";
 import { buildDeepResearchMessages, type DeepResearchMaterial, type DeepResearchProfile } from "@/lib/deepResearch";
 import { buildDeepResearchMetadata, type EvidenceLedgerItem } from "@/lib/deepResearchWorkpaper";
 import { runProjectExternalResearch, type DeepResearchExternalResult } from "@/lib/deepResearchExternal";
@@ -169,7 +169,8 @@ export async function runClaimedDeepResearchJob(job: DeepResearchJobRow): Promis
         ORDER BY created_at ASC`,
       [job.project_id, REPORT_CONTEXT_DOC_KINDS]
     );
-    if (docs.length === 0) throw new Error("该项目尚未上传可解析材料");
+    const usableDocs = docs.filter(isUsableReportContextDocument);
+    if (usableDocs.length === 0) throw new Error("该项目尚未上传可解析材料");
     const generation = buildDeepResearchMessages({
       projectName: project.name,
       companyName: project.company_name,
@@ -179,7 +180,7 @@ export async function runClaimedDeepResearchJob(job: DeepResearchJobRow): Promis
       judgmentPoints: project.judgment_points ?? [],
       decisionContext: job.decision_context,
       sourceCutoffDate: job.source_cutoff_date,
-      materials: docs.map<DeepResearchMaterial>((doc) => ({
+      materials: usableDocs.map<DeepResearchMaterial>((doc) => ({
         filename: doc.filename,
         docKind: doc.doc_kind,
         extractedText: doc.extracted_text,

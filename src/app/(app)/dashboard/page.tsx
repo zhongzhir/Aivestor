@@ -7,6 +7,7 @@ import { BRAND } from "@/lib/brand";
 import { getGenerationAccess } from "@/lib/intelligenceGeneration";
 import { IntelligenceAttention, type DashboardIntelligenceBrief, type DashboardIntelligenceItem, type DashboardIntelligenceTask } from "@/components/dashboard/IntelligenceAttention";
 import { WorkSceneCards } from "@/components/dashboard/WorkSceneCards";
+import { partitionAttentionProjects } from "@/lib/dashboardAttention";
 
 const STATUS_LABEL: Record<string, string> = {
   evaluating: "评估中",
@@ -138,8 +139,7 @@ export default async function DashboardPage() {
 
     attentionProjects = rows
       .map((p) => ({ ...p, days: sleepDays(p.status, p.updated_at) }))
-      .filter((p): p is AttentionProject => p.days !== null)
-      .slice(0, 4);
+      .filter((p): p is AttentionProject => p.days !== null);
   }
 
   const [activeCount, knowledgeCount, draftReportCount] = user
@@ -215,65 +215,112 @@ export default async function DashboardPage() {
     }
   }
 
+  const attentionPresentation = partitionAttentionProjects(attentionProjects);
+
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
       <OnboardingGate show={showOnboarding} />
 
-      <section className="grid gap-5 lg:grid-cols-[1.35fr_0.65fr]">
-        <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-6 shadow-[0_1px_2px_rgba(55,53,47,0.04)]">
-          <p className="text-sm text-ink-soft">
-            {user ? `${user.name}，早上好` : `欢迎来到 ${BRAND.productName}`}
-          </p>
-          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-ink">
-                今天想推进什么
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-ink-soft">
-                项目、材料、判断和知识都在同一张桌面上。从活跃项目、报告草稿和知识开始今天的工作。
-              </p>
-            </div>
+      <section className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-5 shadow-[0_1px_2px_rgba(55,53,47,0.04)] sm:p-6">
+        <p className="text-sm text-ink-soft">
+          {user ? `${user.name}，早上好` : `欢迎来到 ${BRAND.productName}`}
+        </p>
+        <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-ink">今天先推进哪件事</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-soft">
+              先处理需要你判断或补充的事项，也可以直接进入项目管线和常用工作。
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/projects"
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-line bg-white px-4 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
+            >
+              查看项目管线
+            </Link>
             <Link
               href="/projects/new"
-              className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:opacity-90"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-accent px-4 text-sm font-medium text-white transition-colors hover:opacity-90"
             >
               新建项目分析
             </Link>
           </div>
+        </div>
 
-          <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <MetricCard label="活跃项目" value={activeCount} note="正在推进或投后跟踪" />
-            <MetricCard label="知识条目" value={knowledgeCount} note="可被检索和复用" />
-            <MetricCard label="报告草稿" value={draftReportCount} note="可继续打磨输出" />
+        <div className="mt-5 grid gap-2 border-t border-[#ece4d8] pt-4 sm:grid-cols-3">
+          <MetricCard label="活跃项目" value={activeCount} note="正在推进或投后跟踪" />
+          <MetricCard label="知识条目" value={knowledgeCount} note="可被检索和复用" />
+          <MetricCard label="报告草稿" value={draftReportCount} note="可继续打磨输出" />
+        </div>
+      </section>
+
+      <section className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
+        <div className="rounded-lg border border-line bg-white p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-ink">今日优先事项</h2>
+              <p className="mt-1 text-xs leading-5 text-ink-soft">
+                优先展示需要回看的项目；紧急事项和全部项目仍可从项目管线直接进入。
+              </p>
+            </div>
+            <Link href="/projects" className="shrink-0 text-xs font-medium text-accent">
+              查看全部
+            </Link>
           </div>
 
-          {attentionProjects.length > 0 && (
-            <div className="mt-6">
-              <p className="text-sm font-semibold text-ink">需要回看的项目</p>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {attentionProjects.map((project) => (
-                  <Link
-                    key={project.id}
-                    href={`/projects/${project.id}`}
-                    className="block rounded-lg border border-[#e2d8c8] bg-white/70 p-3 transition-colors hover:border-[#cdbfAA] hover:bg-white"
-                  >
-                    <p className="text-sm font-medium text-ink">{project.name}</p>
-                    <p className="mt-1 text-xs leading-5 text-ink-soft">
-                      你在{gentlePeriod(project.days)}关注的项目，有新进展吗？
-                    </p>
-                  </Link>
-                ))}
-              </div>
+          {attentionPresentation.total > 0 ? (
+            <div className="mt-4 space-y-2">
+              {attentionPresentation.primary.map((project) => (
+                <Link
+                  key={project.id}
+                  href={`/projects/${project.id}`}
+                  className="group flex items-center justify-between gap-3 rounded-lg border border-line bg-[#fffdfa] p-3 transition-colors hover:border-[#cdbfaa] hover:bg-white"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-ink">{project.name}</span>
+                    <span className="mt-1 block text-xs leading-5 text-ink-soft">
+                      {gentlePeriod(project.days)}未更新，确认进展或补充下一步
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs font-medium text-accent group-hover:underline">继续推进</span>
+                </Link>
+              ))}
+              {attentionPresentation.remaining.length > 0 && (
+                <details className="rounded-lg border border-line bg-surface/40 px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-medium text-ink-soft">
+                    还有 {attentionPresentation.remaining.length} 个需要回看的项目
+                  </summary>
+                  <div className="mt-2 space-y-1 border-t border-line pt-2">
+                    {attentionPresentation.remaining.map((project) => (
+                      <Link
+                        key={project.id}
+                        href={`/projects/${project.id}`}
+                        className="flex items-center justify-between gap-2 rounded px-2 py-2 text-xs text-ink-soft hover:bg-white hover:text-ink"
+                      >
+                        <span className="truncate">{project.name}</span>
+                        <span className="shrink-0 text-accent">继续</span>
+                      </Link>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-lg border border-dashed border-line bg-surface/50 p-5">
+              <p className="text-sm font-medium text-ink">暂时没有需要回看的项目</p>
+              <p className="mt-1 text-xs leading-5 text-ink-soft">可以继续最近项目，或创建一个新的项目分析。</p>
             </div>
           )}
         </div>
 
         <div className="rounded-lg border border-[#e6ded1] bg-[#f7f2e8] p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink">今日关注</h2>
-            <span className="rounded-full bg-white/70 px-2 py-1 text-xs text-ink-soft">
-              情报简报
-            </span>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-ink">投资情报</h2>
+              <p className="mt-1 text-xs text-ink-soft">查看最新信号、更新时间和订制状态</p>
+            </div>
+            <span className="shrink-0 rounded-full bg-white/70 px-2 py-1 text-xs text-ink-soft">情报简报</span>
           </div>
           {user && <IntelligenceAttention tasks={intelligenceTasks} briefs={latestIntelligenceBriefs} quotaUnavailable={intelligenceQuotaUnavailable} />}
         </div>
@@ -340,10 +387,12 @@ function MetricCard({
   note: string;
 }) {
   return (
-    <div className="rounded-lg border border-[#ece4d8] bg-white/70 p-4">
-      <div className="font-numeric text-2xl font-semibold text-ink">{value}</div>
-      <div className="mt-1 text-sm font-medium text-ink">{label}</div>
-      <div className="mt-1 text-xs text-ink-soft">{note}</div>
+    <div className="flex items-center gap-3 rounded-lg bg-white/60 px-3 py-2.5">
+      <div className="font-numeric text-xl font-semibold text-ink">{value}</div>
+      <div className="min-w-0">
+        <div className="text-xs font-medium text-ink">{label}</div>
+        <div className="truncate text-[11px] text-ink-soft">{note}</div>
+      </div>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import {
   buildGenerationMessages,
-  REPORT_CONTEXT_DOC_KINDS,
 } from "../src/lib/report";
+import { REPORT_CONTEXT_DOC_KINDS } from "../src/lib/reportContext";
 import { serializeExcelFinancialDataForProject } from "../src/lib/excelFinancials";
 import type { FinancialData } from "../src/lib/types";
 

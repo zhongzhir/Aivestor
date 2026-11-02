@@ -4,7 +4,6 @@ import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
 import {
   buildGenerationMessages,
-  REPORT_CONTEXT_DOC_KINDS,
   loadUserAICredentials,
   streamTextResponse,
   freeQuotaMetaFor,
@@ -28,6 +27,7 @@ import { normalizeSourceMap } from "@/lib/sourceMap";
 import type { DeepResearchExternalResult } from "@/lib/deepResearchExternal";
 import { canUseDeepResearchBeta } from "@/lib/deepResearchAccess";
 import { buildDeepResearchQuantitativeAnalysis } from "@/lib/deepResearchQuantitative";
+import { buildReportContextText, REPORT_CONTEXT_DOC_KINDS } from "@/lib/reportContext";
 
 export const maxDuration = 300;
 
@@ -139,13 +139,10 @@ export async function POST(
       ORDER BY created_at ASC`,
     [params.id, REPORT_CONTEXT_DOC_KINDS]
   );
-  const bpText = docs
-    .map((d) => d.extracted_text)
-    .filter(Boolean)
-    .join("\n\n---\n\n");
+  const bpText = buildReportContextText(docs);
   if (!bpText) {
     return NextResponse.json(
-      { error: "该项目尚未上传可解析的 BP 文档" },
+      { error: "该项目尚未上传可用于报告的已解析材料" },
       { status: 400 }
     );
   }

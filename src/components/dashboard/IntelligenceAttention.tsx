@@ -112,15 +112,29 @@ export function IntelligenceAttention({
     );
   }
 
-  const highlights = brief.items.filter((item) => item.importance === "high" && !item.isClue).slice(0, 3);
-  const secondary = brief.items.filter((item) => item.importance !== "high" && !item.isClue).slice(0, 3);
-  const clues = brief.items.filter((item) => item.isClue).slice(0, 2);
+  const highlights = brief.items.filter((item) => item.importance === "high" && !item.isClue);
+  const secondary = brief.items.filter((item) => item.importance !== "high" && !item.isClue);
+  const clues = brief.items.filter((item) => item.isClue);
+  const priorityItems = [...highlights, ...secondary].slice(0, 3);
+  const remainingItems = [...highlights, ...secondary].slice(3);
+  const generatedAt = new Date(brief.generatedAt);
+  const ageDays = Math.floor((Date.now() - generatedAt.getTime()) / 86_400_000);
+  const isStale = Number.isFinite(ageDays) && ageDays >= 7;
 
   return (
     <div className="mt-4 rounded-lg border border-[#e2d8c8] bg-white/70 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-medium text-ink">{brief.taskName}</p>
-        <p className="text-xs text-ink-faint">生成于 {new Date(brief.generatedAt).toLocaleString("zh-CN")}</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-ink">{brief.taskName}</p>
+          <p className="mt-1 text-xs text-ink-faint">生成于 {generatedAt.toLocaleString("zh-CN")}</p>
+        </div>
+        {isStale ? (
+          <span className="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700">
+            {ageDays} 天前更新
+          </span>
+        ) : (
+          <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">近期更新</span>
+        )}
       </div>
 
       {sortedBriefs.length > 1 && (
@@ -138,44 +152,51 @@ export function IntelligenceAttention({
         </div>
       )}
 
-      {brief.overview ? (
-        <p className="mt-3 line-clamp-3 text-xs leading-5 text-ink-soft">{brief.overview}</p>
-      ) : null}
-
-      {highlights.length > 0 && (
+      {priorityItems.length > 0 ? (
         <div className="mt-3 space-y-2">
-          <p className="text-xs font-semibold text-ink">重点动态</p>
-          {highlights.map((item, index) => (
-            <p key={`${item.id ?? item.title ?? "item"}-${index}`} className="text-xs leading-5 text-ink-soft">
-              <span className="font-medium text-ink">{item.title ?? "相关信息"}</span>
-              {item.summary || item.content ? `：${item.summary || item.content}` : ""}
-              {item.sourceTier ? <span className="ml-1 rounded bg-[#f1f5fb] px-1 py-0.5 text-[10px] text-ink-faint">{TIER_LABEL[item.sourceTier] ?? item.sourceTier}</span> : null}
-            </p>
+          <p className="text-xs font-semibold text-ink">优先信号</p>
+          {priorityItems.map((item, index) => (
+            <div key={`${item.id ?? item.title ?? "item"}-${index}`} className="rounded-md border border-white bg-white/80 p-2.5">
+              <p className="text-xs font-medium leading-5 text-ink">{item.title ?? "相关信息"}</p>
+              {item.summary || item.content ? (
+                <p className="mt-1 line-clamp-2 text-xs leading-5 text-ink-soft">{item.summary || item.content}</p>
+              ) : null}
+              {item.sourceTier ? <span className="mt-1 inline-flex rounded bg-[#f1f5fb] px-1 py-0.5 text-[10px] text-ink-faint">{TIER_LABEL[item.sourceTier] ?? item.sourceTier}</span> : null}
+            </div>
           ))}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-md border border-dashed border-[#e2d8c8] bg-white/50 p-3">
+          <p className="text-xs font-medium text-ink">本期没有达到发布标准的新信号</p>
+          <p className="mt-1 text-xs leading-5 text-ink-soft">可以查看订制状态，或在需要时重新生成。</p>
         </div>
       )}
 
-      {secondary.length > 0 && (
-        <div className="mt-3 space-y-2">
-          <p className="text-xs font-semibold text-ink">值得关注</p>
-          {secondary.map((item, index) => (
-            <p key={`${item.id ?? item.title ?? "item"}-${index}`} className="text-xs leading-5 text-ink-soft">
-              <span className="font-medium text-ink">{item.title ?? "相关信息"}</span>
-              {item.summary || item.content ? `：${item.summary || item.content}` : ""}
-            </p>
-          ))}
-        </div>
-      )}
-
-      {clues.length > 0 && (
-        <div className="mt-3 space-y-1">
-          <p className="text-xs font-medium text-ink-soft">待进一步确认</p>
-          {clues.map((item, index) => (
-            <p key={`${item.id ?? item.title ?? "item"}-${index}`} className="text-xs leading-5 text-ink-faint">
-              {item.title ?? "相关信息"}
-            </p>
-          ))}
-        </div>
+      {(remainingItems.length > 0 || clues.length > 0 || brief.overview) && (
+        <details className="mt-3 rounded-md border border-[#e2d8c8] bg-white/50 px-3 py-2">
+          <summary className="cursor-pointer text-xs font-medium text-ink-soft">
+            查看其余信号与本期结论
+          </summary>
+          <div className="mt-2 space-y-2 border-t border-[#e2d8c8] pt-2">
+            {brief.overview ? <p className="text-xs leading-5 text-ink-soft">{brief.overview}</p> : null}
+            {remainingItems.map((item, index) => (
+              <p key={`${item.id ?? item.title ?? "remaining"}-${index}`} className="text-xs leading-5 text-ink-soft">
+                <span className="font-medium text-ink">{item.title ?? "相关信息"}</span>
+                {item.summary || item.content ? `：${item.summary || item.content}` : ""}
+              </p>
+            ))}
+            {clues.length > 0 ? (
+              <div className="border-t border-[#e2d8c8] pt-2">
+                <p className="text-xs font-medium text-amber-700">待进一步确认</p>
+                {clues.map((item, index) => (
+                  <p key={`${item.id ?? item.title ?? "clue"}-${index}`} className="mt-1 text-xs leading-5 text-ink-faint">
+                    {item.title ?? "相关信息"}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </details>
       )}
 
       <div className="mt-3 flex flex-wrap gap-2">

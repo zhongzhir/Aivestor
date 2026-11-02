@@ -17,13 +17,6 @@ import type { FinancialData, FinPoint } from "@/lib/types";
 
 // 报告生成 / 修改的 prompt 构建与流式响应工具。
 
-export const REPORT_CONTEXT_DOC_KINDS = [
-  "bp",
-  "research",
-  "financial_model",
-  "other",
-] as const;
-
 const GENERATION_SYSTEM = `你是一位资深的一级股权投资分析师。请基于用户提供的项目 BP 内容与投资人的判断要点，撰写一份结构化的《项目分析报告》。
 
 要求：

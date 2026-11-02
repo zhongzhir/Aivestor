@@ -25,6 +25,8 @@ import {
 import { OUTCOMES, outcomeDef } from "@/lib/outcome";
 import { FLOW_STAGES, TERMINAL_STAGES, STAGE_LABELS } from "@/lib/stages";
 import type { FinancialData } from "@/lib/types";
+import { recommendProjectAnalysis } from "@/lib/projectAnalysisPresentation";
+import { hasUsableReportContextMetadata } from "@/lib/reportContext";
 import { ProjectManagementPanel } from "./ProjectManagementPanel";
 import { DeepResearchJobPanel } from "./DeepResearchJobPanel";
 
@@ -164,6 +166,7 @@ export function ProjectDetail({
     requestedTab === "decision" || requestedTab === "post" ? requestedTab : "analysis"
   );
   const [showSkillModal, setShowSkillModal] = useState(false);
+  const [showDeepResearchWorkbench, setShowDeepResearchWorkbench] = useState(false);
   const [newUpload, setNewUpload] = useState(false);
   const [hasTeamJudgments, setHasTeamJudgments] = useState(false);
   const [transferring, setTransferring] = useState(false);
@@ -187,6 +190,7 @@ export function ProjectDetail({
     useState<DecisionEventMeta[]>(decisionEvents);
 
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
+  const hasReportContextDoc = hasUsableReportContextMetadata(docMeta);
 
   useEffect(() => {
     const nextTab = searchParams.get("tab");
@@ -361,6 +365,10 @@ export function ProjectDetail({
   }
 
   function handleGenerate() {
+    if (!hasReportContextDoc) {
+      setError("请先上传并解析 BP、研究材料、财务模型或其他项目材料");
+      return;
+    }
     const filled = points.map((p) => p.trim()).filter(Boolean);
     if (filled.length < 3 || filled.length > 10) {
       setError("请输入 3-10 条判断要点");
@@ -372,8 +380,8 @@ export function ProjectDetail({
   }
 
   function handleGenerateDeepResearch() {
-    if (!hasParsedDoc) {
-      setError("请先上传并解析至少一份项目材料");
+    if (!hasReportContextDoc) {
+      setError("请先上传并解析 BP、研究材料、财务模型或其他项目材料");
       return;
     }
     const filled = points.map((point) => point.trim()).filter(Boolean);
@@ -390,8 +398,29 @@ export function ProjectDetail({
 
   function focusDeepResearch() {
     setTab("analysis");
+    setShowDeepResearchWorkbench(true);
     window.setTimeout(() => {
       document.getElementById("deep-research-workbench")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  }
+
+  function focusMaterials() {
+    setTab("analysis");
+    window.setTimeout(() => {
+      document.getElementById("project-materials")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  }
+
+  function focusJudgmentPoints() {
+    setTab("analysis");
+    window.setTimeout(() => {
+      document.getElementById("judgment-points")?.scrollIntoView({
         behavior: "smooth",
         block: "start",
       });
@@ -433,6 +462,39 @@ export function ProjectDetail({
   updates,
   decisionEvents: decisionEventState,
   });
+  const analysisRecommendation = recommendProjectAnalysis({
+    processStage,
+    hasReportContextDoc,
+    judgmentPointCount,
+    deepResearchBetaEnabled,
+  });
+  const recommendationCopy = {
+    prepare: {
+      eyebrow: "建议先做",
+      title: "补充报告材料",
+      description: "当前没有可用于报告的 BP、研究材料、财务模型或其他项目材料。补充并解析后，再进入标准分析或深度投研。",
+    },
+    brief: {
+      eyebrow: "建议先做",
+      title: "快速判断",
+      description: "当前判断要点不足 3 条，先形成一份 500–800 字的入库评估，不改变后续标准分析和深度投研入口。",
+    },
+    analysis: {
+      eyebrow: "建议下一步",
+      title: "标准分析",
+      description: `已记录 ${judgmentPointCount} 条判断要点，可围绕这些判断生成常规项目报告。`,
+    },
+    refine: {
+      eyebrow: "建议先整理",
+      title: "精简判断要点",
+      description: `当前有 ${judgmentPointCount} 条判断要点。请收敛到 3–10 条核心判断后再生成标准分析。`,
+    },
+    deep_research: {
+      eyebrow: "建议下一步",
+      title: "深度投研",
+      description: "项目已进入正式尽调或投委会阶段，并已有可解析材料；可进入证据、测算和缺口任务工作台。",
+    },
+  }[analysisRecommendation];
 
   return (
     <div className="mx-auto w-full max-w-7xl px-6 py-5 lg:px-8">
@@ -482,36 +544,79 @@ export function ProjectDetail({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            {latestReportId && (
+            {latestReportId ? (
               <Link
                 href={`/projects/${projectId}/report`}
-                className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
               >
-                查看报告
+                查看最新报告
               </Link>
-            )}
-            {deepResearchBetaEnabled && (
+            ) : analysisRecommendation === "prepare" ? (
+              <button
+                type="button"
+                onClick={focusMaterials}
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                补充报告材料
+              </button>
+            ) : analysisRecommendation === "refine" ? (
+              <button
+                type="button"
+                onClick={focusJudgmentPoints}
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                精简判断要点
+              </button>
+            ) : analysisRecommendation === "brief" ? (
+              <Link
+                href={`/projects/${projectId}/brief-analysis`}
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                先做快速判断
+              </Link>
+            ) : analysisRecommendation === "deep_research" ? (
               <button
                 onClick={focusDeepResearch}
-                disabled={!hasParsedDoc}
-                className="rounded-lg border border-accent bg-white px-3 py-2 text-sm font-medium text-accent hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint"
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
               >
-                深度投研 Beta
+                进入深度投研
+              </button>
+            ) : (
+              <button
+                onClick={handleGenerate}
+                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+              >
+                生成标准分析
               </button>
             )}
             <button
-              onClick={handleGenerate}
-              className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+              type="button"
+              onClick={() => {
+                setTab("analysis");
+                window.setTimeout(() => document.getElementById("analysis-recommendation")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+              }}
+              className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
             >
-              生成分析报告
+              查看分析方式
             </button>
           </div>
         </div>
       </div>
 
-      <ProjectManagementPanel projectId={projectId} />
-
-      <ActivityTimeline items={activityItems} />
+      <details className="group mt-4 rounded-lg border border-line bg-white">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
+          <span>
+            <span className="text-sm font-medium text-ink">项目管理与记录</span>
+            <span className="ml-2 text-xs text-ink-faint">{activityItems.length} 条动态</span>
+          </span>
+          <span className="text-xs font-medium text-accent group-open:hidden">展开</span>
+          <span className="hidden text-xs font-medium text-accent group-open:inline">收起</span>
+        </summary>
+        <div className="border-t border-line p-4 pt-0">
+          <ProjectManagementPanel projectId={projectId} compact />
+          <ActivityTimeline items={activityItems} />
+        </div>
+      </details>
 
       <div className="mt-4">
         <div className="min-w-0">
@@ -615,14 +720,16 @@ export function ProjectDetail({
                 </div>
               )}
 
-              <DocumentPanel
-                projectId={projectId}
-                docMeta={docMeta}
-                evidenceItems={evidenceItems}
-                newUpload={newUpload}
-                onUploadComplete={handleUploadComplete}
-                onGenerate={handleGenerate}
-              />
+              <div id="project-materials" className="scroll-mt-24">
+                <DocumentPanel
+                  projectId={projectId}
+                  docMeta={docMeta}
+                  evidenceItems={evidenceItems}
+                  newUpload={newUpload}
+                  onUploadComplete={handleUploadComplete}
+                  onGenerate={handleGenerate}
+                />
+              </div>
 
               <ProjectContextCards projectId={projectId} />
 
@@ -653,8 +760,104 @@ export function ProjectDetail({
                 </section>
 
                 <section className="space-y-6 rounded-lg border border-line bg-white p-5">
+                  <div id="analysis-recommendation" className="scroll-mt-24 rounded-lg border border-[#d7e4dc] bg-[#f7fbf8] p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-accent">{recommendationCopy.eyebrow}</p>
+                    <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h2 className="text-base font-semibold text-ink">{recommendationCopy.title}</h2>
+                        <p className="mt-1 text-xs leading-5 text-ink-soft">{recommendationCopy.description}</p>
+                      </div>
+                      {analysisRecommendation === "prepare" ? (
+                        <button
+                          type="button"
+                          onClick={focusMaterials}
+                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          去补充材料
+                        </button>
+                      ) : analysisRecommendation === "refine" ? (
+                        <button
+                          type="button"
+                          onClick={focusJudgmentPoints}
+                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          整理判断要点
+                        </button>
+                      ) : analysisRecommendation === "brief" ? (
+                        <Link
+                          href={`/projects/${projectId}/brief-analysis`}
+                          className="inline-flex shrink-0 items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          开始快速判断
+                        </Link>
+                      ) : analysisRecommendation === "deep_research" ? (
+                        <button
+                          type="button"
+                          onClick={focusDeepResearch}
+                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          打开深度投研
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={handleGenerate}
+                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
+                        >
+                          生成标准分析
+                        </button>
+                      )}
+                    </div>
+
+                    <details className="mt-3 border-t border-[#d7e4dc] pt-3">
+                      <summary className="cursor-pointer text-xs font-medium text-accent">查看其他分析方式</summary>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {analysisRecommendation !== "brief" && (
+                          <Link href={`/projects/${projectId}/brief-analysis`} className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface">
+                            快速判断
+                          </Link>
+                        )}
+                        {analysisRecommendation !== "analysis" && (
+                          <button
+                            type="button"
+                            onClick={handleGenerate}
+                            disabled={!hasReportContextDoc || judgmentPointCount < 3 || judgmentPointCount > 10}
+                            title={!hasReportContextDoc ? "需要已解析的 BP、研究材料、财务模型或其他项目材料" : judgmentPointCount >= 3 && judgmentPointCount <= 10 ? undefined : "需要 3–10 条判断要点"}
+                            className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            标准分析
+                          </button>
+                        )}
+                        {deepResearchBetaEnabled && analysisRecommendation !== "deep_research" && (
+                          <button
+                            type="button"
+                            onClick={focusDeepResearch}
+                            disabled={!hasReportContextDoc}
+                            title={hasReportContextDoc ? undefined : "请先上传并解析可用于报告的项目文档"}
+                            className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            深度投研
+                          </button>
+                        )}
+                      </div>
+                    </details>
+                  </div>
+
                   {deepResearchBetaEnabled && (
-                  <div id="deep-research-workbench" className="scroll-mt-6 rounded-lg border border-[#d8c8b2] bg-[#fffdfa] p-4">
+                  <details
+                    id="deep-research-workbench"
+                    open={showDeepResearchWorkbench}
+                    onToggle={(event) => setShowDeepResearchWorkbench(event.currentTarget.open)}
+                    className="scroll-mt-24 rounded-lg border border-[#d8c8b2] bg-[#fffdfa]"
+                  >
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
+                      <span>
+                        <span className="block text-sm font-semibold text-ink">深度投研工作台</span>
+                        <span className="mt-0.5 block text-xs text-ink-soft">外部取证、证据门禁、测算与尽调缺口</span>
+                      </span>
+                      <span className="text-xs font-medium text-accent">{showDeepResearchWorkbench ? "收起" : "展开配置"}</span>
+                    </summary>
+                  <div className="border-t border-[#d8c8b2] p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="text-xs font-medium uppercase tracking-wide text-accent">
@@ -706,7 +909,7 @@ export function ProjectDetail({
 
                     <DeepResearchJobPanel
                       projectId={projectId}
-                      hasParsedDoc={hasParsedDoc}
+                      hasParsedDoc={hasReportContextDoc}
                       profile={deepProfile}
                       decisionContext={deepDecisionContext}
                     />
@@ -717,21 +920,22 @@ export function ProjectDetail({
                       </p>
                       <button
                         onClick={handleGenerateDeepResearch}
-                        disabled={!hasParsedDoc}
+                        disabled={!hasReportContextDoc}
                         className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-[#265b42] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         仅基于现有材料快速生成
                       </button>
                     </div>
                   </div>
+                  </details>
                   )}
 
-                  <div>
+                  <div id="judgment-points" className="scroll-mt-24">
                     <h2 className="text-sm font-semibold text-ink">
                       判断要点
                     </h2>
                     <p className="mt-1 text-xs text-ink-faint">
-                      填入 3-10 条核心判断，报告会围绕这些问题展开。
+                      填入 3-10 条核心判断要点，标准分析会围绕这些判断展开。
                     </p>
                     <div className="mt-4 space-y-2">
                       {points.map((p, i) => (
@@ -771,48 +975,39 @@ export function ProjectDetail({
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={handleGenerate}
-                      className="min-w-[140px] flex-1 rounded-lg bg-accent py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#265b42]"
+                      disabled={!hasReportContextDoc}
+                      title={hasReportContextDoc ? undefined : "请先上传并解析可用于报告的项目文档"}
+                      className="min-w-[140px] flex-1 rounded-lg bg-accent py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#265b42] disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      生成分析报告
-                    </button>
-                    <Link
-                      href={`/projects/${projectId}/brief-analysis`}
-                      className="rounded-lg border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
-                    >
-                      简要分析
-                    </Link>
-                    <Link
-                      href={`/projects/${projectId}/term-sheet`}
-                      className="rounded-lg border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
-                    >
-                      Term Sheet
-                    </Link>
-                    <button
-                      onClick={() => setShowSkillModal(true)}
-                      disabled={!hasParsedDoc}
-                      title={hasParsedDoc ? undefined : "请先上传并解析项目文档"}
-                      className="rounded-lg border border-accent px-4 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint disabled:hover:bg-transparent"
-                    >
-                      SKILL 分析
-                    </button>
-                    <button
-                      onClick={handleExtractFinancials}
-                      disabled={finLoading}
-                      className="rounded-lg border border-line px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface disabled:opacity-50"
-                    >
-                      {finLoading ? "提取中…" : "提取财务数据"}
+                      生成标准分析
                     </button>
                   </div>
-                  <p className="text-xs text-ink-faint">
-                    还没填判断？可以先做一份
-                    <Link
-                      href={`/projects/${projectId}/brief-analysis`}
-                      className="mx-1 text-accent hover:underline"
-                    >
-                      简要分析
-                    </Link>
-                    存档。
-                  </p>
+                  <details className="rounded-lg border border-line bg-surface/40 px-3 py-2">
+                    <summary className="cursor-pointer text-xs font-medium text-ink-soft">专项工具与其他输出</summary>
+                    <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
+                      <Link
+                        href={`/projects/${projectId}/term-sheet`}
+                        className="rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
+                      >
+                        Term Sheet
+                      </Link>
+                      <button
+                        onClick={() => setShowSkillModal(true)}
+                        disabled={!hasParsedDoc}
+                        title={hasParsedDoc ? undefined : "请先上传并解析项目文档"}
+                        className="rounded-lg border border-accent bg-white px-4 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent-soft disabled:cursor-not-allowed disabled:border-line disabled:text-ink-faint disabled:hover:bg-transparent"
+                      >
+                        SKILL 专项分析
+                      </button>
+                      <button
+                        onClick={handleExtractFinancials}
+                        disabled={finLoading}
+                        className="rounded-lg border border-line bg-white px-4 py-2.5 text-sm font-medium text-ink-soft transition-colors hover:bg-surface disabled:opacity-50"
+                      >
+                        {finLoading ? "提取中…" : "提取财务数据"}
+                      </button>
+                    </div>
+                  </details>
                 </section>
               </div>
 
