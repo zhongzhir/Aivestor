@@ -4,7 +4,7 @@ import { query } from "@/lib/db";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
 import { sleepDays } from "@/lib/projectSleep";
 import { BRAND } from "@/lib/brand";
-import { getGenerationAccess } from "@/lib/intelligenceGeneration";
+import { getIntelligenceGenerationAccess } from "@/lib/intelligenceGeneration";
 import { IntelligenceAttention, type DashboardIntelligenceBrief, type DashboardIntelligenceItem, type DashboardIntelligenceTask } from "@/components/dashboard/IntelligenceAttention";
 import { WorkSceneCards } from "@/components/dashboard/WorkSceneCards";
 import { partitionAttentionProjects } from "@/lib/dashboardAttention";
@@ -189,7 +189,7 @@ export default async function DashboardPage() {
           overview: briefOverview(latest),
           items: briefItems(latest),
         }));
-        intelligenceQuotaUnavailable = intelligenceTasks.some((task) => task.isActive) && !(await getGenerationAccess(user.id));
+        intelligenceQuotaUnavailable = intelligenceTasks.some((task) => task.isActive) && !(await getIntelligenceGenerationAccess(user.id));
       }
     } catch {
       intelligenceTasks = [];
@@ -233,6 +233,12 @@ export default async function DashboardPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link
+              href="/data-apps/intelligence-subscriptions"
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-line bg-white px-4 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
+            >
+              投资情报
+            </Link>
             <Link
               href="/projects"
               className="inline-flex h-10 items-center justify-center rounded-lg border border-line bg-white px-4 text-sm font-medium text-ink-soft transition-colors hover:bg-surface"
@@ -320,7 +326,7 @@ export default async function DashboardPage() {
               <h2 className="text-base font-semibold text-ink">投资情报</h2>
               <p className="mt-1 text-xs text-ink-soft">查看最新信号、更新时间和订制状态</p>
             </div>
-            <span className="shrink-0 rounded-full bg-white/70 px-2 py-1 text-xs text-ink-soft">情报简报</span>
+            <Link href="/data-apps/intelligence-subscriptions" className="shrink-0 text-xs font-medium text-accent hover:underline">进入情报工作空间 →</Link>
           </div>
           {user && <IntelligenceAttention tasks={intelligenceTasks} briefs={latestIntelligenceBriefs} quotaUnavailable={intelligenceQuotaUnavailable} />}
         </div>

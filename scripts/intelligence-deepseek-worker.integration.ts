@@ -529,29 +529,32 @@ async function main() {
   );
   assert.equal(tamperedAttempts[0].count, "0", "run 级费用上限被移除后不得创建可计费预留");
 
-  const platformTask = await task("DeepSeek 平台代付禁止额外检索");
+  const platformTask = await task("DeepSeek 平台赠送额度默认运行");
   const platformRun = await createIntelligenceRun({
     userId,
     taskId: platformTask,
     idempotencyKey: `platform:${platformTask}`,
-    authorizeDeepSeekSearch: true,
-    maxExternalCostUsdMicros: 100_000,
   });
   const platformClaim = await claimNextIntelligenceRun("deepseek-platform-worker");
   assert.equal(platformClaim?.id, platformRun.id);
   await runClaimedIntelligenceRun(platformClaim!, "deepseek-platform-worker", {
     getGenerationAccess: async () => access("platform"),
-    generateBrief: async () => { throw new Error("platform DeepSeek must be blocked before generation"); },
+    generateBrief: async (_userId, _taskId, input) => ({
+      id: "",
+      brief: emptyBrief(input.name, platformRun.coverage_start, platformRun.coverage_end),
+    }),
   });
-  const platformStored = await query<{ status: string; error_code: string; attempts: string }>(
+  const platformStored = await query<{ status: string; error_code: string | null; attempts: string; quota_status: string | null }>(
     `SELECT status,error_code,
-            (SELECT COUNT(*)::text FROM intelligence_run_external_attempts WHERE run_id=$1) AS attempts
+            (SELECT COUNT(*)::text FROM intelligence_run_external_attempts WHERE run_id=$1) AS attempts,
+            (SELECT status FROM intelligence_quota_reservations WHERE run_id=$1 ORDER BY created_at DESC LIMIT 1) AS quota_status
        FROM intelligence_runs WHERE id=$1`,
     [platformRun.id],
   );
-  assert.equal(platformStored[0].status, "blocked");
-  assert.equal(platformStored[0].error_code, "deepseek_generation_not_authorized");
-  assert.equal(platformStored[0].attempts, "0", "平台 DeepSeek 未授权时不得产生外部调用预留");
+  assert.equal(platformStored[0].status, "partial");
+  assert.equal(platformStored[0].error_code, null);
+  assert.equal(platformStored[0].attempts, "0", "平台赠送额度不得误入用户自有 DeepSeek 美元账本");
+  assert.equal(platformStored[0].quota_status, "consumed", "平台运行必须通过平台额度 reservation 结算");
 
   const failureTask = await task("DeepSeek Search 不确定失败审计");
   const failureRun = await createIntelligenceRun({

@@ -25,6 +25,9 @@ test("个人版工作台入口真实点击到情报工作空间", async ({ page 
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
 
+  const directEntry = page.getByRole("link", { name: "投资情报", exact: true });
+  await expect(directEntry).toBeVisible();
+  await expect(page.getByRole("link", { name: "进入情报工作空间 →", exact: true })).toBeVisible();
   const link = page.getByRole("link", { name: "管理订制", exact: true }).first();
   await expect(link).toBeVisible();
   await expect(link).toBeEnabled();
@@ -34,6 +37,16 @@ test("个人版工作台入口真实点击到情报工作空间", async ({ page 
   await expect(page.getByRole("heading", { name: "情报工作空间", exact: true })).toBeVisible();
   await page.screenshot({ path: "artifacts/playwright-intelligence/after-intelligence-navigation.png", fullPage: true });
   await assertNoRuntimeFailures(page, responses, consoleErrors);
+});
+
+test("工作台生成后立即进入可见运行状态", async ({ page }) => {
+  const generate = page.getByRole("button", { name: /生成本期/ }).first();
+  await expect(generate).toBeVisible();
+  await generate.click();
+  await expect(page).toHaveURL(/\/data-apps\/intelligence-subscriptions\?topic=/);
+  await expect(page.getByText(/最近一次：等待运行|最近一次：运行中/)).toBeVisible();
+  await expect(page.getByText(/已加入队列|正在研究/)).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("仅本次允许使用我的 DeepSeek 模型与 Search");
 });
 
 test("返回 dashboard 后再次进入仍然有效", async ({ page }) => {

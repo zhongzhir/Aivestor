@@ -74,14 +74,22 @@ export function IntelligenceAttention({
   async function generate() {
     if (!generateTask || busy) return;
     setBusy(true);
-    setMessage("");
-    const response = await fetch(`/api/data-apps/intelligence-subscriptions/${generateTask.id}/generate`, { method: "POST" });
+    setMessage("正在创建运行记录…");
+    const storageKey = `intelligence:pending:${generateTask.id}`;
+    const idempotencyKey = window.localStorage.getItem(storageKey) || crypto.randomUUID();
+    window.localStorage.setItem(storageKey, idempotencyKey);
+    const response = await fetch(`/api/data-apps/intelligence-subscriptions/${generateTask.id}/generate`, {
+      method: "POST",
+      headers: { "idempotency-key": idempotencyKey },
+    });
+    const body = await response.json().catch(() => ({}));
     if (!response.ok) {
-      setMessage(response.status === 402 ? "额度暂时不足，请配置 AI 或管理订制。" : "暂时无法生成，请稍后重试。 ");
+      setMessage(response.status === 402 ? "系统赠送额度暂时不足，请查看额度状态。" : (body.error || "暂时无法开始，请稍后重试。"));
       setBusy(false);
       return;
     }
-    window.location.reload();
+    setMessage("已加入队列，正在打开运行进度…");
+    window.location.assign(`/data-apps/intelligence-subscriptions?topic=${encodeURIComponent(generateTask.id)}`);
   }
 
   if (tasks.length === 0) {
@@ -107,7 +115,7 @@ export function IntelligenceAttention({
           {quotaUnavailable ? <><Link href="/settings/ai" className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">配置 AI</Link><Link href="/data-apps/intelligence-subscriptions" className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">恢复任务</Link></> : targetTask ? <button type="button" onClick={generate} disabled={busy} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-50">{busy ? "生成中…" : "生成本期简报"}</button> : null}
           <Link href="/data-apps/intelligence-subscriptions" className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">管理订制</Link>
         </div>
-        {message && <p className="mt-2 text-xs text-red-700">{message}</p>}
+        {message && <p aria-live="polite" className="mt-2 text-xs text-ink-soft">{message}</p>}
       </div>
     );
   }
@@ -200,11 +208,11 @@ export function IntelligenceAttention({
       )}
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <Link href="/data-apps/intelligence-subscriptions" className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">查看全部</Link>
+        <Link href={`/data-apps/intelligence-subscriptions?topic=${encodeURIComponent(brief.taskId)}`} className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">查看简报与历史</Link>
         {quotaUnavailable ? <Link href="/settings/ai" className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">配置 AI</Link> : generateTask ? <button type="button" onClick={generate} disabled={busy} className="rounded-md bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-50">{busy ? "生成中…" : "生成本期"}</button> : <Link href="/data-apps/intelligence-subscriptions" className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">恢复任务</Link>}
         <Link href="/data-apps/intelligence-subscriptions" className="rounded-md border border-line bg-white px-3 py-2 text-xs text-ink-soft">管理订制</Link>
       </div>
-      {message && <p className="mt-2 text-xs text-red-700">{message}</p>}
+      {message && <p aria-live="polite" className="mt-2 text-xs text-ink-soft">{message}</p>}
     </div>
   );
 }

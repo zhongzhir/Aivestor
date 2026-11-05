@@ -30,9 +30,12 @@ function statusLabel(status?: string | null) {
   return ({ queued: "等待运行", running: "运行中", succeeded: "完成", partial: "部分完成", no_new_items: "无新事件", failed: "失败", blocked: "受阻", cancelled: "已取消" } as Record<string, string>)[status ?? ""] ?? "尚未执行";
 }
 
-export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }: {
+export function IntelligenceTopicView({ topicId, scheduler, quotaAvailable, aiSource, aiProvider, onBack, onChanged }: {
   topicId: string;
   scheduler: SchedulerStatus;
+  quotaAvailable: boolean;
+  aiSource: "custom" | "platform" | null;
+  aiProvider: string | null;
   onBack: () => void;
   onChanged: () => void;
 }) {
@@ -45,7 +48,8 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
   const [selectedBriefId, setSelectedBriefId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [authorizeDeepSeekSearch, setAuthorizeDeepSeekSearch] = useState(false);
+  const [operationMessage, setOperationMessage] = useState("");
+  const [authorizeCustomDeepSeek, setAuthorizeCustomDeepSeek] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -80,6 +84,14 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
     return () => window.clearInterval(timer);
   }, [latestRun, load, topic]);
 
+  useEffect(() => {
+    if (!operationMessage || !latestRun) return;
+    if (latestRun.status === "queued") setOperationMessage("已加入队列，等待后台研究开始。关闭页面不会中断运行。");
+    else if (latestRun.status === "running") setOperationMessage(`正在研究：${latestRun.checkpoint_stage ? pipelineStageLabel(latestRun.checkpoint_stage) : "准备中"}。关闭页面不会中断运行。`);
+    else if (["succeeded", "partial", "no_new_items"].includes(latestRun.status)) setOperationMessage(`本次运行${statusLabel(latestRun.status)}，成果和来源已保存。`);
+    else if (["failed", "blocked", "cancelled"].includes(latestRun.status)) setOperationMessage(`本次运行${statusLabel(latestRun.status)}：${latestRun.error_message_safe || "请查看运行记录。"}`);
+  }, [latestRun, operationMessage]);
+
   const selectedBrief = useMemo(() => {
     const explicit = briefs.find((brief) => brief.id === selectedBriefId);
     if (explicit) return explicit;
@@ -91,9 +103,13 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
 
   async function runOnce() {
     if (!topic || busy) return;
-    if (authorizeDeepSeekSearch && !window.confirm("确认仅本次使用你自己的 DeepSeek 模型与 Search？总费用硬上限为 USD 0.10；不启用 Fetch，也不会调用百炼或 Tavily。")) return;
+    const requiresCustomDeepSeekAuthorization = aiSource === "custom" && aiProvider === "deepseek";
+    if (requiresCustomDeepSeekAuthorization && !authorizeCustomDeepSeek) return;
+    if (requiresCustomDeepSeekAuthorization && !window.confirm("确认本次使用你在设置中保存的 DeepSeek，并按单次 USD 0.10 硬上限执行？")) return;
     setBusy(true);
     setError("");
+    setOperationMessage("正在创建运行记录…");
+    setTab("latest");
     try {
       const storageKey = `intelligence:pending:${topic.id}`;
       const key = localStorage.getItem(storageKey) || crypto.randomUUID();
@@ -101,18 +117,22 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
       const response = await fetch(`/api/data-apps/intelligence-subscriptions/${topic.id}/generate`, {
         method: "POST",
         headers: { "idempotency-key": key, "content-type": "application/json" },
-        body: JSON.stringify({
-          authorizeDeepSeekSearch,
-          authorizeDeepSeekGeneration: authorizeDeepSeekSearch,
-          deepSeekOnly: authorizeDeepSeekSearch,
-        }),
+        body: JSON.stringify(requiresCustomDeepSeekAuthorization ? {
+          authorizeDeepSeekSearch: true,
+          authorizeDeepSeekGeneration: true,
+          deepSeekOnly: true,
+        } : {}),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "无法创建运行记录");
-      setAuthorizeDeepSeekSearch(false);
+      if (body.run) setRuns((current) => [body.run as IntelligenceRun, ...current.filter((run) => run.id !== body.run.id)]);
+      setAuthorizeCustomDeepSeek(false);
+      setOperationMessage("已加入队列，等待后台研究开始。关闭页面不会中断运行。");
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "无法创建运行记录");
+      const message = cause instanceof Error ? cause.message : "无法创建运行记录";
+      setError(message);
+      setOperationMessage(`未能开始运行：${message}`);
     } finally {
       setBusy(false);
     }
@@ -195,6 +215,7 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
     return <div><button type="button" onClick={onBack} className="text-sm text-ink-faint">← 情报工作空间</button>{error ? <p role="alert" className="mt-5 text-sm text-red-700">{error}</p> : <p className="mt-5 text-sm text-ink-faint">正在加载主题…</p>}</div>;
   }
   const archived = !!topic.archived_at;
+  const requiresCustomDeepSeekAuthorization = aiSource === "custom" && aiProvider === "deepseek";
 
   return (
     <div>
@@ -208,10 +229,11 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
           <p className="mt-2 text-sm text-ink-soft">{[...topic.regions, ...topic.topics, ...topic.entities, ...topic.event_types].filter(Boolean).join(" · ") || "自定义投资情报主题"}</p>
         </div>
         {archived ? <p className="text-sm text-ink-faint">只读查看；请在情报工作空间的“已归档主题”中恢复。</p> : <div className="flex max-w-xl flex-wrap justify-end gap-2">
-          <div className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-soft">
-            <label className="flex items-start gap-2"><input type="checkbox" checked={authorizeDeepSeekSearch} onChange={(event) => setAuthorizeDeepSeekSearch(event.target.checked)} disabled={busy || !topic.is_active} className="mt-0.5" /><span>仅本次允许使用我的 DeepSeek 模型与 Search（总费用上限 USD 0.10；不启用 Fetch、百炼或 Tavily）</span></label>
-          </div>
-          <button type="button" onClick={runOnce} disabled={busy || !topic.is_active || latestRun?.status === "queued" || latestRun?.status === "running"} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{latestRun?.status === "queued" || latestRun?.status === "running" ? "运行中…" : "运行一次"}</button>
+          <p className={`w-full text-right text-xs ${quotaAvailable ? "text-ink-faint" : "text-red-700"}`}>
+            {quotaAvailable ? (aiSource === "platform" ? "默认使用系统赠送的 AI 额度" : "使用账户中已配置的 AI") : "当前没有可用的系统额度或 AI 配置"}
+          </p>
+          {requiresCustomDeepSeekAuthorization ? <label className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-xs text-ink-soft"><span className="flex items-start gap-2"><input type="checkbox" checked={authorizeCustomDeepSeek} onChange={(event) => setAuthorizeCustomDeepSeek(event.target.checked)} disabled={busy || !topic.is_active} className="mt-0.5" /><span>系统赠送额度当前不可用；本次改用我在设置中保存的 DeepSeek（单次费用上限 USD 0.10）</span></span></label> : null}
+          <button type="button" onClick={runOnce} disabled={busy || !quotaAvailable || (requiresCustomDeepSeekAuthorization && !authorizeCustomDeepSeek) || !topic.is_active || latestRun?.status === "queued" || latestRun?.status === "running"} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{busy ? "正在提交…" : latestRun?.status === "queued" || latestRun?.status === "running" ? "运行中…" : "运行一次"}</button>
           <button type="button" onClick={() => setTab("scope")} className="rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink-soft">编辑范围</button>
           <button type="button" onClick={toggleActive} disabled={busy} className="rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink-soft">{topic.is_active ? "暂停" : "恢复"}</button>
           <button type="button" onClick={archive} disabled={busy} className="rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink-faint">归档</button>
@@ -219,6 +241,7 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
       </div>
 
       <RunStatusStrip run={latestRun} topic={topic} scheduler={scheduler} onRetry={retry} canRetry={!archived && topic.is_active} />
+      {operationMessage && <div aria-live="polite" className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{operationMessage}</div>}
       {error && <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       <div className="mt-6 flex gap-5 overflow-x-auto border-b border-line" role="tablist" aria-label="主题内容">
@@ -238,7 +261,7 @@ export function IntelligenceTopicView({ topicId, scheduler, onBack, onChanged }:
               ) : null}
               <IntelligenceBriefReader brief={selectedBrief} />
             </>
-          ) : <EmptyLatest run={latestRun} onRun={runOnce} disabled={!topic.is_active || busy} readOnly={archived} />
+          ) : <EmptyLatest run={latestRun} onRun={runOnce} disabled={!quotaAvailable || !topic.is_active || busy} readOnly={archived} />
         )}
         {tab === "history" && <BriefHistory briefs={briefs} onOpen={(id) => { setSelectedBriefId(id); setTab("latest"); }} nextCursor={briefCursor} onLoadMore={() => loadMore("briefs")} />}
         {tab === "scope" && <TopicScope topic={topic} onSaved={load} readOnly={archived} />}
@@ -255,13 +278,14 @@ function RunStatusStrip({ run, topic, scheduler, onRetry, canRetry }: { run: Int
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="font-medium">最近一次：{statusLabel(run?.status)}</p>
+          {run?.status === "queued" ? <p className="mt-1 text-xs leading-5">已加入队列，等待后台研究开始；关闭页面不会中断。</p> : null}
           {run?.status === "running" && run.checkpoint_stage ? <p className="mt-1 text-xs leading-5">当前阶段：{pipelineStageLabel(run.checkpoint_stage)}{run.checkpoint_status === "partial" ? "（部分完成）" : ""}</p> : null}
           <p className="mt-1 text-xs leading-5">
             {run ? `${day(run.coverage_start)} 至 ${day(run.coverage_end)}${run.finished_at ? ` · 完成于 ${date(run.finished_at)}` : run.started_at ? ` · 开始于 ${date(run.started_at)}` : ""}` : "还没有运行记录。"}
           </p>
           {run?.error_message_safe && <p className="mt-1 text-xs leading-5">{run.error_message_safe}</p>}
           {run?.requires_fresh_authorization && ["failed", "blocked"].includes(run.status) ? (
-            <p className="mt-1 text-xs leading-5">本次运行使用过单次授权；请回到顶部重新勾选 DeepSeek 单次授权并点击“运行一次”，系统会创建新的运行记录。</p>
+            <p className="mt-1 text-xs leading-5">这是旧版单次授权运行，不能直接重放。点击顶部“运行一次”会按当前账户的默认 AI 额度创建新记录。</p>
           ) : null}
           {run?.status === "partial" && <p className="mt-1 text-xs leading-5">本次仅发布通过来源与结构校验的事项；未通过部分已隔离，来源和运行记录仍保留。</p>}
           {topic.execution_mode === "scheduled" && (
@@ -405,7 +429,7 @@ function RunHistory({ runs, onRetry, canRetry, nextCursor, onLoadMore }: { runs:
             <DeepSeekAuditLine run={run} />
             <p>诊断仅保存安全结构摘要，不包含凭据、完整 prompt、思维过程或原始整页内容。</p>
             {run.requires_fresh_authorization && ["failed", "blocked"].includes(run.status) ? (
-              <p className="text-amber-800">本次运行使用过单次授权；请回到顶部重新勾选 DeepSeek 单次授权并点击“运行一次”，系统会创建新的运行记录。</p>
+              <p className="text-amber-800">这是旧版单次授权运行，不能直接重放。点击顶部“运行一次”会按当前账户的默认 AI 额度创建新记录。</p>
             ) : null}
             {canRetry && !run.requires_fresh_authorization && ["failed", "blocked"].includes(run.status) && <button type="button" onClick={() => onRetry(run)} className="font-medium text-accent underline">重试同一运行</button>}
           </div>

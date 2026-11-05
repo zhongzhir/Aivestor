@@ -21,6 +21,7 @@ const explicitDeepSeekWorker = read("scripts/run-intelligence-deepseek-validatio
 const migration045 = read("db/migrations/045_intelligence_source_items.sql");
 const migration046 = read("db/migrations/046_intelligence_brief_metadata.sql");
 const briefReader = read("src/components/data-apps/IntelligenceBriefReader.tsx");
+const generationAccess = read("src/lib/intelligenceGeneration.ts");
 
 assert.match(tasks, /WHERE user_id = \$1/);
 assert.match(generate, /createIntelligenceRun/);
@@ -42,11 +43,18 @@ assert.match(runs, /authorizeDeepSeekSearchByok:\s*run\.external_cost_authorizat
 assert.match(runs, /onDeepSeekSearchFetchAudit:[\s\S]*recordDeepSeekSearchFetchAudit/);
 assert.match(runs, /deepSeekDurableAttemptLedger:\s*createDeepSeekRunAttemptLedger/);
 assert.match(runs, /markUnsettledDeepSeekAttemptsUncertainInTransaction\(client, blocked\.rows, now\)/);
-assert.match(runs, /deepSeekGenerationDurableLedger:\s*createDeepSeekGenerationRunAttemptLedger\(run, workerKey\)/);
-assert.match(runs, /requireDeepSeekGenerationBudget:\s*true/);
+assert.match(runs, /deepSeekGenerationDurableLedger:\s*externallyBilledDeepSeekGeneration[\s\S]*createDeepSeekGenerationRunAttemptLedger\(run, workerKey\)/);
+assert.match(runs, /requireDeepSeekGenerationBudget:\s*externallyBilledDeepSeekGeneration/);
 assert.match(runs, /deepSeekGeneration !== true/);
-assert.match(runs, /deepSeekOnly && \(!deepSeekGeneration \|\| invalidDeepSeekEnvelope\)/);
+assert.match(runs, /deepSeekOnly && \(!externallyBilledDeepSeekGeneration \|\| invalidDeepSeekEnvelope\)/);
 assert.match(runs, /isOfficialDeepSeekBaseUrl\(generation\.credentials\.baseURL\)/);
+assert.match(runs, /getIntelligenceGenerationAccess/);
+assert.match(generationAccess, /export async function getIntelligenceGenerationAccess/);
+assert.ok(
+  generationAccess.indexOf("const systemKey = getSystemApiKey()", generationAccess.indexOf("getIntelligenceGenerationAccess"))
+    < generationAccess.indexOf("return getGenerationAccess(userId)", generationAccess.indexOf("getIntelligenceGenerationAccess")),
+  "情报必须先尝试系统赠送额度，再回退用户自有配置",
+);
 assert.match(runs, /authorizedRunBudgetUsdMicros/);
 assert.match(runs, /processIntelligenceRunById/);
 assert.match(core, /retrievalProviderMode === "deepseek-only"[\s\S]*\? \[\]/);

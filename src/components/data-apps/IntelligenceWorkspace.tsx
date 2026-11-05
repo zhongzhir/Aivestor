@@ -12,6 +12,7 @@ interface WorkspaceData {
   scheduler: SchedulerStatus;
   quotaAvailable: boolean;
   aiSource: "custom" | "platform" | null;
+  aiProvider: string | null;
 }
 
 function metadataOverview(value: unknown): string {
@@ -71,7 +72,15 @@ export function IntelligenceWorkspace() {
   };
 
   if (creating) return <IntelligenceTopicCreator onCancel={openWorkspace} onCreated={openTopic} />;
-  if (topicId) return <IntelligenceTopicView topicId={topicId} scheduler={data?.scheduler ?? { healthy: false, lastHeartbeatAt: null }} onBack={openWorkspace} onChanged={load} />;
+  if (topicId) return <IntelligenceTopicView
+    topicId={topicId}
+    scheduler={data?.scheduler ?? { healthy: false, lastHeartbeatAt: null }}
+    quotaAvailable={data?.quotaAvailable ?? false}
+    aiSource={data?.aiSource ?? null}
+    aiProvider={data?.aiProvider ?? null}
+    onBack={openWorkspace}
+    onChanged={load}
+  />;
 
   const tasks = data?.tasks ?? [];
   const visible = tasks.filter((task) => {

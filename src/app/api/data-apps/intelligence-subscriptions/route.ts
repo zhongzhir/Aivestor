@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { normalizeTaskInput, validateTaskInput } from "@/lib/intelligence";
 import { intelligenceLimitError, activeTaskLimitError, requireIntelligenceAPI } from "@/lib/intelligenceAccess";
-import { getGenerationAccess } from "@/lib/intelligenceGeneration";
+import { getIntelligenceGenerationAccess } from "@/lib/intelligenceGeneration";
 import { nextScheduledAt, isSchedulerHeartbeatFresh } from "@/lib/intelligenceSchedule";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ export async function GET() {
       ORDER BY t.updated_at DESC`,
     [guard.access.userId]
   );
-  const generation = await getGenerationAccess(guard.access.userId);
+  const generation = await getIntelligenceGenerationAccess(guard.access.userId);
   const archivedTasks = await query(
     `SELECT id,name,topics,entities,execution_mode,is_active,archived_at,created_at,updated_at
        FROM intelligence_tasks
@@ -60,6 +60,7 @@ export async function GET() {
     archivedTasks,
     briefs,
     aiSource: generation?.source ?? null,
+    aiProvider: generation?.credentials.provider ?? null,
     quotaAvailable: !!generation,
     scheduler: {
       lastHeartbeatAt: heartbeatAt,

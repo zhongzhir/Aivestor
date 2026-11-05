@@ -12,7 +12,7 @@ import {
   type IntelligenceTaskInput,
   type ScheduleConfig,
 } from "@/lib/intelligence";
-import { getGenerationAccess } from "@/lib/intelligenceGeneration";
+import { getIntelligenceGenerationAccess } from "@/lib/intelligenceGeneration";
 import { INTELLIGENCE_GENERATION_ESTIMATED_TOKENS } from "@/lib/intelligenceConfig";
 import { isCatchupAllowed, nextScheduledAt, scheduledSlotKey } from "@/lib/intelligenceSchedule";
 import { safeIntelligenceExternalUrl } from "@/lib/intelligenceUrl";
@@ -1734,7 +1734,7 @@ function fixtureBrief(run: IntelligenceRunRow): BriefResult {
 }
 
 export interface IntelligenceRunDependencies {
-  getGenerationAccess?: typeof getGenerationAccess;
+  getGenerationAccess?: typeof getIntelligenceGenerationAccess;
   generateBrief?: typeof generateBrief;
   /** 仅供 NODE_ENV=test 的隔离 worker 注入受控 transport。 */
   testOnlyInfrastructure?: Pick<IntelligenceResearchInfrastructureOptions, "deepSeekFetchImpl" | "generationStreamChatImpl" | "generationToolChatImpl" | "testEvidenceAcquirer">;
@@ -1800,7 +1800,7 @@ export async function runClaimedIntelligenceRun(run: IntelligenceRunRow, workerK
       return;
     }
 
-    const generation = await (dependencies.getGenerationAccess ?? getGenerationAccess)(run.user_id);
+    const generation = await (dependencies.getGenerationAccess ?? getIntelligenceGenerationAccess)(run.user_id);
     if (!generation) {
       await query(
         `UPDATE intelligence_runs SET status='blocked',finished_at=NOW(),locked_at=NULL,locked_by=NULL,
@@ -1813,13 +1813,13 @@ export async function runClaimedIntelligenceRun(run: IntelligenceRunRow, workerK
     }
     const deepSeekOnly = run.external_cost_authorization?.retrievalProviderMode === "deepseek-only";
     const deepSeekGeneration = generation.credentials.provider === "deepseek";
-    durableAttemptTracking = deepSeekGeneration;
-    const invalidDeepSeekEnvelope = generation.source !== "custom"
-      || run.external_cost_authorization?.deepSeekGeneration !== true
+    const externallyBilledDeepSeekGeneration = generation.source === "custom" && deepSeekGeneration;
+    durableAttemptTracking = externallyBilledDeepSeekGeneration;
+    const invalidDeepSeekEnvelope = run.external_cost_authorization?.deepSeekGeneration !== true
       || run.external_cost_authorization?.maxUsdMicros !== DEEPSEEK_TOTAL_RUN_BUDGET_USD_MICROS
       || !isOfficialDeepSeekBaseUrl(generation.credentials.baseURL);
-    if ((deepSeekOnly && (!deepSeekGeneration || invalidDeepSeekEnvelope))
-      || (deepSeekGeneration && invalidDeepSeekEnvelope)) {
+    if ((deepSeekOnly && (!externallyBilledDeepSeekGeneration || invalidDeepSeekEnvelope))
+      || (externallyBilledDeepSeekGeneration && invalidDeepSeekEnvelope)) {
       await query(
         `UPDATE intelligence_runs SET status='blocked',finished_at=NOW(),locked_at=NULL,locked_by=NULL,
                 error_code='deepseek_generation_not_authorized',provider_call_state='none',
@@ -1863,8 +1863,12 @@ export async function runClaimedIntelligenceRun(run: IntelligenceRunRow, workerK
         // 首次真实验证明确关闭 DeepSeek Fetch；未来必须另行取得单次授权。
         authorizeDeepSeekFetchByok: false,
         deepSeekDurableAttemptLedger: createDeepSeekRunAttemptLedger(run, workerKey),
-        deepSeekGenerationDurableLedger: createDeepSeekGenerationRunAttemptLedger(run, workerKey),
-        requireDeepSeekGenerationBudget: true,
+        // 平台赠送额度由平台 token reservation 管理；只有用户自有 DeepSeek
+        // 才进入逐次美元预算账本，避免把正式平台运行误判成测试 BYOK 授权。
+        deepSeekGenerationDurableLedger: externallyBilledDeepSeekGeneration
+          ? createDeepSeekGenerationRunAttemptLedger(run, workerKey)
+          : undefined,
+        requireDeepSeekGenerationBudget: externallyBilledDeepSeekGeneration,
         retrievalProviderMode: run.external_cost_authorization?.retrievalProviderMode === "deepseek-only" ? "deepseek-only" : "default",
         onDeepSeekSearchFetchAudit: (audit) => recordDeepSeekSearchFetchAudit(run, workerKey, audit),
         pipelineStore: createIntelligencePipelineStore(run, workerKey),

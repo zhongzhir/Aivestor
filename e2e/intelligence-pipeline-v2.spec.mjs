@@ -49,7 +49,7 @@ test("确定性流水线在主题页展示阶段、旧成果和历史入口", as
   await expect(running.getByText(/流水线阶段：核验正文 · running/)).toBeVisible();
   const freshAuthorizationRequired = page.locator("details").filter({ hasText: "单次费用授权已经结束" });
   await freshAuthorizationRequired.locator("summary").click();
-  await expect(freshAuthorizationRequired.getByText(/重新勾选 DeepSeek 单次授权/)).toBeVisible();
+  await expect(freshAuthorizationRequired.getByText(/旧版单次授权运行，不能直接重放/)).toBeVisible();
   await expect(freshAuthorizationRequired.getByRole("button", { name: "重试同一运行" })).toHaveCount(0);
   const directRetry = await page.evaluate(async () => {
     const response = await fetch("/api/data-apps/intelligence-subscriptions/runs/90000000-0000-4000-8000-000000000203", { method: "POST" });

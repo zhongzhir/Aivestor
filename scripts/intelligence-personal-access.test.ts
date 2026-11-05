@@ -19,7 +19,7 @@ assert.equal(route.includes('requireCapabilityAPI("zjjr_data")'), false);
 assert.match(route, /activeTaskLimitError/);
 assert.match(route, /intelligenceLimitError/);
 assert.match(generate, /createIntelligenceRun/);
-assert.match(runs, /getGenerationAccess/);
+assert.match(runs, /getIntelligenceGenerationAccess/);
 assert.match(runs, /reservePlatformQuotaForRun/);
 assert.match(runs, /quota_unavailable/);
 assert.match(scheduler, /enqueueDueIntelligenceRuns/);
