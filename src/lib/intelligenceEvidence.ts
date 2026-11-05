@@ -23,6 +23,8 @@ export interface EvidenceCandidate {
   origin?: string;
   content: string;
   evidenceStatus?: EvidenceStatus;
+  /** 安全失败分类；不包含响应正文、凭据或底层异常堆栈。 */
+  evidenceFailureReason?: string;
   /** 临时内部字段；调用方应在持久化前消费并删除。 */
   evidencePublishedAt?: string;
 }
@@ -190,7 +192,8 @@ function firstMatch(html: string, pattern: RegExp): string | undefined {
 }
 
 function bodyPublishedAt(text: string): string | undefined {
-  return firstMatch(text, /(20\d{2}[年\/-]\d{1,2}[月\/-]\d{1,2}(?:日)?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/);
+  // 正文中的任意日期可能是事件日，只有明确带“发布”语义的日期才可回填文章来源日期。
+  return firstMatch(text, /(?:发布时间|发布日期|发布于|datePublished|published(?:\s+at|\s+on)?)[：:\s]*((?:20\d{2})[年\/-]\d{1,2}[月\/-]\d{1,2}(?:日)?(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/i);
 }
 
 function stripNoise(html: string): string {
@@ -247,6 +250,14 @@ function unavailable(url: string, finalUrl: string, reason: unknown): EvidenceRe
   return { url, finalUrl, text: "", evidenceStatus: "unavailable", failureReason: reason instanceof Error ? reason.message : String(reason) };
 }
 
+function safeEvidenceFailureReason(reason: string | undefined): string | undefined {
+  if (!reason) return undefined;
+  if (/^[a-z][a-z0-9_]{0,63}$/i.test(reason)) return reason.toLowerCase();
+  if (/timeout|timed out|abort/i.test(reason)) return "timeout";
+  if (/dns|getaddrinfo|network|socket|connect/i.test(reason)) return "network_error";
+  return "evidence_fetch_failed";
+}
+
 export async function fetchPublicEvidence(value: string, options: { resolveAddresses?: AddressResolver; request?: EvidenceRequester } = {}): Promise<EvidenceResult> {
   const original = value;
   let current = value;
@@ -278,7 +289,21 @@ export async function fetchPublicEvidence(value: string, options: { resolveAddre
   }
 }
 
-export async function acquireEvidence<T extends EvidenceCandidate>(candidates: T[], options: { maxUrls?: number; concurrency?: number } = {}): Promise<{ candidates: T[]; stats: EvidenceAcquisitionStats }> {
+export type EvidenceFetcher = (url: string) => Promise<EvidenceResult>;
+
+export interface EvidenceAcquisitionOptions {
+  maxUrls?: number;
+  concurrency?: number;
+  /** 可注入受控取证器；默认仍使用本地 SSRF 防护抓取。 */
+  fetchEvidence?: EvidenceFetcher;
+}
+
+export type EvidenceAcquirer = <T extends EvidenceCandidate>(
+  candidates: T[],
+  options?: EvidenceAcquisitionOptions,
+) => Promise<{ candidates: T[]; stats: EvidenceAcquisitionStats }>;
+
+export async function acquireEvidence<T extends EvidenceCandidate>(candidates: T[], options: EvidenceAcquisitionOptions = {}): Promise<{ candidates: T[]; stats: EvidenceAcquisitionStats }> {
   const targets = candidates.filter((candidate) => candidate.origin === "web-search" && !!candidate.sourceUrl).slice(0, options.maxUrls ?? EVIDENCE_LIMITS.maxUrls);
   const stats: EvidenceAcquisitionStats = { attempted: targets.length, full: 0, partial: 0, unavailable: 0 };
   let cursor = 0;
@@ -286,8 +311,9 @@ export async function acquireEvidence<T extends EvidenceCandidate>(candidates: T
     while (cursor < targets.length) {
       const index = cursor++;
       const candidate = targets[index]!;
-      const evidence = await fetchPublicEvidence(candidate.sourceUrl!);
+      const evidence = await (options.fetchEvidence ?? fetchPublicEvidence)(candidate.sourceUrl!);
       candidate.evidenceStatus = evidence.evidenceStatus;
+      candidate.evidenceFailureReason = safeEvidenceFailureReason(evidence.failureReason);
       if (evidence.evidenceStatus !== "unavailable") candidate.content = evidence.text;
       if (evidence.title && candidate.title.length < 12) candidate.title = evidence.title;
       if (evidence.publishedAt) candidate.evidencePublishedAt = evidence.publishedAt;

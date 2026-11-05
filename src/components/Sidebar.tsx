@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
 import { BRAND } from "@/lib/brand";
 
 const NAV = [
@@ -29,6 +30,37 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const { data: session, status } = useSession();
+  const sidebarRef = useRef<HTMLElement>(null);
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 768px)");
+    const syncViewport = () => setIsDesktop(mediaQuery.matches);
+    syncViewport();
+    mediaQuery.addEventListener("change", syncViewport);
+    return () => mediaQuery.removeEventListener("change", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileOpen || isDesktop) return;
+    const frame = window.requestAnimationFrame(() => {
+      sidebarRef.current
+        ?.querySelector<HTMLElement>('a[href], button:not([disabled])')
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isDesktop, mobileOpen]);
+
+  const mobileHidden = !isDesktop && !mobileOpen;
+
+  useEffect(() => {
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    sidebar.inert = mobileHidden;
+    return () => {
+      sidebar.inert = false;
+    };
+  }, [mobileHidden]);
 
   const nav = session?.user
     ? [
@@ -52,6 +84,9 @@ export function Sidebar({
 
   return (
     <aside
+      ref={sidebarRef}
+      aria-label="主导航"
+      aria-hidden={mobileHidden ? true : undefined}
       className={`fixed inset-y-0 left-0 z-40 flex h-full w-64 shrink-0 flex-col border-r border-[#e5ded2] bg-[#f4f1ea] transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
         mobileOpen ? "translate-x-0" : "-translate-x-full"
       }`}

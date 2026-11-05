@@ -17,7 +17,7 @@ async function assertNoRuntimeFailures(page, responses, consoleErrors) {
   expect(consoleErrors, `browser console errors: ${consoleErrors.join("\n")}`).toEqual([]);
 }
 
-test("个人版工作台入口真实点击到情报订制", async ({ page }) => {
+test("个人版工作台入口真实点击到情报工作空间", async ({ page }) => {
   const responses = [];
   const consoleErrors = [];
   page.on("response", (response) => {
@@ -25,13 +25,13 @@ test("个人版工作台入口真实点击到情报订制", async ({ page }) => 
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
 
-  const link = page.getByRole("link", { name: "开始订制", exact: true });
+  const link = page.getByRole("link", { name: "管理订制", exact: true }).first();
   await expect(link).toBeVisible();
   await expect(link).toBeEnabled();
   await expect(link).toHaveAttribute("href", "/data-apps/intelligence-subscriptions");
   await link.click();
   await expect(page).toHaveURL(/\/data-apps\/intelligence-subscriptions$/);
-  await expect(page.getByRole("heading", { name: "你想持续关注什么？", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "情报工作空间", exact: true })).toBeVisible();
   await page.screenshot({ path: "artifacts/playwright-intelligence/after-intelligence-navigation.png", fullPage: true });
   await assertNoRuntimeFailures(page, responses, consoleErrors);
 });
@@ -44,11 +44,11 @@ test("返回 dashboard 后再次进入仍然有效", async ({ page }) => {
   });
   page.on("pageerror", (error) => consoleErrors.push(error.message));
 
-  await page.getByRole("link", { name: "开始订制", exact: true }).click();
+  await page.getByRole("link", { name: "管理订制", exact: true }).first().click();
   await expect(page).toHaveURL(/\/data-apps\/intelligence-subscriptions$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/dashboard$/);
-  await page.getByRole("link", { name: "开始订制", exact: true }).click();
+  await page.getByRole("link", { name: "管理订制", exact: true }).first().click();
   await expect(page).toHaveURL(/\/data-apps\/intelligence-subscriptions$/);
   await assertNoRuntimeFailures(page, responses, consoleErrors);
 });

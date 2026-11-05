@@ -69,8 +69,8 @@ const generationProvider: IntelligenceProvider = {
       alignmentCalls++;
       return JSON.stringify({ claims: [
         { id: "claim-1", supportingEvidence: [{ url: "https://media.example/alpha", relevantText: "甲公司于5月8日完成战略投资。", publishedAt: "2026-08-08" }] },
-        { id: "claim-2", supportingEvidence: alignmentCalls === 1 ? [] : [{ url: "https://primary.example/alpha", relevantText: "公告确认甲公司于8月6日启动融资，拟募资80亿元。", publishedAt: "2069-08-08" }] },
-        { id: "claim-3", supportingEvidence: [{ url: "https://exchange.example/beta", relevantText: "乙公司自8月7日起纳入交易互联机制。", publishedAt: "2026-08-07" }] },
+        { id: "claim-2", supportingEvidence: alignmentCalls === 1 ? [] : [{ url: "https://primary.example/alpha", relevantText: "公告确认甲公司于2026年8月6日启动融资，拟募资80亿元。", publishedAt: "2069-08-08" }] },
+        { id: "claim-3", supportingEvidence: [{ url: "https://exchange.example/beta", relevantText: "乙公司自2026年8月7日起纳入交易互联机制。", publishedAt: "2026-08-07" }] },
         { id: "claim-4", supportingEvidence: [{ url: "https://local.example/gamma", relevantText: "丙公司启动上市辅导。另有无关劳动政策。", publishedAt: "2026-08-07" }] },
       ] });
     }
@@ -123,9 +123,9 @@ const retrieval = {
 
 const evidenceText: Record<string, string> = {
   "https://media.example/alpha": "甲公司于5月8日完成战略投资。报道还提及8月融资。",
-  "https://exchange.example/beta": "乙公司自8月7日起纳入交易互联机制。",
+  "https://exchange.example/beta": "乙公司自2026年8月7日起纳入交易互联机制。",
   "https://local.example/gamma": "丙公司启动上市辅导。另有无关劳动政策。",
-  "https://primary.example/alpha": "公告确认甲公司于8月6日启动融资，拟募资80亿元。",
+  "https://primary.example/alpha": "公告确认甲公司于2026年8月6日启动融资，拟募资80亿元。",
 };
 
 const emptyAgenda = { coverageMap: { researchDimensions: [], highestValueGaps: [] }, prioritizedClaims: [], mergedClaims: [], verificationTargets: [], gapFillQueries: [], stopReason: "无候选" };
@@ -164,6 +164,11 @@ async function main() {
   assert.deepEqual(result.research.verifiedClaims.find((claim) => claim.id === "claim-3")?.unsupportedDetails, ["股价上涨4.42%"]);
   assert.equal(result.importantFacts.some((item) => item.title.includes("劳动政策")), false);
   assert.equal(result.research.verifiedClaims.find((claim) => claim.statement.includes("80亿元"))?.supportingEvidence[0]?.url, "https://primary.example/alpha");
+  const financingCard = result.importantFacts.find((item) => item.title.includes("80亿元"));
+  assert.equal(financingCard?.eventDate?.startsWith("2026-08-06"), true, "研究 claim 的事件日必须独立映射到卡片");
+  assert.equal(financingCard?.eventDateSupport, "evidence", "AI-first 精确事件日必须通过正文证据门禁");
+  assert.equal(financingCard?.publishedAt, "", "异常来源发布日期不得用事件日回填");
+  assert.equal(financingCard?.eventType, "融资");
   assert.equal(result.research.verifiedClaims.find((claim) => claim.statement.includes("80亿元"))?.supportingEvidence[0]?.publishedAt, null, "异常未来来源日期必须归一为 null");
   assert.equal(result.sourceList.find((source) => source.url === "https://primary.example/alpha")?.publishedAt, null, "sourceList 不得输出异常未来日期");
   assert.equal(result.sourceList.some((source) => source.publishedAt?.startsWith("1970")), false, "sourceList 不得使用 epoch 默认日期");
@@ -215,6 +220,8 @@ async function main() {
 
   let agentTurn = 0;
   let reasoningRoundTripped = false;
+  const agentMediaUrl = "https://media.example/agent-event";
+  const agentOfficialUrl = "https://official.example/event";
   const agentProvider: IntelligenceProvider = {
     id: "mock-agent",
     capabilities: { generation: true, nativeWebSearch: false, agenticToolUse: true },
@@ -229,11 +236,11 @@ async function main() {
       if (agentTurn === 2) return {
         content: null,
         reasoningContent: "select evidence",
-        toolCalls: [{ id: "read-1", type: "function", function: { name: "read_url", arguments: JSON.stringify({ urls: ["https://official.example/event"], unresolvedGaps: ["核对交易日期和金额"] }) } }],
+        toolCalls: [{ id: "read-1", type: "function", function: { name: "read_url", arguments: JSON.stringify({ urls: [agentMediaUrl, agentOfficialUrl], unresolvedGaps: ["核对交易日期和金额"] }) } }],
       };
       return {
         content: JSON.stringify({
-          findings: [{ claim: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", sourceUrls: ["https://official.example/event"], confidence: "high" }],
+          findings: [{ claim: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", sourceUrls: [agentMediaUrl, agentOfficialUrl], confidence: "high" }],
           searchedAreas: ["目标赛道窗口内直接资本事项"], unresolvedGaps: [], confidence: "high",
         }),
         reasoningContent: null,
@@ -241,7 +248,10 @@ async function main() {
       };
     },
     async generate({ system }) {
-      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [{ url: "https://official.example/event", relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-07" }] }] });
+      if (system.includes("[PHASE:agentic-claim-evidence-alignment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportingEvidence: [
+        { url: agentMediaUrl, relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-08" },
+        { url: agentOfficialUrl, relevantText: "甲公司于8月7日完成新一轮融资。", publishedAt: "2026-08-07" },
+      ] }] });
       if (system.includes("[PHASE:agentic-claim-verification]")) return JSON.stringify({ claims: [{ id: "claim-1", statement: "甲公司于8月7日完成新一轮融资", eventDate: "2026-08-07", entities: ["甲公司"], eventType: "融资", significance: "补充研发资金", confidence: "high", classification: "fact", relevanceToResearch: "high" }] });
       if (system.includes("[PHASE:agentic-evidence-entailment]")) return JSON.stringify({ claims: [{ id: "claim-1", supportedStatement: "甲公司于8月7日完成新一轮融资", unsupportedDetails: [], classification: "fact" }] });
       if (system.includes("[PHASE:agentic-final-synthesis]")) return JSON.stringify({ sentences: [{ text: "甲公司于8月7日完成新一轮融资。", mode: "fact", supportingClaimIds: ["claim-1"] }, { text: "后续应关注资金用途与交割进度。", mode: "analysis", supportingClaimIds: ["claim-1"] }], items: [{ claimId: "claim-1", title: "甲公司完成新一轮融资", editorial: "后续应关注资金用途。" }], trends: [] });
@@ -256,25 +266,36 @@ async function main() {
         return {
           status: "success" as const,
           providers: [{ provider: "mock-web", attempted: true, succeeded: true, queryCount: 1, resultCount: 1 }],
-          results: [{ title: "甲公司融资公告", url: "https://official.example/event", siteName: "官方公告", snippet: "甲公司披露融资事项。", publishedAt: "2026-08-07", sourceTier: "S" as const, domain: "official.example", query }],
+          results: [
+            { title: "甲公司融资报道", url: agentMediaUrl, siteName: "财经媒体", snippet: "甲公司披露融资事项。", publishedAt: "2026-08-08", sourceTier: "A" as const, domain: "media.example", query },
+            { title: "甲公司融资公告", url: agentOfficialUrl, siteName: "官方公告", snippet: "甲公司披露融资事项。", publishedAt: "2026-08-07", sourceTier: "S" as const, domain: "official.example", query },
+          ],
         };
       },
     },
     acquireEvidence: (async (candidates: any[]) => {
-      candidates[0].evidenceStatus = "full";
-      candidates[0].content = "甲公司于8月7日完成新一轮融资。";
-      candidates[0].evidencePublishedAt = "2026-08-07";
-      return { candidates, stats: { attempted: 1, full: 1, partial: 0, unavailable: 0 } };
+      for (const candidate of candidates) {
+        candidate.evidenceStatus = "full";
+        candidate.content = "甲公司于8月7日完成新一轮融资。";
+        if (candidate.sourceUrl === agentOfficialUrl) candidate.evidencePublishedAt = "2026-08-07T09:30:00+08:00";
+      }
+      return { candidates, stats: { attempted: candidates.length, full: candidates.length, partial: 0, unavailable: 0 } };
     }) as any,
   });
   assert.equal(agentResult.research.executionMode, "agentic");
   assert.equal(agentResult.research.supervisorAgendas.length, 0, "Agentic 主链不得再由 Supervisor 状态机控制");
   assert.deepEqual(agentResult.research.agent?.turns.map((turn) => turn.action), ["web_search", "read_url", "final"]);
   assert.equal(agentResult.research.agent?.searchCalls, 1);
-  assert.equal(agentResult.research.agent?.readUrls, 1);
+  assert.equal(agentResult.research.agent?.readUrls, 2);
   assert.deepEqual(agentResult.research.agent?.failureCodes, []);
   assert.equal(agentResult.importantFacts.length, 1);
-  assert.equal(agentResult.importantFacts[0]?.sourceUrl, "https://official.example/event");
+  assert.equal(agentResult.importantFacts[0]?.sourceUrl, agentOfficialUrl, "主来源 URL 必须与最强发布日期证据一致，不能沿用数组第一项");
+  assert.equal(agentResult.importantFacts[0]?.source, "官方公告");
+  assert.deepEqual(agentResult.importantFacts[0]?.sourceUrls, [agentMediaUrl, agentOfficialUrl], "完整来源列表及原顺序仍需保留");
+  assert.equal(agentResult.importantFacts[0]?.publishedAt, "2026-08-07T01:30:00.000Z", "AI-first 卡片应优先使用正文 datePublished");
+  assert.equal(agentResult.importantFacts[0]?.publishedAtSource, "evidence");
+  assert.equal(agentResult.importantFacts[0]?.publishedAtConfidence, "high");
+  assert.equal(agentResult.sourceList.find((item) => item.url === agentOfficialUrl)?.publishedAtSource, "evidence", "AI-first 来源清单应逐来源保留发布日期来源");
   assert.equal(reasoningRoundTripped, true, "thinking-mode 多轮工具调用必须回传 reasoning_content");
   assert.equal(JSON.stringify(agentResult.research.agent).includes("internal reasoning"), false, "telemetry 不得暴露 reasoning_content");
 

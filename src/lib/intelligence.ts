@@ -1,8 +1,7 @@
 import { query } from "@/lib/db";
-import { getGenerationAccess, reserveIntelligenceQuota } from "@/lib/intelligenceGeneration";
-import { createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceProvider } from "@/lib/intelligenceProvider";
+import { createDefaultIntelligenceRetrievalProviders, createIntelligenceGenerationProvider, IntelligenceRetrievalOrchestrator, safeRetrievalMetadata, type IntelligenceGenerationProviderOptions, type IntelligenceProvider, type RetrievalProviderDiagnostic } from "@/lib/intelligenceProvider";
 import { emptyRelevanceDropReasons, isHistoricalReviewCandidate, normalizeIntelligenceTaskSemantics, topicRelevance, type RelevanceDropReasons, type RelevancePhase } from "@/lib/intelligenceTopicRelevance";
-import { acquireEvidence, type EvidenceStatus } from "@/lib/intelligenceEvidence";
+import { acquireEvidence, type EvidenceAcquirer, type EvidenceStatus } from "@/lib/intelligenceEvidence";
 import { runAiFirstResearch, type AgenticResearchTelemetry, type ResearchAgenda, type ResearchClaim, type VerificationTrace } from "@/lib/intelligenceResearchAgent";
 import { runAiNativeResearch, type AiNativeResearchReport, type AiNativeResearchResult } from "@/lib/intelligenceAiNative";
 import { normalizePublicTimestamp } from "@/lib/intelligenceTime";
@@ -16,9 +15,154 @@ import {
   scoreAndSortCandidates,
 } from "@/lib/intelligenceBriefQuality";
 import { loadIntelligencePersonalization, type IntelligencePersonalization } from "@/lib/intelligencePersonalization";
+import { safeIntelligenceExternalUrl } from "@/lib/intelligenceUrl";
+import { createDeepSeekEvidenceAcquirer, createDeepSeekSearchFetchAdapter, DeepSeekSearchFetchBudget, isOfficialDeepSeekBaseUrl, type DeepSeekBudgetSnapshot, type DeepSeekDurableAttemptLedger, type DeepSeekFetchMode } from "@/lib/intelligenceDeepSeekAdapter";
+import type { DeepSeekGenerationDurableLedger } from "@/lib/intelligenceDeepSeekGenerationBudget";
+import { runIntelligencePipeline, type IntelligencePipelineStore } from "@/lib/intelligencePipeline";
 
 export type ExecutionMode = "manual" | "scheduled";
 export type Feedback = "valuable" | "irrelevant";
+
+function positiveInteger(value: string | undefined, fallback: number, max: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, max) : fallback;
+}
+
+function configuredDeepSeekFetchMode(value: string | undefined): DeepSeekFetchMode {
+  return value === "fallback" || value === "prefer" ? value : "off";
+}
+
+type IntelligenceGenerationCredentials = Parameters<typeof createIntelligenceGenerationProvider>[0];
+
+export interface DeepSeekSearchFetchAudit {
+  provider: "deepseek-web";
+  credentialSource: "byok" | "platform" | "unavailable";
+  featureEnabled: boolean;
+  singleRunSearchAuthorized: boolean;
+  singleRunFetchAuthorized: boolean;
+  enabled: boolean;
+  fetchMode: DeepSeekFetchMode;
+  blockReason?: "feature_disabled" | "provider_not_selected" | "platform_billing_disabled" | "single_run_not_authorized" | "missing_credentials" | "non_official_endpoint";
+  usage: DeepSeekBudgetSnapshot;
+}
+
+export interface IntelligenceResearchInfrastructureOptions {
+  authorizeDeepSeekSearchByok?: boolean;
+  authorizeDeepSeekFetchByok?: boolean;
+  deepSeekDurableAttemptLedger?: DeepSeekDurableAttemptLedger;
+  deepSeekGenerationDurableLedger?: DeepSeekGenerationDurableLedger;
+  requireDeepSeekGenerationBudget?: boolean;
+  /** 受控真实验收只构造 DeepSeek 检索，防止百炼/Tavily 绕过该 run 的美元账本。 */
+  retrievalProviderMode?: "default" | "deepseek-only";
+  /** 仅用于离线 transport 测试；生产不传时使用全局 fetch。 */
+  deepSeekFetchImpl?: typeof fetch;
+  /** 仅用于离线 worker 验证；生产不传时使用真实 SDK transport。 */
+  generationStreamChatImpl?: IntelligenceGenerationProviderOptions["streamChatImpl"];
+  /** 仅用于离线 worker 验证；生产不传时使用真实 SDK transport。 */
+  generationToolChatImpl?: IntelligenceGenerationProviderOptions["completeChatWithToolsImpl"];
+  /** 仅用于 NODE_ENV=test 的完整 worker 取证链验证。 */
+  testEvidenceAcquirer?: EvidenceAcquirer;
+}
+
+export interface IntelligenceExecutionOptions extends IntelligenceResearchInfrastructureOptions {
+  onDeepSeekSearchFetchAudit?: (audit: DeepSeekSearchFetchAudit) => void | Promise<void>;
+  /** Present only for claimed worker runs. Enables the recoverable deterministic pipeline. */
+  pipelineStore?: IntelligencePipelineStore;
+  /**
+   * Wall-clock time at which this brief is produced. Coverage calculation still uses
+   * the explicit `now` argument so a historic/custom window remains deterministic.
+   */
+  briefGeneratedAt?: Date;
+}
+
+const emptyDeepSeekUsage = (): DeepSeekBudgetSnapshot => ({
+  searchAttempts: 0,
+  fetchAttempts: 0,
+  searchReserved: 0,
+  searchCompleted: 0,
+  searchFailed: 0,
+  searchUncertain: 0,
+  fetchReserved: 0,
+  fetchCompleted: 0,
+  fetchFailed: 0,
+  fetchUncertain: 0,
+  billableSearch: 0,
+  billableFetch: 0,
+  uncertain: 0,
+  reservedUsdMicros: 0,
+  estimatedBillableUsdMicros: 0,
+});
+
+export function createIntelligenceResearchInfrastructure(
+  credentials?: IntelligenceGenerationCredentials,
+  env: Record<string, string | undefined> = process.env,
+  options: IntelligenceResearchInfrastructureOptions = {},
+) {
+  if (options.testEvidenceAcquirer && env.NODE_ENV !== "test") {
+    throw new Error("INTELLIGENCE_TEST_EVIDENCE_ACQUIRER_REQUIRES_TEST_ENV");
+  }
+  const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials, {
+    deepSeekGenerationLedger: options.deepSeekGenerationDurableLedger,
+    requireDeepSeekBudget: options.requireDeepSeekGenerationBudget === true,
+    streamChatImpl: options.generationStreamChatImpl,
+    completeChatWithToolsImpl: options.generationToolChatImpl,
+  });
+  const independentProviders = options.retrievalProviderMode === "deepseek-only"
+    ? []
+    : createDefaultIntelligenceRetrievalProviders();
+  let deepSeekEvidenceAcquirer: import("@/lib/intelligenceEvidence").EvidenceAcquirer | undefined;
+  let deepSeekAdapter: ReturnType<typeof createDeepSeekSearchFetchAdapter> | undefined;
+  const selectedProvider = credentials?.selectedProvider || credentials?.provider;
+  const featureEnabled = env.INTELLIGENCE_DEEPSEEK_SEARCH_ENABLED === "true";
+  const credentialSource: DeepSeekSearchFetchAudit["credentialSource"] = !credentials
+    ? "unavailable"
+    : credentials.usingFreeQuota === false ? "byok" : "platform";
+  const searchAuthorized = options.authorizeDeepSeekSearchByok === true;
+  const fetchAuthorized = options.authorizeDeepSeekFetchByok === true;
+  const blockReason: DeepSeekSearchFetchAudit["blockReason"] = !featureEnabled ? "feature_disabled"
+    : selectedProvider !== "deepseek" ? "provider_not_selected"
+      : credentialSource === "platform" ? "platform_billing_disabled"
+        : !searchAuthorized ? "single_run_not_authorized"
+          : !credentials?.apiKey ? "missing_credentials"
+            : !isOfficialDeepSeekBaseUrl(credentials.baseURL) ? "non_official_endpoint"
+              : undefined;
+  if (!blockReason) {
+    const searchLimit = positiveInteger(env.INTELLIGENCE_DEEPSEEK_SEARCH_MAX_REQUESTS, 2, 2);
+    // 首次端到端验收不允许 Fetch；远端 DNS/重定向边界另行验证后再开放。
+    const fetchLimit = 0;
+    const budget = new DeepSeekSearchFetchBudget(searchLimit, fetchLimit);
+    deepSeekAdapter = createDeepSeekSearchFetchAdapter({
+      apiKey: credentials!.apiKey,
+      baseURL: credentials!.baseURL,
+      budget,
+      durableAttemptLedger: options.deepSeekDurableAttemptLedger,
+      fetchImpl: options.deepSeekFetchImpl,
+      maxAttempts: 1,
+    });
+    independentProviders.push(deepSeekAdapter);
+    const fetchMode = fetchAuthorized ? configuredDeepSeekFetchMode(env.INTELLIGENCE_DEEPSEEK_FETCH_MODE) : "off";
+    if (fetchMode !== "off") deepSeekEvidenceAcquirer = createDeepSeekEvidenceAcquirer(deepSeekAdapter, { mode: fetchMode });
+  }
+  const deepSeekAudit = (): DeepSeekSearchFetchAudit => ({
+    provider: "deepseek-web",
+    credentialSource,
+    featureEnabled,
+    singleRunSearchAuthorized: searchAuthorized,
+    singleRunFetchAuthorized: fetchAuthorized,
+    enabled: !!deepSeekAdapter,
+    fetchMode: deepSeekAdapter && fetchAuthorized ? configuredDeepSeekFetchMode(env.INTELLIGENCE_DEEPSEEK_FETCH_MODE) : "off",
+    ...(blockReason ? { blockReason } : {}),
+    usage: deepSeekAdapter?.usageSnapshot() ?? emptyDeepSeekUsage(),
+  });
+  const evidenceAcquirer = options.testEvidenceAcquirer ?? deepSeekEvidenceAcquirer;
+  return {
+    generationProvider,
+    retrieval: new IntelligenceRetrievalOrchestrator([generationProvider], independentProviders),
+    deepSeekAudit,
+    ...(evidenceAcquirer ? { acquireEvidence: evidenceAcquirer } : {}),
+    ...(deepSeekAdapter ? { deepSeekAdapter } : {}),
+  };
+}
 
 export interface LookbackPeriod {
   kind: "days" | "custom";
@@ -36,6 +180,8 @@ export interface ScheduleConfig {
 
 export interface IntelligenceTaskInput {
   name: string;
+  /** User-authored request retained in the owner-scoped task/run snapshot. */
+  originalRequest?: string;
   topics: string[];
   entities: string[];
   keywords: string[];
@@ -48,6 +194,10 @@ export interface IntelligenceTaskInput {
   executionMode: ExecutionMode;
   scheduleConfig: ScheduleConfig | null;
   isActive: boolean;
+  /** 用户明确要求的事件类别；研究计划与检索 query 必须消费。 */
+  eventTypes?: string[];
+  /** 预留的来源策略元数据；首版本不宣称可控制供应商覆盖。 */
+  sourcePolicy?: Record<string, unknown>;
   /** 运行时注入，不落入任务配置；用于研究阶段的个人关联上下文。 */
   personalizationPrompt?: string;
   personalizationMeta?: Pick<IntelligencePersonalization, "profileUsed" | "projectIds" | "judgmentCount">;
@@ -85,6 +235,28 @@ export interface Candidate {
   /** 搜索结果正文取证状态；仅标题/snippet 的单源不得升级为事实。 */
   evidenceStatus?: EvidenceStatus;
   evidencePublishedAt?: string;
+  /** 文章来源日期的取值来源；事件日/抓取日/生成日不参与。 */
+  publishedAtSource?: "evidence" | "provider" | "url" | "unknown";
+  publishedAtConfidence?: "high" | "medium" | "low" | "unknown";
+  /** 面向股权投资的事件类别；旧简报可为空。 */
+  eventType?: string;
+  /** 事件实际发生日，与文章来源发布时间分离。 */
+  eventDate?: string;
+  /** 正文只支持月份、季度、节日前后等模糊事件时间时保留原始表述。 */
+  eventTimeText?: string;
+  /** 仅在正文中的日期与事件动作共同支持时标记。 */
+  eventDateSupport?: "evidence";
+  discoveredAt?: string;
+  fetchedAt?: string;
+  supportLevel?: "direct" | "corroborating" | "context" | "unknown";
+  exclusionReason?: string;
+  conflicts?: Array<{
+    type: "financing-round";
+    reason: "same-entity-near-date-different-round";
+    entity: string;
+    values: string[];
+    relatedSourceUrls: string[];
+  }>;
 }
 
 interface SourceItemRow {
@@ -112,7 +284,7 @@ export interface BriefResult {
   importantFacts: BriefItem[];
   trendSignals: BriefItem[];
   otherItems: BriefItem[];
-  sourceList: Array<{ source: string; url: string | null; publishedAt: string | null; sourceTier?: "S" | "A" | "B" | "C" | "D"; origin?: string }>;
+  sourceList: Array<{ source: string; url: string | null; publishedAt: string | null; publishedAtSource?: Candidate["publishedAtSource"]; publishedAtConfidence?: Candidate["publishedAtConfidence"]; sourceTier?: "S" | "A" | "B" | "C" | "D"; origin?: string }>;
   metadata: {
     overview: string;
     origins: string[];
@@ -123,6 +295,7 @@ export interface BriefResult {
       preEvidencePassed?: number;
       postEvidencePassed?: number;
       relevanceDropReasons?: Record<string, number>;
+      coverageConclusion?: "verified_no_matching_items" | "items_found" | "insufficient_evidence";
     };
     research?: {
       mode: "ai-native";
@@ -142,6 +315,21 @@ export interface BriefResult {
       retrievalProviderGap: boolean;
       executionMode?: "agentic" | "legacy-fallback";
       agent?: AgenticResearchTelemetry;
+    } | {
+      mode: "pipeline-v2";
+      pipelineVersion: number;
+      stages: string[];
+      unresolvedGaps: string[];
+      confidence?: "high" | "medium" | "low";
+      evidenceFallbackClues?: number;
+      validation?: {
+        parserVersion: number;
+        totalItems: number;
+        acceptedItems: number;
+        rejectedItems: number;
+        rejectionReasons: Record<string, number>;
+        sanitizedFields: Record<string, number>;
+      };
     };
   };
 }
@@ -153,19 +341,22 @@ export function buildAiNativeBriefResult(
   generationProvider: IntelligenceProvider,
   research: AiNativeResearchResult,
 ): BriefResult {
+  const importantFacts = coverageSafeItems(research.retrieval.status, research.importantFacts);
+  const otherItems = coverageSafeItems(research.retrieval.status, research.otherItems);
+  const itemCount = importantFacts.length + otherItems.length;
+  const overview = userFacingRetrievalOverview(research.retrieval.status, itemCount > 0, research.report.answer);
   return {
     taskName: input.name,
     coverageStart: coverage.start.toISOString(),
     coverageEnd: coverage.end.toISOString(),
     generatedAt: now.toISOString(),
-    itemCount: research.importantFacts.length + research.otherItems.length,
-    importantFacts: research.importantFacts,
+    itemCount,
+    importantFacts,
     trendSignals: [],
-    otherItems: research.otherItems,
+    otherItems,
     sourceList: research.sourceList,
     metadata: {
-      // The AI-native answer is the user-facing result. Do not reclassify or rebuild it here.
-      overview: research.report.answer,
+      overview,
       origins: ["web-search"],
       generationProvider: generationProvider.id,
       generationModel: generationProvider.model || null,
@@ -179,11 +370,16 @@ export function buildAiNativeBriefResult(
         relevanceDropped: 0,
         evidence: research.retrieval.evidence,
         final: research.retrieval.final,
+        sources: research.retrieval.sources,
+        coverageConclusion: retrievalCoverageConclusion(research.retrieval.status, itemCount, research.retrieval.providers),
       },
       research: {
         mode: "ai-native",
         executionMode: "ai-native",
-        report: research.report,
+        // report.answer is also returned by the API and persisted. Keep it in
+        // sync with the safe overview so partial/failed retrieval cannot leak a
+        // model-authored "nothing exists" conclusion through a secondary path.
+        report: { ...research.report, answer: overview },
         agent: research.telemetry,
       },
     },
@@ -196,7 +392,68 @@ export function mergeCandidates(candidates: Candidate[]): Candidate[] {
 }
 
 export function buildRetrievalOverview(status: "success" | "partial" | "failed", items: Candidate[], input: IntelligenceTaskInput, editorialBackground: Candidate[] = []): string {
-  return status === "failed" ? "本期联网检索未成功完成，请稍后重新生成。" : buildEditorialOverview(items, input, editorialBackground);
+  return userFacingRetrievalOverview(status, items.length > 0, buildEditorialOverview(items, input, editorialBackground));
+}
+
+function userFacingRetrievalOverview(status: "success" | "partial" | "failed", hasItems: boolean, completedOverview: string): string {
+  if (status === "failed") return "本次检索未完成，不能据此判断该时间范围内没有相关事件。请查看失败原因后重试。";
+  if (status === "partial") {
+    const coverageSafeOverview = removeCoverageLimitedAbsenceClaims(completedOverview);
+    return hasItems
+      ? `本次仅完成部分来源检索；以下内容只反映已成功来源，不能视为完整覆盖。${coverageSafeOverview || "已成功来源形成的事项见下方。"}官方来源、公告及后续事件尚未检索充分，不能据此判断不存在。`
+      : "本次仅完成部分来源检索，未形成可核验事项；这不代表该时间范围内不存在相关事件。请查看未完成来源或预算原因后补跑。";
+  }
+  return hasItems ? completedOverview : "在本次已成功完成的来源范围内，未发现符合条件且可核验的新增事项。";
+}
+
+function retrievalCoverageConclusion(
+  status: "success" | "partial" | "failed",
+  itemCount: number,
+  providers: RetrievalProviderDiagnostic[],
+): "verified_no_matching_items" | "items_found" | "insufficient_evidence" {
+  if (itemCount > 0) return "items_found";
+  const verifiedComplete = status === "success"
+    && providers.length > 0
+    && providers.every((provider) => provider.status === "success" && provider.coverageComplete === true);
+  return verifiedComplete ? "verified_no_matching_items" : "insufficient_evidence";
+}
+
+export function removeCoverageLimitedAbsenceClaims(value: string): string {
+  const chineseTarget = "(?:公司?官网|官方网站?|官方(?:公告|披露|来源|渠道|记录)?|权威(?:来源|渠道)?|公告|披露|工商(?:变更|记录)?|监管(?:文件|披露)?|原始来源|一手来源)";
+  const englishTarget = "(?:official(?: company)? (?:website|announcement|disclosure|source|record|filing)|company website|regulatory filing|registry record|primary source|authoritative source)";
+  const chineseAfterNegative = new RegExp(`[，,\\s]*(?:但|不过|然而|同时|且|亦)?\\s*(?:(?:目前|当前|现阶段|迄今)(?:仍|尚)?\\s*)?(?:截至[^，,。！？；\\n]{0,24}[，,\\s]*)?(?:尚未|未能|未曾|没有|未找到|未发现|无)[^，,。！？；\\n]{0,120}${chineseTarget}[^，,。！？；\\n]*`, "giu");
+  const chineseBeforeNegative = new RegExp(`[，,\\s]*(?:但|不过|然而|同时|且|亦)?\\s*${chineseTarget}[^，,。！？；\\n]{0,80}(?:尚未|未能|未曾|没有|未找到|未发现|不存在|缺失)[^，,。！？；\\n]*`, "giu");
+  const englishAfterNegative = new RegExp(`[,;]?\\s*(?:but|however|yet|and)?\\s*[,;]?\\s*(?:(?:currently|to\\s+date|so\\s+far)\\s+)?(?:we\\s+)?(?:did\\s+not|could\\s+not|have\\s+not|has\\s+not|no|found\\s+no|without)[^,.?!;]{0,120}${englishTarget}[^,.?!;]*`, "giu");
+  const englishBeforeNegative = new RegExp(`[,;]?\\s*(?:but|however|yet|and)?\\s*[,;]?\\s*${englishTarget}[^,.?!;]{0,80}(?:was\\s+not|were\\s+not|could\\s+not\\s+be|has\\s+not\\s+been|is\\s+missing|was\\s+unavailable)[^,.?!;]*`, "giu");
+  return value
+    .replace(chineseAfterNegative, "")
+    .replace(chineseBeforeNegative, "")
+    .replace(englishAfterNegative, "")
+    .replace(englishBeforeNegative, "")
+    .replace(/(^|[。！？.!?])\s*尽管/gu, "$1")
+    .replace(/(^|[。！？.!?])\s*[，,]\s*(?:且|但|同时|另外|另|而|不过|然而|并且)\s*/gu, "$1")
+    .replace(/(^|[.!?])\s*[,;]?\s*(?:but|however|yet|and|while)\s*[,;]?\s*(?=[.!?])/giu, "$1")
+    .replace(/(^|[.!?])\s*[,;]\s*(?:but|however|yet|and|while)\s*[,;]?\s*/giu, "$1")
+    .replace(/[，,]\s*(?:但|不过|然而|同时|且|亦)?\s*(?:目前|当前|现阶段|迄今)?\s*(?=[。！？.!?])/gu, "")
+    .replace(/[，,；;]\s*([。！？.!?])/gu, "$1")
+    .replace(/([。！？.!?]){2,}/gu, "$1")
+    .replace(/([\u3400-\u9fff])\.(?=\s|$)/gu, "$1。")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function coverageSafeItems<T extends Candidate>(status: "success" | "partial" | "failed", items: T[]): T[] {
+  if (status === "success") return items;
+  const safe = (value: string | undefined) => value === undefined ? undefined : removeCoverageLimitedAbsenceClaims(value);
+  return items.map((item) => ({
+    ...item,
+    title: safe(item.title) || "相关事件（来源覆盖待补充）",
+    content: safe(item.content) || "",
+    summary: safe(item.summary),
+    investmentNote: safe(item.investmentNote),
+    relevanceReason: safe(item.relevanceReason),
+    followUpReason: safe(item.followUpReason),
+  }));
 }
 
 export function validateTaskInput(input: IntelligenceTaskInput, now = new Date()): string | null {
@@ -308,12 +565,15 @@ export function normalizeTaskInput(body: Record<string, unknown>): IntelligenceT
   const lookback = body.lookbackPeriod && typeof body.lookbackPeriod === "object" ? body.lookbackPeriod as Record<string, unknown> : { kind: "days", value: 3 };
   return normalizeIntelligenceTaskSemantics({
     name: typeof body.name === "string" ? body.name.trim() : "",
+    originalRequest: typeof body.originalRequest === "string" ? body.originalRequest.trim().slice(0, 4_000) : undefined,
     topics: asList(body.topics), entities: asList(body.entities), keywords: asList(body.keywords), regions: asList(body.regions),
     includeRequirements: asList(body.includeRequirements), excludeRequirements: asList(body.excludeRequirements),
     maxItems: Math.max(1, Math.min(50, Number(body.maxItems) || 10)),
     lookbackPeriod: { kind: lookback.kind === "custom" ? "custom" : "days", value: Number(lookback.value) || 3, start: typeof lookback.start === "string" ? lookback.start : undefined, end: typeof lookback.end === "string" ? lookback.end : undefined },
     outputInstructions: typeof body.outputInstructions === "string" ? body.outputInstructions.trim() : "",
     executionMode: mode, scheduleConfig, isActive: body.isActive === true,
+    eventTypes: asList(body.eventTypes),
+    sourcePolicy: body.sourcePolicy && typeof body.sourcePolicy === "object" && !Array.isArray(body.sourcePolicy) ? body.sourcePolicy as Record<string, unknown> : {},
   });
 }
 
@@ -394,24 +654,51 @@ function scoreCandidates(candidates: Candidate[], input: IntelligenceTaskInput):
   return scoreAndSortCandidates(candidates, input);
 }
 
-async function persistBrief(userId: string, taskId: string, brief: BriefResult, scheduledSlot?: string): Promise<{ id: string; brief: BriefResult }> {
+export function sanitizeIntelligenceBrief(brief: BriefResult): BriefResult {
+  const retrieval = brief.metadata.retrieval as { status?: "success" | "partial" | "failed" } | undefined;
+  const status = retrieval?.status || "success";
+  const sanitizeItemUrls = (item: BriefItem): BriefItem => ({
+    ...item,
+    sourceUrl: safeIntelligenceExternalUrl(item.sourceUrl),
+    sourceUrls: item.sourceUrls?.map(safeIntelligenceExternalUrl).filter((url): url is string => !!url),
+  });
+  return {
+    ...brief,
+    importantFacts: coverageSafeItems(status, brief.importantFacts).map(sanitizeItemUrls),
+    trendSignals: coverageSafeItems(status, brief.trendSignals).map(sanitizeItemUrls),
+    otherItems: coverageSafeItems(status, brief.otherItems).map(sanitizeItemUrls),
+    sourceList: brief.sourceList.map((source) => ({ ...source, url: safeIntelligenceExternalUrl(source.url) })),
+  };
+}
+
+export async function persistIntelligenceBrief(userId: string, taskId: string, brief: BriefResult, scheduledSlot?: string, runId?: string): Promise<{ id: string; brief: BriefResult }> {
+  const storedBrief = sanitizeIntelligenceBrief(brief);
+  const values = [taskId, userId, storedBrief.taskName, storedBrief.coverageStart, storedBrief.coverageEnd, storedBrief.generatedAt, storedBrief.itemCount, JSON.stringify(storedBrief.importantFacts), JSON.stringify(storedBrief.trendSignals), JSON.stringify(storedBrief.otherItems), JSON.stringify(storedBrief.sourceList), JSON.stringify(storedBrief.metadata), scheduledSlot ?? null, runId ?? null];
+  const conflict = runId
+    ? `ON CONFLICT (run_id) WHERE run_id IS NOT NULL DO UPDATE SET
+         task_name=EXCLUDED.task_name,coverage_start=EXCLUDED.coverage_start,
+         coverage_end=EXCLUDED.coverage_end,generated_at=EXCLUDED.generated_at,
+         item_count=EXCLUDED.item_count,important_facts=EXCLUDED.important_facts,
+         trend_signals=EXCLUDED.trend_signals,other_items=EXCLUDED.other_items,
+         source_list=EXCLUDED.source_list,metadata=EXCLUDED.metadata,schema_version=EXCLUDED.schema_version`
+    : "ON CONFLICT (task_id, scheduled_slot) WHERE scheduled_slot IS NOT NULL DO NOTHING";
   const rows = await query<{ id: string }>(
-    `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, metadata, scheduled_slot)
-     SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13
+    `INSERT INTO intelligence_briefs (task_id, user_id, task_name, coverage_start, coverage_end, generated_at, item_count, important_facts, trend_signals, other_items, source_list, metadata, scheduled_slot, run_id, schema_version)
+     SELECT $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,2
        FROM intelligence_tasks
-      WHERE id = $1 AND user_id = $2 AND is_active = true
-     ON CONFLICT (task_id, scheduled_slot) WHERE scheduled_slot IS NOT NULL DO NOTHING RETURNING id`,
-    [taskId, userId, brief.taskName, brief.coverageStart, brief.coverageEnd, brief.generatedAt, brief.itemCount, JSON.stringify(brief.importantFacts), JSON.stringify(brief.trendSignals), JSON.stringify(brief.otherItems), JSON.stringify(brief.sourceList), JSON.stringify(brief.metadata), scheduledSlot]
+      WHERE id = $1 AND user_id = $2 AND is_active = true AND archived_at IS NULL
+     ${conflict} RETURNING id`,
+    values
   );
   if (!rows[0] && scheduledSlot) {
     const existing = await query<{ id: string }>("SELECT id FROM intelligence_briefs WHERE task_id = $1 AND scheduled_slot = $2", [taskId, scheduledSlot]);
     if (existing[0]) return { id: existing[0].id, brief };
   }
   if (!rows[0]) throw new Error("任务已停用或删除");
-  return { id: rows[0].id, brief };
+  return { id: rows[0].id, brief: storedBrief };
 }
 
-export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: Parameters<typeof createIntelligenceGenerationProvider>[0]): Promise<{ id: string; brief: BriefResult }> {
+export async function generateBrief(userId: string, taskId: string, input: IntelligenceTaskInput, now = new Date(), scheduledSlot?: string, credentials?: IntelligenceGenerationCredentials, runId?: string, deferPersistence = false, execution: IntelligenceExecutionOptions = {}): Promise<{ id: string; brief: BriefResult }> {
   if (!input.isActive) throw new Error("停用的情报任务不能执行");
   const validationError = validateTaskInput(input, now);
   if (validationError) throw new Error(validationError);
@@ -427,14 +714,28 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
       judgmentCount: personalization.judgmentCount,
     },
   };
-  const generationProvider: IntelligenceProvider = createIntelligenceGenerationProvider(credentials);
-  const retrieval = new IntelligenceRetrievalOrchestrator([generationProvider]);
+  const infrastructure = createIntelligenceResearchInfrastructure(credentials, process.env, execution);
+  const { generationProvider, retrieval } = infrastructure;
+  const complete = (brief: BriefResult) => deferPersistence
+    ? Promise.resolve({ id: "", brief: sanitizeIntelligenceBrief(brief) })
+    : persistIntelligenceBrief(userId, taskId, brief, scheduledSlot, runId);
+  const execute = async (): Promise<{ id: string; brief: BriefResult }> => {
+  if (execution.pipelineStore) {
+    const brief = await runIntelligencePipeline(researchInput, coverage, execution.briefGeneratedAt ?? now, {
+      generationProvider,
+      retrieval,
+      store: execution.pipelineStore,
+      ...(infrastructure.acquireEvidence ? { acquireEvidence: infrastructure.acquireEvidence } : {}),
+      maxSearchQueries: 2,
+    });
+    return complete(brief);
+  }
   if (generationProvider.capabilities.agenticToolUse && generationProvider.runAgentTurn && generationProvider.generate) {
-    const research = await runAiNativeResearch(researchInput, coverage, { generationProvider, retrieval });
-    return persistBrief(userId, taskId, buildAiNativeBriefResult(researchInput, coverage, now, generationProvider, research), scheduledSlot);
+    const research = await runAiNativeResearch(researchInput, coverage, { generationProvider, retrieval, ...(infrastructure.acquireEvidence ? { acquireEvidence: infrastructure.acquireEvidence } : {}) });
+    return complete(buildAiNativeBriefResult(researchInput, coverage, now, generationProvider, research));
   }
   if (generationProvider.generate) {
-    const research = await runAiFirstResearch(researchInput, coverage, { generationProvider, retrieval });
+    const research = await runAiFirstResearch(researchInput, coverage, { generationProvider, retrieval, ...(infrastructure.acquireEvidence ? { acquireEvidence: infrastructure.acquireEvidence } : {}) });
     const brief: BriefResult = {
       taskName: input.name,
       coverageStart: coverage.start.toISOString(),
@@ -446,7 +747,7 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
       otherItems: research.otherItems,
       sourceList: research.sourceList,
       metadata: {
-        overview: research.overview,
+        overview: userFacingRetrievalOverview(research.retrieval.status, research.importantFacts.length + research.otherItems.length > 0, research.overview),
         origins: ["web-search"],
         generationProvider: generationProvider.id,
         generationModel: generationProvider.model || null,
@@ -459,13 +760,18 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
           relevanceDropped: Math.max(0, research.retrieval.searchCandidates - research.research.claims),
           evidence: research.retrieval.evidence,
           final: research.retrieval.final,
+          coverageConclusion: retrievalCoverageConclusion(
+            research.retrieval.status,
+            research.importantFacts.length + research.otherItems.length,
+            research.retrieval.providers,
+          ),
         },
         research: { mode: "ai-first", ...research.research },
       },
     };
-    return persistBrief(userId, taskId, brief, scheduledSlot);
+    return complete(brief);
   }
-  const retrievalResult = await retrieval.retrieve({ input: normalizedInput, start: coverage.start });
+  const retrievalResult = await retrieval.retrieve({ input: normalizedInput, start: coverage.start, end: coverage.end });
   const webCandidates: Candidate[] = retrievalResult.results.map((item) => {
     const resolved = resolvePublishedAt({
       sourcePublishedAt: item.publishedAt,
@@ -495,10 +801,12 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
   const evidenceCandidates = scoreCandidates(preFiltered.candidates, normalizedInput).slice(0, 16);
   const evidenceResult = await acquireEvidence(evidenceCandidates);
   for (const candidate of evidenceCandidates) {
-    const resolved = resolvePublishedAt({ sourcePublishedAt: candidate.evidencePublishedAt, url: candidate.sourceUrl });
+    const resolved = resolvePublishedAt({ evidencePublishedAt: candidate.evidencePublishedAt, sourcePublishedAt: candidate.publishedAt, url: candidate.sourceUrl });
     if (candidate.evidencePublishedAt) {
       candidate.publishedAt = resolved.publishedAt || candidate.publishedAt;
       candidate.timeUnconfirmed = resolved.timeUnconfirmed;
+      candidate.publishedAtSource = resolved.publishedAtSource;
+      candidate.publishedAtConfidence = resolved.publishedAtConfidence;
     }
     delete candidate.evidencePublishedAt;
   }
@@ -544,39 +852,29 @@ export async function generateBrief(userId: string, taskId: string, input: Intel
     trendSignals: partitioned.trendSignals,
     otherItems: partitioned.otherItems,
     sourceList: concreteItems.flatMap((x) => (x.sourceUrls?.length ? x.sourceUrls : [x.sourceUrl]).map((url) => ({ source: x.source, url, publishedAt: x.publishedAt, sourceTier: x.sourceTier ?? "C", origin: x.origin ?? "trusted-source" }))),
-    metadata: { overview, origins, generationProvider: generationProvider.id, generationModel: generationProvider.model || null, retrieval: retrievalMetadata },
+    metadata: {
+      overview,
+      origins,
+      generationProvider: generationProvider.id,
+      generationModel: generationProvider.model || null,
+      retrieval: {
+        ...retrievalMetadata,
+        coverageConclusion: retrievalCoverageConclusion(retrievalResult.status, concreteItems.length, retrievalResult.providers),
+      },
+    },
   };
-  return persistBrief(userId, taskId, brief, scheduledSlot);
+  return complete(brief);
+  };
+  try {
+    return await execute();
+  } finally {
+    await execution.onDeepSeekSearchFetchAudit?.(infrastructure.deepSeekAudit());
+  }
 }
 
 export async function runScheduledTasks(now = new Date()): Promise<number> {
-  const tasks = await query<{ id: string; user_id: string; name: string; topics: unknown; entities: unknown; keywords: unknown; regions: unknown; include_requirements: unknown; exclude_requirements: unknown; max_items: number; lookback_period: unknown; output_instructions: string; execution_mode: ExecutionMode; schedule_config: ScheduleConfig; is_active: boolean }>(
-    `SELECT * FROM intelligence_tasks WHERE is_active = true AND execution_mode = 'scheduled'`
-  );
-  let count = 0;
-  for (const task of tasks) {
-    const cfg = task.schedule_config;
-    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: cfg.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short", hour12: false }).formatToParts(now);
-    const hour = Number(parts.find((p) => p.type === "hour")?.value ?? -1);
-    const minute = Number(parts.find((p) => p.type === "minute")?.value ?? -1);
-    const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.find((p) => p.type === "weekday")?.value ?? "");
-    if (cfg.time !== `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}` || (cfg.frequency === "weekly" && !(cfg.weekdays ?? []).includes(weekday))) continue;
-    const year = parts.find((p) => p.type === "year")?.value ?? "";
-    const month = parts.find((p) => p.type === "month")?.value ?? "";
-    const day = parts.find((p) => p.type === "day")?.value ?? "";
-    const scheduledSlot = `${year}-${month}-${day} ${cfg.time}`;
-    try {
-      const generation = await getGenerationAccess(task.user_id);
-      if (!generation || (generation.source === "platform" && !(await reserveIntelligenceQuota(task.user_id)))) {
-        await query("UPDATE intelligence_tasks SET is_active = false WHERE id = $1 AND user_id = $2", [task.id, task.user_id]);
-        continue;
-      }
-      await generateBrief(task.user_id, task.id, normalizeTaskInput({ ...task, includeRequirements: task.include_requirements, excludeRequirements: task.exclude_requirements, maxItems: task.max_items, lookbackPeriod: task.lookback_period, outputInstructions: task.output_instructions, executionMode: task.execution_mode, scheduleConfig: cfg, isActive: task.is_active }), now, scheduledSlot, { ...generation.credentials, provider: generation.credentials.provider });
-      count++;
-    } catch {
-      // 额度或上游异常时暂停该任务，避免下一轮调度持续失败。
-      await query("UPDATE intelligence_tasks SET is_active = false WHERE id = $1 AND user_id = $2", [task.id, task.user_id]);
-    }
-  }
-  return count;
+  // 兼容旧调用点：只入队，不再同步生成、扣费或因失败停用任务。
+  const scheduler = await import("@/lib/intelligenceRuns");
+  await scheduler.initializeScheduledTasks(now);
+  return scheduler.enqueueDueIntelligenceRuns(now);
 }

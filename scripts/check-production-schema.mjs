@@ -8,10 +8,31 @@ export const REQUIRED_TABLES = [
   "intelligence_tasks",
   "intelligence_briefs",
   "intelligence_feedback",
+  "intelligence_runs",
+  "intelligence_run_external_attempts",
+  "intelligence_run_request_keys",
+  "intelligence_run_evidence",
+  "intelligence_scheduler_heartbeats",
+  "intelligence_quota_reservations",
+  "intelligence_run_checkpoints",
 ];
 
 export const REQUIRED_COLUMNS = [
   { table: "user_profiles", column: "screening_criteria" },
+  { table: "intelligence_tasks", column: "original_request" },
+  { table: "intelligence_tasks", column: "config_version" },
+  { table: "intelligence_tasks", column: "event_types" },
+  { table: "intelligence_tasks", column: "source_policy" },
+  { table: "intelligence_tasks", column: "next_run_at" },
+  { table: "intelligence_tasks", column: "archived_at" },
+  { table: "intelligence_runs", column: "config_snapshot" },
+  { table: "intelligence_runs", column: "external_cost_authorization" },
+  { table: "intelligence_run_external_attempts", column: "capability" },
+  { table: "intelligence_run_external_attempts", column: "max_output_tokens" },
+  { table: "intelligence_briefs", column: "run_id" },
+  { table: "intelligence_briefs", column: "schema_version" },
+  { table: "intelligence_run_checkpoints", column: "stage" },
+  { table: "intelligence_run_checkpoints", column: "payload" },
 ];
 
 // node-postgres 将未加引号的 SQL 别名返回为小写键。
@@ -48,7 +69,10 @@ async function loadSchemaSnapshot(client, role) {
     `SELECT table_name AS table, column_name AS column
        FROM information_schema.columns
       WHERE table_schema = 'public'
-        AND ((table_name = 'user_profiles' AND column_name = 'screening_criteria'))`
+        AND (table_name, column_name) IN (
+          ${REQUIRED_COLUMNS.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`).join(", ")}
+        )`,
+    REQUIRED_COLUMNS.flatMap(({ table, column }) => [table, column])
   );
   const schema = await client.query("SELECT has_schema_privilege($1, 'public', 'USAGE') AS allowed", [role]);
   const tablePrivileges = {};

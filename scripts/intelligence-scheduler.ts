@@ -1,8 +1,13 @@
-import { runScheduledTasks } from "@/lib/intelligence";
+import { enqueueDueIntelligenceRuns, heartbeatIntelligenceWorker, initializeScheduledTasks } from "@/lib/intelligenceRuns";
 
-runScheduledTasks()
+const startedAt = new Date();
+
+Promise.all([
+  heartbeatIntelligenceWorker("legacy-scheduler-once", startedAt),
+  initializeScheduledTasks(startedAt),
+]).then(() => enqueueDueIntelligenceRuns(startedAt))
   .then((count) => {
-    console.log(`intelligence scheduler completed: ${count} task(s)`);
+    console.log(`intelligence scheduler queued: ${count} run(s)`);
     process.exit(0);
   })
   .catch((error) => {

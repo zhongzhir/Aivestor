@@ -21,7 +21,10 @@ export function buildGrantStatements(role, tables, sequences) {
   const roleIdentifier = quoteIdentifier(role);
   return [
     `GRANT USAGE ON SCHEMA public TO ${roleIdentifier}`,
-    ...tables.map((name) => `GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.${quoteIdentifier(name)} TO ${roleIdentifier}`),
+    ...tables.map((name) => {
+      const privileges = name === "intelligence_source_items" ? "SELECT" : "SELECT, INSERT, UPDATE, DELETE";
+      return `GRANT ${privileges} ON TABLE public.${quoteIdentifier(name)} TO ${roleIdentifier}`;
+    }),
     ...sequences.map((name) => `GRANT USAGE, SELECT ON SEQUENCE public.${quoteIdentifier(name)} TO ${roleIdentifier}`),
   ];
 }

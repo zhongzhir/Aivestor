@@ -15,6 +15,7 @@ export default defineConfig({
     screenshot: "on",
     video: "off",
     ...devices["Desktop Chrome"],
+    channel: process.env.E2E_BROWSER_CHANNEL || "chrome",
   },
   webServer: process.env.E2E_BASE_URL
     ? undefined

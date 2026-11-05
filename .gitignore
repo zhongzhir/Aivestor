@@ -5,6 +5,7 @@
 
 # next.js
 /.next/
+/.next-*/
 /out/
 next-env.d.ts
 
@@ -22,6 +23,9 @@ next-env.d.ts
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# local validation evidence (may include traces, fixture accounts, and public-source payloads)
+/artifacts/
 
 # local env files
 .env

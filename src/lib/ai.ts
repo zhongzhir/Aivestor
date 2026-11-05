@@ -33,6 +33,17 @@ export interface ChatRequest {
     userId: string;
     feature: string;
   };
+  /** 仅用于必须原子发布完整产物的调用方；普通会话流保持既有部分输出语义。 */
+  rejectTruncatedOutput?: boolean;
+  /** 调用方明确设置的供应商输出硬上限。 */
+  maxOutputTokens?: number;
+  /** OpenAI-compatible JSON mode. Callers must still validate the returned schema. */
+  responseFormat?: "json_object";
+  /** 需要严格预算控制时必须为 0，关闭 SDK 隐式重试。 */
+  maxRetries?: number;
+  /** 可选的整次调用硬时限；流式响应也不能靠持续小块数据无限延长。 */
+  totalTimeoutMs?: number;
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void | Promise<void>;
 }
 
 export interface ToolCallFunction {
@@ -67,12 +78,26 @@ export interface ToolChatRequest {
   model?: string;
   messages: ToolChatMessage[];
   tools: ChatToolDefinition[];
+  maxOutputTokens?: number;
+  maxRetries?: number;
+  totalTimeoutMs?: number;
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void | Promise<void>;
 }
 
 export interface ToolChatResponse {
   content: string | null;
   reasoningContent: string | null;
   toolCalls: ToolCall[];
+  finishReason: string | null;
+}
+
+/** 模型因输出长度上限中止；上层不得把已收到的部分文本发布为完整结果。 */
+export class AICompletionTruncatedError extends Error {
+  readonly finishReason = "length";
+  constructor() {
+    super("AI completion truncated because finish_reason=length");
+    this.name = "AICompletionTruncatedError";
+  }
 }
 
 // OpenAI 兼容协议的服务商配置（DeepSeek / 通义千问 / 天翼 Token 均兼容 OpenAI 接口）
@@ -161,11 +186,20 @@ export function resolveAIModelSelection(options: {
 // 任意一段超过该时长无数据即中止，避免提供方挂起时把整个函数拖到
 // 平台 maxDuration（120s）才以 504 收场。每收到一块数据就重置计时。
 const AI_IDLE_TIMEOUT_MS = 60_000;
+const AI_MAX_TOTAL_TIMEOUT_MS = 120_000;
+
+function boundedTotalTimeout(value?: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isFinite(value)) throw new Error("AI total timeout must be finite");
+  return Math.max(1_000, Math.min(AI_MAX_TOTAL_TIMEOUT_MS, Math.round(value)));
+}
 
 class AITimeoutError extends Error {
-  constructor() {
+  constructor(timeoutMs = AI_IDLE_TIMEOUT_MS, kind: "idle" | "total" = "idle") {
     super(
-      `AI 服务响应超时（${AI_IDLE_TIMEOUT_MS / 1000}s 无数据），请稍后重试`
+      kind === "total"
+        ? `AI 服务调用超过总时限（${timeoutMs / 1000}s），请稍后重试`
+        : `AI 服务响应超时（${timeoutMs / 1000}s 无数据），请稍后重试`
     );
     this.name = "AITimeoutError";
   }
@@ -174,14 +208,16 @@ class AITimeoutError extends Error {
 // 给“建立连接 / 拿到流对象”这一步加超时：超时则中止上游并抛错。
 async function awaitWithTimeout<T>(
   p: Promise<T>,
-  onTimeout: () => void
+  onTimeout: () => void,
+  timeoutMs = AI_IDLE_TIMEOUT_MS,
+  kind: "idle" | "total" = "idle",
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       onTimeout();
-      reject(new AITimeoutError());
-    }, AI_IDLE_TIMEOUT_MS);
+      reject(new AITimeoutError(timeoutMs, kind));
+    }, timeoutMs);
   });
   try {
     return await Promise.race([p, timeout]);
@@ -197,17 +233,21 @@ async function awaitWithTimeout<T>(
 // 给任意异步可迭代流加“空闲看门狗”：两次产出间隔超时则中止上游并抛错。
 async function* withIdleTimeout<T>(
   stream: AsyncIterable<T>,
-  onTimeout: () => void
+  onTimeout: () => void,
+  totalDeadline?: number,
 ): AsyncGenerator<T, void, unknown> {
   const iterator = stream[Symbol.asyncIterator]();
   for (;;) {
     const nextP = iterator.next();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const remaining = totalDeadline === undefined ? undefined : Math.max(1, totalDeadline - Date.now());
+    const timeoutMs = remaining === undefined ? AI_IDLE_TIMEOUT_MS : Math.min(AI_IDLE_TIMEOUT_MS, remaining);
+    const timeoutKind: "idle" | "total" = remaining !== undefined && remaining <= AI_IDLE_TIMEOUT_MS ? "total" : "idle";
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
         onTimeout();
-        reject(new AITimeoutError());
-      }, AI_IDLE_TIMEOUT_MS);
+        reject(new AITimeoutError(timeoutMs, timeoutKind));
+      }, timeoutMs);
     });
     let result: IteratorResult<T>;
     try {
@@ -250,7 +290,11 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
   if (req.provider === "claude") throw new Error("tool calling is not configured for this provider");
   const cfg = OPENAI_COMPATIBLE[req.provider];
   const controller = new AbortController();
-  const client = new OpenAI({ apiKey: req.apiKey, baseURL: req.baseURL?.trim() || cfg.baseURL });
+  const client = new OpenAI({
+    apiKey: req.apiKey,
+    baseURL: req.baseURL?.trim() || cfg.baseURL,
+    ...(req.maxRetries !== undefined ? { maxRetries: req.maxRetries } : {}),
+  });
   const response = await awaitWithTimeout(
     client.chat.completions.create({
       model: req.model || cfg.defaultModel,
@@ -258,11 +302,20 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
       messages: req.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       tools: req.tools as OpenAI.Chat.Completions.ChatCompletionTool[],
       tool_choice: "auto",
+      ...(req.maxOutputTokens ? { max_tokens: req.maxOutputTokens } : {}),
     }, { signal: controller.signal }),
     () => controller.abort(),
+    boundedTotalTimeout(req.totalTimeoutMs) ?? AI_IDLE_TIMEOUT_MS,
+    req.totalTimeoutMs === undefined ? "idle" : "total",
   );
   const message = response.choices[0]?.message;
   if (!message) throw new Error("AI tool response missing message");
+  if (req.onUsage && response.usage) {
+    await req.onUsage({
+      inputTokens: response.usage.prompt_tokens ?? 0,
+      outputTokens: response.usage.completion_tokens ?? 0,
+    });
+  }
   const raw = message as typeof message & { reasoning_content?: string | null };
   const toolCalls: ToolCall[] = (message.tool_calls || []).flatMap((call) => {
     if (call.type !== "function" || !call.id || !call.function?.name) return [];
@@ -272,6 +325,7 @@ export async function completeChatWithTools(req: ToolChatRequest): Promise<ToolC
     content: typeof message.content === "string" ? message.content : null,
     reasoningContent: typeof raw.reasoning_content === "string" ? raw.reasoning_content : null,
     toolCalls,
+    finishReason: response.choices[0]?.finish_reason || null,
   };
 }
 
@@ -291,43 +345,61 @@ export async function* streamChat(
       },
       { signal: controller.signal }
     );
-    for await (const event of withIdleTimeout(stream, () =>
-      controller.abort()
-    )) {
+    let finishReason: string | null = null;
+    const totalTimeoutMs = boundedTotalTimeout(req.totalTimeoutMs);
+    const totalDeadline = totalTimeoutMs === undefined ? undefined : Date.now() + totalTimeoutMs;
+    for await (const event of withIdleTimeout(stream, () => controller.abort(), totalDeadline)) {
       if (
         event.type === "content_block_delta" &&
         event.delta.type === "text_delta"
       ) {
         yield event.delta.text;
       }
+      if (event.type === "message_delta") finishReason = event.delta.stop_reason || finishReason;
     }
+    if (req.rejectTruncatedOutput && finishReason === "max_tokens") throw new AICompletionTruncatedError();
     return;
   }
 
   const cfg = OPENAI_COMPATIBLE[req.provider];
   // 用户自定义 baseURL 优先（如天翼 Token / 自部署网关）
   const baseURL = req.baseURL?.trim() || cfg.baseURL;
-  const client = new OpenAI({ apiKey: req.apiKey, baseURL });
+  const client = new OpenAI({
+    apiKey: req.apiKey,
+    baseURL,
+    ...(req.maxRetries !== undefined ? { maxRetries: req.maxRetries } : {}),
+  });
   // 平台代付：开启 include_usage 让最后一帧带 usage，用于扣减额度
-  const wantUsage = !!req.freeQuotaMeta;
+  const wantUsage = !!req.freeQuotaMeta || !!req.onUsage;
   const controller = new AbortController();
+  const totalTimeoutMs = boundedTotalTimeout(req.totalTimeoutMs);
+  const totalDeadline = totalTimeoutMs === undefined ? undefined : Date.now() + totalTimeoutMs;
+  const connectTimeoutMs = totalDeadline === undefined
+    ? AI_IDLE_TIMEOUT_MS
+    : Math.min(AI_IDLE_TIMEOUT_MS, Math.max(1, totalDeadline - Date.now()));
   const stream = await awaitWithTimeout(
     client.chat.completions.create(
       {
         model: req.model || cfg.defaultModel,
         stream: true,
         messages: [{ role: "system", content: req.system }, ...req.messages],
+        ...(req.maxOutputTokens ? { max_tokens: req.maxOutputTokens } : {}),
+        ...(req.responseFormat ? { response_format: { type: req.responseFormat } } : {}),
         ...(wantUsage ? { stream_options: { include_usage: true } } : {}),
       },
       { signal: controller.signal }
     ),
-    () => controller.abort()
+    () => controller.abort(),
+    connectTimeoutMs,
+    totalTimeoutMs !== undefined && connectTimeoutMs < AI_IDLE_TIMEOUT_MS ? "total" : "idle",
   );
   let promptTokens = 0;
   let completionTokens = 0;
-  for await (const chunk of withIdleTimeout(stream, () => controller.abort())) {
+  let finishReason: string | null = null;
+  for await (const chunk of withIdleTimeout(stream, () => controller.abort(), totalDeadline)) {
     const delta = chunk.choices[0]?.delta?.content;
     if (delta) yield delta;
+    finishReason = chunk.choices[0]?.finish_reason || finishReason;
     // OpenAI 兼容协议：include_usage 时最后一帧 usage 字段会出现
     const u = (chunk as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage;
     if (u) {
@@ -343,4 +415,8 @@ export async function* streamChat(
       req.freeQuotaMeta.feature
     );
   }
+  if (req.onUsage && (promptTokens > 0 || completionTokens > 0)) {
+    await req.onUsage({ inputTokens: promptTokens, outputTokens: completionTokens });
+  }
+  if (req.rejectTruncatedOutput && finishReason === "length") throw new AICompletionTruncatedError();
 }

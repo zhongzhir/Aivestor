@@ -27,7 +27,7 @@ export default async function DataAppPage({
   const AppComponent = mod.default;
 
   return (
-    <div className="mx-auto max-w-doc px-6 py-8">
+    <div className={`mx-auto px-6 py-8 ${params.appId === "intelligence-subscriptions" ? "max-w-6xl" : "max-w-doc"}`}>
       <div className="mb-4 flex items-center gap-2 text-sm">
         <Link href="/data-apps" className="text-ink-faint hover:text-ink">
           数据应用

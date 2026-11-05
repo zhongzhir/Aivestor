@@ -22,7 +22,7 @@ export interface WebSearchItem {
 export interface IntelligenceSearchRun { query: string; assigned: string[]; purpose: "general" | "high-quality" | "primary" | "complementary"; }
 
 function terms(input: IntelligenceTaskInput): string[] {
-  return [...input.topics, ...input.entities, ...input.keywords, ...input.regions, ...input.includeRequirements]
+  return [...input.topics, ...input.entities, ...input.keywords, ...input.regions, ...(input.eventTypes ?? []), ...input.includeRequirements]
     .map((item) => item.trim()).filter(Boolean).filter((item, index, all) => all.indexOf(item) === index);
 }
 
@@ -30,7 +30,7 @@ export function planIntelligenceQueries(input: IntelligenceTaskInput): string[] 
   const all = terms(input);
   if (!all.length) return [input.name.trim()].filter(Boolean);
   const subject = [...input.topics, ...input.entities].filter(Boolean).join(" ");
-  const qualifiers = [...input.keywords, ...input.includeRequirements].filter(Boolean).join(" ");
+  const qualifiers = [...input.keywords, ...(input.eventTypes ?? []), ...input.includeRequirements].filter(Boolean).join(" ");
   const scope = input.lookbackPeriod.kind === "custom" && input.lookbackPeriod.start
     ? (() => {
         const start = new Date(input.lookbackPeriod.start!);

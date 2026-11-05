@@ -35,8 +35,8 @@ assert.doesNotMatch(WEB_SEARCH_SYSTEM_PROMPT, /打印|泄露系统提示词和 A
 assert.equal(INTELLIGENCE_SEARCH_LIMITS.maxQueries, 4);
 
 const merged = mergeCandidates([
-  { id: "1", title: "某公司完成 10 亿元融资", content: "官方公告", source: "官方", sourceUrl: "https://official.example/a", publishedAt: "2026-08-08T00:00:00.000Z", subject: "某公司", region: null, kind: "fact", sourceTier: "A" },
-  { id: "2", title: "某公司完成10亿元融资", content: "媒体报道", source: "媒体", sourceUrl: "https://media.example/a", publishedAt: "2026-08-08T01:00:00.000Z", subject: "某公司", region: null, kind: "fact", sourceTier: "C" },
+  { id: "1", title: "某公司完成 10 亿元融资", content: "官方公告", source: "官方", sourceUrl: "https://official.example/a", publishedAt: "2026-08-08T00:00:00.000Z", eventDate: "2026-08-07", subject: "某公司", region: null, kind: "fact", sourceTier: "A", evidenceStatus: "full" },
+  { id: "2", title: "某公司完成10亿元融资", content: "媒体报道", source: "媒体", sourceUrl: "https://media.example/a", publishedAt: "2026-08-08T01:00:00.000Z", eventDate: "2026-08-07", subject: "某公司", region: null, kind: "fact", sourceTier: "C", evidenceStatus: "partial" },
 ]);
 assert.equal(merged.length, 1);
 assert.equal(merged[0].sourceUrls?.length, 2);
@@ -142,8 +142,8 @@ const verifiedTrend = partitionBriefItems([
 ]);
 assert.ok(verifiedTrend.trendSignals.length >= 1, "两个独立正文事实可以形成趋势");
 const primary = mergeEventCandidates([
-  { ...relevantBd, id: "c", source: "雪球", sourceTier: "C", sourceUrl: "https://xueqiu.com/c" },
-  { ...relevantBd, id: "a", source: "36氪", sourceTier: "A", sourceUrl: "https://36kr.com/a" },
+  { ...relevantBd, id: "c", content: "甲公司与乙公司达成 license-out", eventDate: "2026-08-07", evidenceStatus: "full", source: "雪球", sourceTier: "C", sourceUrl: "https://xueqiu.com/c" },
+  { ...relevantBd, id: "a", content: "甲公司与乙公司达成 license-out", eventDate: "2026-08-07", evidenceStatus: "full", source: "36氪", sourceTier: "A", sourceUrl: "https://36kr.com/a" },
 ]);
 assert.equal(primary[0].sourceTier, "A");
 assert.equal(primary[0].source, "36氪");

@@ -61,11 +61,16 @@ function dateAtUtcStart(year: number, month: number, day: number): Date | null {
   return value.getUTCFullYear() === year && value.getUTCMonth() === month - 1 && value.getUTCDate() === day ? value : null;
 }
 
+function dateAtUtcEnd(year: number, month: number, day: number): Date | null {
+  const start = dateAtUtcStart(year, month, day);
+  return start ? new Date(start.getTime() + 86_400_000 - 1) : null;
+}
+
 function parseLookback(text: string, now: Date): IntelligenceTaskInput["lookbackPeriod"] {
   const custom = text.match(/(20\d{2})[年\/-](\d{1,2})[月\/-](\d{1,2})日?\s*(?:至|到|—|–|-)\s*(?:(20\d{2})[年\/-](\d{1,2})[月\/-](\d{1,2})日?|今天|今日|现在)/);
   if (custom) {
     const start = dateAtUtcStart(Number(custom[1]), Number(custom[2]), Number(custom[3]));
-    const explicitEnd = custom[4] ? dateAtUtcStart(Number(custom[4]), Number(custom[5]), Number(custom[6])) : null;
+    const explicitEnd = custom[4] ? dateAtUtcEnd(Number(custom[4]), Number(custom[5]), Number(custom[6])) : null;
     if (start) {
       const end = explicitEnd && explicitEnd < now ? explicitEnd : now;
       if (start < end) return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
@@ -73,6 +78,8 @@ function parseLookback(text: string, now: Date): IntelligenceTaskInput["lookback
   }
   const monthRange = parseMonthLookback(text, now);
   if (monthRange) return monthRange;
+  const yearRange = parseYearLookback(text, now);
+  if (yearRange) return yearRange;
   const days = firstMatch(text, /最近\s*(\d+)\s*(?:天|日)/);
   if (days) return { kind: "days", value: Math.max(1, Math.min(365, Number(days))) };
   if (/最近一周|最近一星期|近一周/.test(text)) return { kind: "days", value: 7 };
@@ -80,6 +87,17 @@ function parseLookback(text: string, now: Date): IntelligenceTaskInput["lookback
   if (/最近24小时|过去24小时|近24小时/.test(text)) return { kind: "days", value: 1 };
   if (/最近一个月|近一个月/.test(text)) return { kind: "days", value: 30 };
   return { kind: "days", value: 3 };
+}
+
+function parseYearLookback(text: string, now: Date): IntelligenceTaskInput["lookbackPeriod"] | null {
+  const match = text.match(/(20\d{2})\s*年(?!\s*\d{1,2}\s*月)/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const start = dateAtUtcStart(year, 1, 1);
+  if (!start || start.getTime() > now.getTime()) return null;
+  const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
+  const end = yearEnd.getTime() < now.getTime() ? yearEnd : now;
+  return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
 }
 
 /**
@@ -96,7 +114,7 @@ function parseMonthLookback(text: string, now: Date): IntelligenceTaskInput["loo
     if (month < 1 || month > 12) return null;
     const start = dateAtUtcStart(year, month, 1);
     if (!start) return null;
-    const lastDayOfMonth = new Date(Date.UTC(year, month, 0));
+    const lastDayOfMonth = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
     const end = lastDayOfMonth.getTime() <= now.getTime() ? lastDayOfMonth : now;
     if (start.getTime() < end.getTime()) return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
     return null;
@@ -109,7 +127,7 @@ function parseMonthLookback(text: string, now: Date): IntelligenceTaskInput["loo
   if (month > now.getUTCMonth() + 1) year -= 1;
   const start = dateAtUtcStart(year, month, 1);
   if (!start) return null;
-  const lastDayOfMonth = new Date(Date.UTC(year, month, 0));
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
   const end = lastDayOfMonth.getTime() <= now.getTime() ? lastDayOfMonth : now;
   if (start.getTime() < end.getTime()) return { kind: "custom", start: start.toISOString(), end: end.toISOString() };
   return null;
@@ -223,8 +241,8 @@ function parseJson(text: string): unknown {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-export function planFromAI(description: string, rawText: string, userTimezone = DEFAULT_TIMEZONE): IntelligencePlan {
-  const fallback = parseNaturalLanguageFallback(description, userTimezone);
+export function planFromAI(description: string, rawText: string, userTimezone = DEFAULT_TIMEZONE, now = new Date()): IntelligencePlan {
+  const fallback = parseNaturalLanguageFallbackAt(description, userTimezone, now);
   const raw = parseJson(rawText) as { task?: Record<string, unknown>; questions?: unknown };
   const task = raw.task && typeof raw.task === "object" ? raw.task : {};
   const cleanList = (value: unknown, fallbackValue: string[]) => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string").map((v) => v.trim().slice(0, 100)).filter(Boolean).slice(0, 20) : fallbackValue;
@@ -263,8 +281,8 @@ export function planFromAI(description: string, rawText: string, userTimezone = 
   return { task: normalizeIntelligenceTaskSemantics(merged), questions };
 }
 
-export function planFromAIOrFallback(description: string, rawText: string, userTimezone = DEFAULT_TIMEZONE): IntelligencePlan {
-  try { return planFromAI(description, rawText, userTimezone); } catch { return parseNaturalLanguageFallback(description, userTimezone); }
+export function planFromAIOrFallback(description: string, rawText: string, userTimezone = DEFAULT_TIMEZONE, now = new Date()): IntelligencePlan {
+  try { return planFromAI(description, rawText, userTimezone, now); } catch { return parseNaturalLanguageFallbackAt(description, userTimezone, now); }
 }
 
 export const INTELLIGENCE_PARSE_SYSTEM = `你负责把用户的一句话关注描述整理为情报任务配置。只输出 JSON，不要解释。

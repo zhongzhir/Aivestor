@@ -91,7 +91,7 @@ for (const [description, expectedTopic, expectedEvent] of [
 const pastMonth = parseNaturalLanguageFallbackAt("研究2024年8月资本动态", "Asia/Shanghai", now);
 assert.equal(pastMonth.task.lookbackPeriod.kind, "custom");
 assert.equal(pastMonth.task.lookbackPeriod.start, "2024-08-01T00:00:00.000Z");
-assert.equal(pastMonth.task.lookbackPeriod.end, "2024-08-31T00:00:00.000Z", "已过月份应覆盖完整自然月");
+assert.equal(pastMonth.task.lookbackPeriod.end, "2024-08-31T23:59:59.999Z", "已过月份应覆盖完整自然月，不能漏掉月末当天");
 
 const monthDurationNotScope = parseNaturalLanguageFallback("最近一个月国内AI融资动态");
 assert.equal(monthDurationNotScope.task.lookbackPeriod.kind, "days");
@@ -182,17 +182,20 @@ const aiManualWithSpuriousQuestion = planFromAI(oneOffDescription, JSON.stringif
 }));
 assert.equal(aiManualWithSpuriousQuestion.questions.length, 0, "完整的一次性任务不得被 AI 的填字段追问阻断");
 
-const component = readFileSync(join(process.cwd(), "src/components/data-apps/IntelligenceSubscriptions.tsx"), "utf8");
+const component = [
+  "IntelligenceSubscriptions.tsx",
+  "IntelligenceWorkspace.tsx",
+  "IntelligenceTopicCreator.tsx",
+  "IntelligenceTopicView.tsx",
+  "IntelligenceBriefReader.tsx",
+].map((name) => readFileSync(join(process.cwd(), "src/components/data-apps", name), "utf8")).join("\n");
 for (const phrase of ["不展示默认新闻流", "未订制时不生成", "不主动推送", "信息负担", "泛新闻流", "本模块不支持", "本模块不包含"]) {
   assert.equal(component.includes(phrase), false, `内部文案未清理: ${phrase}`);
 }
-for (const phrase of ["一句话订制你的情报", "开始订制", "正在理解并创建", "一次性研究和持续跟踪都可以", "正在检索并整理本期信息", "重新生成", "本期结论"]) {
+for (const phrase of ["新建主题", "整理成主题", "请确认系统的理解", "一次性回溯", "持续监测", "确认并开始", "本期结论", "研究正在后台进行"]) {
   assert.equal(component.includes(phrase), true, `缺少订制主流程或执行反馈文案: ${phrase}`);
 }
 assert.equal(component.includes("星期（0=周日"), false, "不得要求普通用户理解程序使用的星期数字");
-for (const phrase of ["系统理解如下", "补充这句话", "修改这句话", "确认创建"]) {
-  assert.equal(component.includes(phrase), false, `自然语言主流程不得保留二次考试式确认: ${phrase}`);
-}
-assert.match(component, /await createTask\(nextPlan\)/, "理解自然语言后应直接创建任务");
-assert.match(component, /await action\(data\.task, "generate"\)/, "一次性研究创建后应直接生成，不得要求第二次点击");
+assert.match(component, /确认前不会保存或运行/, "解析草稿必须先允许用户核对，不能静默创建任务");
+assert.match(component, /系统不会静默修改日期/, "确认页必须明确日期边界不会被静默改写");
 console.log("intelligence natural-language tests passed");

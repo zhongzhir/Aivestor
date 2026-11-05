@@ -92,19 +92,672 @@ function extractLeadFact(text: string): string | null {
  * 返回 ISO 字符串或 null（时间未确认）。
  */
 export function resolvePublishedAt(options: {
+  evidencePublishedAt?: string | null;
   sourcePublishedAt?: string | null;
   url?: string | null;
   collectedAt?: string | null;
   generatedAt?: string | null;
-}): { publishedAt: string | null; timeUnconfirmed: boolean } {
+}): {
+  publishedAt: string | null;
+  timeUnconfirmed: boolean;
+  publishedAtSource: "evidence" | "provider" | "url" | "unknown";
+  publishedAtConfidence: "high" | "medium" | "low" | "unknown";
+} {
+  const fromEvidence = parseLooseDate(options.evidencePublishedAt);
+  if (fromEvidence) return { publishedAt: fromEvidence, timeUnconfirmed: false, publishedAtSource: "evidence", publishedAtConfidence: "high" };
   const fromSource = parseLooseDate(options.sourcePublishedAt);
-  if (fromSource) return { publishedAt: fromSource, timeUnconfirmed: false };
+  if (fromSource) return { publishedAt: fromSource, timeUnconfirmed: false, publishedAtSource: "provider", publishedAtConfidence: "medium" };
   const fromUrl = options.url ? normalizePublicTimestamp(dateFromUrl(options.url)) : null;
-  if (fromUrl) return { publishedAt: fromUrl, timeUnconfirmed: false };
+  if (fromUrl) return { publishedAt: fromUrl, timeUnconfirmed: false, publishedAtSource: "url", publishedAtConfidence: "low" };
   // 明确忽略 collectedAt / generatedAt
   void options.collectedAt;
   void options.generatedAt;
-  return { publishedAt: null, timeUnconfirmed: true };
+  return { publishedAt: null, timeUnconfirmed: true, publishedAtSource: "unknown", publishedAtConfidence: "unknown" };
+}
+
+export interface EvidenceBackedEventTime {
+  eventDate: string | null;
+  eventTimeText: string | null;
+  support: "exact" | "vague" | "none";
+}
+
+export interface EventTimeEvidenceContext {
+  /** 由事件标题/陈述确定的主主体；entities 数组本身没有排序契约。 */
+  primarySubject?: string | null;
+  subjects?: string[];
+  eventText?: string;
+  eventType?: string;
+  /** All user-visible claim text whose concrete attributes must be sourced. */
+  attributeText?: string;
+}
+
+const EVENT_DATE_ACTION = /完成|宣布|披露|签署|签约|达成|获批|批准|启动|提交|发生|交割|投资|入股|收购|并购|融资|募资|增资|发行|上市|纳入|生效|变更|任命|离职|completed?|announc(?:e|ed)|clos(?:e|ed)|sign(?:ed)?|acquir(?:e|ed)|invest(?:ed|ment)|financ(?:e|ing)|fundrais(?:e|ing)|merg(?:e|er)|filed?|approved?|effective|appointed?|resigned?/i;
+
+function regexEscape(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function eventDatePatterns(value: string): RegExp[] {
+  const normalized = normalizePublicTimestamp(value);
+  if (!normalized) return [];
+  const [year, month, day] = normalized.slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return [];
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return [
+    new RegExp(`(?:^|[^0-9])${year}\\s*[-/.]\\s*0?${month}\\s*[-/.]\\s*0?${day}(?:[^0-9]|$)`, "i"),
+    new RegExp(`${year}\\s*年\\s*0?${month}\\s*月\\s*0?${day}\\s*日?`, "i"),
+    new RegExp(`(?:${months[month - 1]}|${shortMonths[month - 1]})\\.?\\s+${day}(?:st|nd|rd|th)?[,]?\\s+${year}`, "i"),
+    new RegExp(`${day}(?:st|nd|rd|th)?\\s+(?:${months[month - 1]}|${shortMonths[month - 1]})[,]?\\s+${year}`, "i"),
+  ];
+}
+
+function evidenceSegments(texts: Array<string | null | undefined>): string[] {
+  return texts
+    .flatMap((text) => String(text || "").split(/[。！？；\n]+/u))
+    .map((segment) => segment.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function compactEvidenceText(value: string): string {
+  return value.toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function eventTerms(context: EventTimeEvidenceContext): string[] {
+  const value = `${context.eventType || ""} ${context.eventText || ""}`;
+  const matches = value.match(/融资|募资|增资|投资|入股|收购|并购|上市|发行|签约|签署|获批|批准|任命|离职|变更|纳入|生效|交割|fundrais(?:e|ing)|financ(?:e|ing)|invest(?:ed|ment)|acquir(?:e|ed)|merg(?:e|er)|appoint(?:ed|ment)|resign(?:ed|ation)|effective/gi) || [];
+  return [...new Set(matches.map((item) => compactEvidenceText(item)))];
+}
+
+function roundOccurrences(value: string): Array<{ value: string; index: number }> {
+  return [...value.matchAll(/(?:pre[-\s]?)?[a-f](?:\+|\d)?\s*轮|series\s+(?:pre[-\s]?)?[a-f](?:\+|\d)?/gi)].map((match) => ({
+    value: match[0]!.replace(/series|\s+|轮/gi, "").toUpperCase(),
+    index: match.index || 0,
+  }));
+}
+
+function amountOccurrences(value: string): Array<{ value: string; index: number; length: number }> {
+  const normalizedMillions = (rawNumber: string, multiplier: number) => {
+    const numeric = Number(rawNumber.replace(/,/g, "")) * multiplier;
+    if (!Number.isFinite(numeric)) return "invalid";
+    return numeric.toFixed(6).replace(/\.?0+$/, "");
+  };
+  const chinesePattern = /(?:(人民币|RMB|CNY|美元|美金|港元|港币)\s*)?(\d+(?:,\d{3})*(?:\.\d+)?)\s*(亿美元|亿元|万美元|万港元|亿港元|亿|千万|百万|万元|万)/gi;
+  const chinese = [...value.matchAll(chinesePattern)].map((match) => {
+    const prefix = (match[1] || "").toUpperCase();
+    const unit = match[3]!;
+    const currency = /美元|美金/.test(`${prefix}${unit}`) ? "USD"
+      : /港元|港币/.test(`${prefix}${unit}`) ? "HKD" : "CNY";
+    const multiplier = /亿/.test(unit) ? 100 : /千万/.test(unit) ? 10 : /百万/.test(unit) ? 1 : 0.01;
+    return {
+      value: `${currency}:${normalizedMillions(match[2]!, multiplier)}M`,
+      index: match.index || 0,
+      length: match[0]!.length,
+    };
+  });
+  const englishPattern = /(?:USD|US\$|RMB|CNY|HKD|HK\$|EUR|GBP|\$|¥|€|£)\s*\d+(?:,\d{3})*(?:\.\d+)?\s*(?:billion|bn|million|m|thousand|k)?|\d+(?:,\d{3})*(?:\.\d+)?\s*(?:billion|bn|million|m|thousand|k)?\s*(?:USD|RMB|CNY|HKD|EUR|GBP)/gi;
+  const english = [...value.matchAll(englishPattern)].map((match) => {
+    const raw = match[0]!;
+    const lower = raw.toLowerCase().replace(/,/g, "");
+    const currency = /rmb|cny|¥/.test(lower) ? "CNY"
+      : /hkd|hk\$/.test(lower) ? "HKD"
+        : /eur|€/.test(lower) ? "EUR"
+          : /gbp|£/.test(lower) ? "GBP" : "USD";
+    const number = lower.match(/\d+(?:\.\d+)?/)?.[0] || "";
+    const suffix = lower.match(/\d+(?:\.\d+)?\s*(billion|bn|million|m|thousand|k)\b/)?.[1] || "";
+    const magnitude = suffix === "bn" || suffix === "billion" ? "B"
+      : suffix === "m" || suffix === "million" ? "M"
+        : suffix === "k" || suffix === "thousand" ? "K" : "";
+    const multiplier = magnitude === "B" ? 1_000 : magnitude === "M" ? 1 : magnitude === "K" ? 0.001 : 0.000001;
+    return {
+      value: `${currency}:${normalizedMillions(number, multiplier)}M`,
+      index: match.index || 0,
+      length: match[0]!.length,
+    };
+  });
+  return [...chinese, ...english].sort((left, right) => left.index - right.index);
+}
+
+type AmountQualifier = "exact" | "approximate" | "lower-bound" | "upper-bound";
+
+/**
+ * The numeric amount alone is not the whole claim. “近 10 亿元” must not
+ * support a model-authored exact “10 亿元”, and “超过/不超过” must keep their
+ * direction. Currency/unit aliases remain normalized by amountOccurrences.
+ */
+function amountQualifier(value: string, index: number): AmountQualifier {
+  const prefix = value.slice(Math.max(0, index - 24), index).trimEnd();
+  if (/(?:不超过|不高于|至多|最多|低于|少于|不到|at\s+most|up\s+to|less\s+than|under)\s*$/i.test(prefix)) return "upper-bound";
+  if (/(?:超过|高于|多于|逾|至少|不低于|more\s+than|over|at\s+least)\s*$/i.test(prefix)) return "lower-bound";
+  if (/(?:大约|约为|约|近乎|接近|近|approximately|approx\.?|about|around|nearly|almost)\s*$/i.test(prefix)) return "approximate";
+  return "exact";
+}
+
+function amountAttributeValues(value: string): string[] {
+  return amountOccurrences(value).map((item) => `${item.value}:${amountQualifier(value, item.index)}`);
+}
+
+type EventActionFamily = "financing" | "mna" | "investment" | "listing" | "agreement" | "approval" | "personnel" | "change";
+type EventActionPhase = "planned" | "announced" | "completed";
+
+const EVENT_ACTION_FAMILIES: Array<{ family: EventActionFamily; pattern: RegExp }> = [
+  { family: "financing", pattern: /融资|募资|增资|fundrais(?:e|ing)|financ(?:e|ing)/gi },
+  { family: "mna", pattern: /收购(?!方)|并购|交割|acquir(?:e|ed)|merg(?:e|er)|clos(?:e|ed)/gi },
+  { family: "investment", pattern: /投资(?!方|者|机构|人)|入股|invest(?:ed|ment)/gi },
+  { family: "listing", pattern: /上市|IPO|发行|list(?:ed|ing)|issu(?:e|ed|ance)/gi },
+  { family: "agreement", pattern: /签署|签约|达成|sign(?:ed|ing)|agreement/gi },
+  { family: "approval", pattern: /获批|批准|approv(?:e|ed|al)/gi },
+  { family: "personnel", pattern: /任命|离职|appoint(?:ed|ment)|resign(?:ed|ation)/gi },
+  { family: "change", pattern: /变更|纳入|生效|chang(?:e|ed)|effective/gi },
+];
+
+function actionPhaseBefore(value: string, index: number): EventActionPhase | null {
+  const prefix = value.slice(Math.max(0, index - 32), index);
+  const markers = [...prefix.matchAll(/计划|拟|寻求|预计|将要|将于|plan(?:ned|s|ning)?|intend(?:ed|s)?|seek(?:s|ing)?|宣布|披露|公告|announc(?:e|ed)|disclos(?:e|ed)|完成|交割|落地|生效|获批|批准|complet(?:e|ed)|clos(?:e|ed)|effective|approv(?:e|ed)/gi)];
+  const marker = markers.at(-1)?.[0] || "";
+  if (/计划|拟|寻求|预计|将要|将于|plan|intend|seek/i.test(marker)) return "planned";
+  if (/宣布|披露|公告|announc|disclos/i.test(marker)) return "announced";
+  if (/完成|交割|落地|生效|获批|批准|complet|clos|effective|approv/i.test(marker)) return "completed";
+  return null;
+}
+
+function eventActionOccurrences(value: string): Array<{ family: EventActionFamily; phase: EventActionPhase | null; index: number; length: number }> {
+  return EVENT_ACTION_FAMILIES.flatMap(({ family, pattern }) => [...value.matchAll(new RegExp(pattern.source, pattern.flags))].map((match) => ({
+    family,
+    phase: actionPhaseBefore(value, match.index || 0),
+    index: match.index || 0,
+    length: match[0].length,
+  }))).sort((a, b) => a.index - b.index);
+}
+
+function targetEventAction(context: EventTimeEvidenceContext): { family: EventActionFamily; phase: EventActionPhase | null } | null {
+  const typed = eventActionOccurrences(context.eventType || "");
+  const described = eventActionOccurrences(context.eventText || "");
+  const describedFamilies = [...new Set(described.map((action) => action.family))];
+  const typedFamilies = [...new Set(typed.map((action) => action.family))];
+  // eventType 可能是“上市流动性”等业务分类；事件陈述中唯一明确动作更接近事实语义。
+  const families = describedFamilies.length === 1 ? describedFamilies : typedFamilies;
+  if (families.length !== 1) return null;
+  const describedForFamily = described.filter((action) => action.family === families[0]);
+  const phases = [...new Set(describedForFamily.map((action) => action.phase).filter(Boolean))];
+  const phase = describedForFamily.length === 1
+    ? describedForFamily[0]!.phase
+    : describedForFamily.length > 1 && describedForFamily.every((action) => !!action.phase) && phases.length === 1
+      ? phases[0]!
+      : null;
+  return { family: families[0]!, phase };
+}
+
+function temporalRangeAt(value: string, point: number): { start: number; end: number } {
+  const local = value.slice(Math.max(0, point), Math.min(value.length, point + 48));
+  const match = local.match(/20\d{2}\s*年\s*(?:\d{1,2}\s*月(?:\s*\d{1,2}\s*日?|(?:上旬|中旬|下旬|前|后|期间)?)|春节(?:前|后|期间)?|元旦(?:前|后|期间)?|国庆(?:前|后|期间)?|上半年|下半年|第?[一二三四1-4]季度|初|中|末|底)|20\d{2}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{1,2}|(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?[,]?\s+20\d{2}|\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[,]?\s+20\d{2}/i);
+  const start = Math.max(0, point) + (match?.index || 0);
+  return { start, end: match ? start + match[0].length : start };
+}
+
+function actionDistance(action: { index: number; length: number }, time: { start: number; end: number }): number {
+  const actionEnd = action.index + action.length;
+  if (actionEnd <= time.start) return time.start - actionEnd;
+  if (action.index >= time.end) return action.index - time.end;
+  return 0;
+}
+
+/**
+ * 一个语义范围含多个事件动作时，日期只归属于距离最近且唯一的动作族。
+ * 若同一动作族还包含多个计划/宣布/完成阶段且目标阶段不明确，则安全降级。
+ */
+function eventActionBindingMatches(segment: string, point: number, context: EventTimeEvidenceContext): boolean {
+  const target = targetEventAction(context);
+  const actions = eventActionOccurrences(segment);
+  if (!target) return new Set(actions.map((action) => action.family)).size <= 1;
+  const relevant = actions.filter((action) => action.family === target.family);
+  if (!relevant.length) return false;
+
+  const families = new Set(actions.map((action) => action.family));
+  const time = temporalRangeAt(segment, point);
+  const distances = actions.map((action) => ({ action, distance: actionDistance(action, time) }));
+  const minimum = Math.min(...distances.map((entry) => entry.distance));
+  const nearest = distances.filter((entry) => entry.distance === minimum).map((entry) => entry.action);
+  if (families.size > 1 && (new Set(nearest.map((action) => action.family)).size !== 1 || nearest[0]?.family !== target.family)) return false;
+
+  const targetFamilyActions = actions.filter((action) => action.family === target.family);
+  const familyPhases = new Set(targetFamilyActions.map((action) => action.phase).filter(Boolean));
+  const exactDates = extractExplicitCalendarDates(segment);
+  const nearestTargetDistance = Math.min(...targetFamilyActions.map((action) => actionDistance(action, time)));
+  const nearestTarget = targetFamilyActions.filter((action) => actionDistance(action, time) === nearestTargetDistance);
+  if (target.phase && nearestTarget.length === 1 && nearestTarget[0]!.phase && nearestTarget[0]!.phase !== target.phase) return false;
+  if (targetFamilyActions.length > 1 && familyPhases.size > 1) {
+    if (nearestTarget.length !== 1 || !target.phase || nearestTarget[0]!.phase !== target.phase) return false;
+  } else if (exactDates.length > 1 && targetFamilyActions.length > 1 && !target.phase) {
+    return false;
+  }
+  if (exactDates.length > 1 && actions.length === 1) return false;
+  return true;
+}
+
+interface EventClause {
+  text: string;
+  point: number;
+  start: number;
+  end: number;
+  index: number;
+  clauses: Array<{ text: string; start: number; end: number }>;
+}
+
+function eventClauses(segment: string): Array<{ text: string; start: number; end: number }> {
+  const entityThenAction = "(?:由)?[\\u4e00-\\u9fffA-Za-z0-9·-]{1,24}?(?:股份有限公司|有限责任公司|有限公司|公司|科技|集团|资本|基金)(?:于|在|宣布|披露|完成|收购|并购|投资|融资|募资|签署|签约|获批|启动)";
+  const boundary = new RegExp(`[，,；;。！？]|(?:并|又|随后|之后|同时)(?=(?:于|在|${entityThenAction}))|\\b(?:and\\s+then|then)\\b`, "gi");
+  const matches = [...segment.matchAll(boundary)];
+  const clauses: Array<{ text: string; start: number; end: number }> = [];
+  let start = 0;
+  for (const match of matches) {
+    const end = match.index || 0;
+    if (end > start) clauses.push({ text: segment.slice(start, end), start, end });
+    start = end + match[0].length;
+  }
+  if (start < segment.length) clauses.push({ text: segment.slice(start), start, end: segment.length });
+  return clauses;
+}
+
+function eventClauseAt(segment: string, point: number): EventClause {
+  const clauses = eventClauses(segment);
+  let index = clauses.findIndex((clause) => point >= clause.start && point < clause.end);
+  if (index < 0) index = Math.max(0, clauses.findIndex((clause) => point < clause.start) - 1);
+  const clause = clauses[index] || { text: segment, start: 0, end: segment.length };
+  return { ...clause, point: Math.max(0, point - clause.start), index, clauses };
+}
+
+function isStandaloneTemporalLead(value: string): boolean {
+  if (/发布(?:时间|日期)?|报道(?:时间|日期|于)?|更新(?:时间|日期)?|文章来源|来源日期|published|updated/i.test(value)) return false;
+  const withoutDates = extractExplicitCalendarDates(value)
+    .reduce((result, date) => replaceUnsupportedEventDate(result, date, "__EVENT_DATE__"), value)
+    .replace(/__EVENT_DATE__/g, "")
+    .replace(/(?:^|\s)(?:on|as\s+of|dated)\b/gi, "")
+    .replace(/于|在|截至|当日|当天|日期|时间|[\s:：()（）【】\[\]]/gu, "");
+  return withoutDates.length === 0;
+}
+
+/**
+ * 日期可放在紧邻事件从句之前（“2024-01-22，甲公司完成融资”）。只有当前从句
+ * 是纯时间前缀且下一从句包含事件动作时才合并，避免把文章来源日期或更远事件借入。
+ */
+function eventSemanticScopeAt(segment: string, point: number): { text: string; point: number } {
+  const current = eventClauseAt(segment, point);
+  if (EVENT_DATE_ACTION.test(current.text)) return { text: current.text, point: current.point };
+  const next = current.clauses[current.index + 1];
+  if (!next || !isStandaloneTemporalLead(current.text) || !EVENT_DATE_ACTION.test(next.text)) {
+    return { text: current.text, point: current.point };
+  }
+  return {
+    text: segment.slice(current.start, next.end),
+    point: point - current.start,
+  };
+}
+
+function eventDiscriminatorsMatch(segment: string, point: number, context: EventTimeEvidenceContext): boolean {
+  const targetRounds = new Set(roundOccurrences(`${context.eventType || ""} ${context.eventText || ""}`).map((item) => item.value));
+  const sourceRounds = roundOccurrences(segment);
+  if (targetRounds.size) {
+    if (!sourceRounds.length) return false;
+    const minimum = Math.min(...sourceRounds.map((item) => Math.abs(item.index - point)));
+    const nearest = sourceRounds.filter((item) => Math.abs(item.index - point) === minimum);
+    if (nearest.length !== 1 || !targetRounds.has(nearest[0]!.value)) return false;
+  } else if (sourceRounds.length > 1) {
+    return false;
+  }
+
+  const targetAmounts = new Set(amountOccurrences(context.eventText || "").map((item) => item.value));
+  const sourceAmounts = amountOccurrences(segment);
+  if (targetAmounts.size && sourceAmounts.length) {
+    const minimum = Math.min(...sourceAmounts.map((item) => Math.abs(item.index - point)));
+    const nearest = sourceAmounts.filter((item) => Math.abs(item.index - point) === minimum);
+    if (nearest.length !== 1 || !targetAmounts.has(nearest[0]!.value)) return false;
+  }
+  if (!eventActionBindingMatches(segment, point, context)) return false;
+  if (!targetRounds.size && !targetAmounts.size && extractExplicitCalendarDates(segment).length > 1 && !targetEventAction(context)) return false;
+  return true;
+}
+
+function occurrenceDistances(text: string, needle: string, point: number): number[] {
+  const result: number[] = [];
+  let offset = 0;
+  while (needle && offset < text.length) {
+    const index = text.indexOf(needle, offset);
+    if (index < 0) break;
+    result.push(Math.abs(index - point));
+    offset = index + Math.max(1, needle.length);
+  }
+  return result;
+}
+
+function normalizeNamedEntity(value: string): string {
+  let normalized = compactEvidenceText(value)
+    .replace(/^(?:于|在)?20\d{2}(?:年\d{1,2}月\d{1,2}日?|[-/.]\d{1,2}[-/.]\d{1,2})/u, "")
+    .replace(/^(?:完成|宣布|披露|计划|拟|再次|正在|推进|成功|收购|并购|投资|入股|获得|达成|签署|购买|出售)/u, "")
+    .replace(/^(?:与|和|对|向|被|由|买方|卖方|投资方|领投方|收购方|标的)/u, "");
+  // “完成对乙公司”“宣布收购乙公司”等常见叙事可能含两层前缀；仅剥离角色/动作前缀，
+  // 不改实体核心，避免以自然语言相似度替代事件身份。
+  normalized = normalized
+    .replace(/^(?:完成|宣布|披露|计划|拟|再次|正在|推进|成功|收购|并购|投资|入股|获得|达成|签署|购买|出售)/u, "")
+    .replace(/^(?:与|和|对|向|被|由|买方|卖方|投资方|领投方|收购方|标的)/u, "");
+  return normalized;
+}
+
+function namedEntities(value: string): string[] {
+  const chinese = [...value.matchAll(/[\u4e00-\u9fffA-Za-z0-9·-]{1,24}?(?:股份有限公司|有限责任公司|有限公司|医药|制药|药业|生物|航天|火箭|卫星|股份|公司|科技(?!有限公司|有限责任公司)|集团|资本|基金)/gu)];
+  const english = [...value.matchAll(/\b[A-Z][A-Za-z0-9&.'’-]*(?:\s+(?:[A-Z][A-Za-z0-9&.'’-]*|of|the)){0,5}\s+(?:Capital|Ventures|Partners|Funds?|Holdings|Group|Company|Corp(?:oration)?|Inc(?:orporated)?|Ltd|Limited|Technologies|Technology|Robotics)\b/g)];
+  return [...chinese, ...english]
+    .map((match) => normalizeNamedEntity(match[0]))
+    .filter((entity) => entity.length >= 2);
+}
+
+function entityCore(value: string): string {
+  return compactEvidenceText(value).replace(/(?:股份有限公司|有限责任公司|有限公司|医药|制药|药业|生物|航天|火箭|卫星|股份|公司|科技|集团|资本|基金|capital|ventures|partners|funds?|holdings|group|company|corporation|corp|incorporated|inc|limited|ltd|technologies|technology|robotics)$/u, "");
+}
+
+function sameEventEntity(left: string, right: string): boolean {
+  const a = compactEvidenceText(left);
+  const b = compactEvidenceText(right);
+  if (!a || !b) return false;
+  if (a === b || (Math.min(a.length, b.length) >= 3 && (a.includes(b) || b.includes(a)))) return true;
+  const coreA = entityCore(a);
+  const coreB = entityCore(b);
+  return coreA.length >= 2 && coreB.length >= 2 && coreA === coreB;
+}
+
+function isLikelyEventActor(scope: string, entityEnd: number): boolean {
+  return /^(?:\s*(?:于|在)\s*(?:20\d{2}[^，,；;。！？]{0,20})?)?\s*(?:宣布|披露|完成|签署|签约|达成|获批|批准|启动|提交|发生|交割|收购|并购|投资|入股|融资|募资|增资|发行|上市|变更|任命|离职)/iu
+    .test(scope.slice(entityEnd, entityEnd + 64));
+}
+
+function eventTimeBoundToSubject(segment: string, point: number, context: EventTimeEvidenceContext): boolean {
+  const inferred = context.primarySubject || extractEventEntity(context.eventText || "");
+  const entityCandidates = [...new Set((context.subjects ?? []).map(compactEvidenceText).filter((item) => item.length >= 2))];
+  const primary = compactEvidenceText(inferred || (entityCandidates.length === 1 ? entityCandidates[0]! : ""));
+  if (primary.length < 2) return false;
+  const compactSegment = compactEvidenceText(segment);
+  const compactPoint = compactEvidenceText(segment.slice(0, point)).length;
+  const primaryDistance = Math.min(...occurrenceDistances(compactSegment, primary, compactPoint));
+  if (!Number.isFinite(primaryDistance) || primaryDistance > 64) return false;
+
+  const clause = eventSemanticScopeAt(segment, point);
+  const compactClause = compactEvidenceText(clause.text);
+  const compactClausePoint = compactEvidenceText(clause.text.slice(0, clause.point)).length;
+  const terms = eventTerms(context);
+  if (terms.length && !terms.some((term) => occurrenceDistances(compactClause, term, compactClausePoint).some((distance) => distance <= 64))) return false;
+  if (!EVENT_DATE_ACTION.test(clause.text)) return false;
+  if (!eventDiscriminatorsMatch(clause.text, clause.point, context)) return false;
+
+  // 主体、投资方和交易对手可共同属于一个事件。仅当另一个未在目标事件陈述中出现的
+  // 实体更靠近日期且像另一个事件的发起者时，才拒绝日期，避免把交易对手误当竞争事件。
+  const contextText = compactEvidenceText(context.eventText || "");
+  const participants = [primary, ...(context.subjects ?? []).map(compactEvidenceText), ...namedEntities(context.eventText || "")]
+    .filter((entity) => entity.length >= 2 && (sameEventEntity(entity, primary) || contextText.includes(entity)));
+  const entityPattern = /[\u4e00-\u9fffA-Za-z0-9·-]{1,24}?(?:股份有限公司|有限责任公司|有限公司|医药|制药|药业|生物|航天|火箭|卫星|股份|公司|科技(?!有限公司|有限责任公司)|集团|资本|基金)/gu;
+  for (const match of clause.text.matchAll(entityPattern)) {
+    const entity = compactEvidenceText(match[0]);
+    if (!entity || participants.some((participant) => sameEventEntity(entity, participant))) continue;
+    const entityPoint = compactEvidenceText(clause.text.slice(0, match.index || 0)).length;
+    const entityEnd = (match.index || 0) + match[0].length;
+    if (Math.abs(entityPoint - compactClausePoint) < primaryDistance && isLikelyEventActor(clause.text, entityEnd)) return false;
+  }
+  return true;
+}
+
+function vagueEventTimeFromSegments(segments: string[], context: EventTimeEvidenceContext): string | null {
+  const chinese = /(20\d{2}\s*年\s*(?:(?:春节|元旦|国庆|上半年|下半年|第一季度|第二季度|第三季度|第四季度|一季度|二季度|三季度|四季度)(?:前|后|期间|以来)?|(?:初|中|末|底)(?:前|后|期间|以来)?|\d{1,2}\s*月(?!\s*\d{1,2}\s*日)(?:上旬|中旬|下旬|前|后|期间)?))/gu;
+  const english = /\b((?:early|mid|late)\s+20\d{2}|(?:Q[1-4]|first|second|third|fourth quarter)\s+(?:of\s+)?20\d{2}|before\s+(?:the\s+)?(?:Spring Festival|Lunar New Year)\s+20\d{2})\b/gi;
+  for (const segment of segments) {
+    const matches = [...segment.matchAll(chinese), ...segment.matchAll(english)].sort((a, b) => (a.index || 0) - (b.index || 0));
+    for (const match of matches) {
+      if (match[1] && eventTimeBoundToSubject(segment, match.index || 0, context)) return match[1].replace(/\s+/g, "").replace(/of(?=20\d{2})/i, " of ");
+    }
+  }
+  return null;
+}
+
+/**
+ * 事件日只能由正文中的“日期 + 事件动作”共同支持；文章来源日期、URL 日期和
+ * 模型输出本身都不能单独证明事件发生日。精确日期无证据时保留正文中的模糊时间。
+ */
+export function resolveEvidenceBackedEventTime(
+  eventDate: string | null | undefined,
+  evidenceTexts: Array<string | null | undefined>,
+  context: EventTimeEvidenceContext = {},
+): EvidenceBackedEventTime {
+  const segments = evidenceSegments(evidenceTexts);
+  const normalized = eventDate ? normalizePublicTimestamp(eventDate) : null;
+  if (normalized) {
+    const patterns = eventDatePatterns(normalized);
+    if (segments.some((segment) => patterns.some((pattern) => {
+      const match = pattern.exec(segment);
+      return !!match && eventTimeBoundToSubject(segment, match.index, context);
+    }))) {
+      return { eventDate: normalized.slice(0, 10), eventTimeText: null, support: "exact" };
+    }
+  }
+  const eventTimeText = vagueEventTimeFromSegments(segments, context);
+  return eventTimeText
+    ? { eventDate: null, eventTimeText, support: "vague" }
+    : { eventDate: null, eventTimeText: null, support: "none" };
+}
+
+/**
+ * Reuse the same subject/action/round/amount scoping used by the event-date
+ * gate for the claim itself. A citation is not support merely because it
+ * contains the same date somewhere in the page.
+ */
+export function evidenceSupportsEventClaim(
+  evidenceTexts: Array<string | null | undefined>,
+  context: EventTimeEvidenceContext = {},
+): boolean {
+  const target = targetEventAction(context);
+  if (!target) return false;
+  const inferred = context.primarySubject || extractEventEntity(context.eventText || "");
+  const primary = compactEvidenceText(inferred || "");
+  if (primary.length < 2) return false;
+  const targetRounds = new Set(roundOccurrences(`${context.eventType || ""} ${context.eventText || ""}`).map((item) => item.value));
+  const targetAmounts = new Set(amountOccurrences(context.eventText || "").map((item) => item.value));
+  for (const segment of evidenceSegments(evidenceTexts)) {
+    const actions = eventActionOccurrences(segment).filter((action) => action.family === target.family);
+    for (const action of actions) {
+      if (target.phase && action.phase && target.phase !== action.phase) continue;
+      const clause = eventClauseAt(segment, action.index).text;
+      const compactClause = compactEvidenceText(clause);
+      const subjectMatches = namedEntities(clause).some((entity) => sameEventEntity(entity, primary))
+        || compactClause.includes(primary)
+        || (entityCore(primary).length >= 2 && compactClause.includes(entityCore(primary)));
+      if (!subjectMatches) continue;
+      const sourceRounds = new Set(roundOccurrences(clause).map((item) => item.value));
+      if (targetRounds.size && ![...targetRounds].some((round) => sourceRounds.has(round))) continue;
+      const sourceAmounts = new Set(amountOccurrences(clause).map((item) => item.value));
+      if (targetAmounts.size && sourceAmounts.size && ![...targetAmounts].some((amount) => sourceAmounts.has(amount))) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+export interface EvidenceBoundClaimValidation {
+  subjectSupported: boolean;
+  eventActionSupported: boolean;
+  unsupportedAttributes: string[];
+}
+
+function sourceMentionsSubject(source: string, context: EventTimeEvidenceContext): boolean {
+  const inferred = context.primarySubject || extractEventEntity(context.eventText || "");
+  const primary = compactEvidenceText(inferred || "");
+  if (primary.length < 2) return false;
+  const compactSource = compactEvidenceText(source);
+  return namedEntities(source).some((entity) => sameEventEntity(entity, primary))
+    || compactSource.includes(primary)
+    || (entityCore(primary).length >= 2 && compactSource.includes(entityCore(primary)));
+}
+
+function percentageValues(value: string): string[] {
+  return [...value.matchAll(/\d+(?:\.\d+)?\s*%|百分之\s*[零〇一二两三四五六七八九十百千万\d.]+/gu)]
+    .map((match) => compactEvidenceText(match[0]));
+}
+
+function numericClaimValues(value: string): string[] {
+  // Amounts are compared in a currency + base-unit representation above. Mask
+  // their raw digits here so equivalent expressions such as 1亿美元 and
+  // $100 million are not rejected by the generic number gate.
+  const masked = value.split("");
+  for (const amount of amountOccurrences(value)) {
+    for (let index = amount.index; index < amount.index + amount.length; index += 1) masked[index] = " ";
+  }
+  return [...masked.join("").matchAll(/\d+(?:,\d{3})*(?:\.\d+)?/g)]
+    .map((match) => match[0]!.replace(/,/g, "").replace(/^0+(?=\d)/, ""));
+}
+
+function roleFamilies(value: string): string[] {
+  const families: Array<[string, RegExp]> = [
+    ["lead-investor", /领投|牵头投资|lead(?:ing)?\s+(?:the\s+)?(?:round|financing|investment)|led\s+(?:the\s+)?(?:round|financing|investment)|led\s+by|(?:was|is|served\s+as)\s+(?:the\s+|a\s+)?lead\s+investor/i],
+    ["participating-investor", /跟投|参投|联合投资|participat(?:e|ed|ing)\s+in\s+(?:the\s+)?(?:round|financing|investment)|participation\s+from|(?:was|is)\s+(?:an?\s+)?(?:participating\s+)?investor/i],
+    ["buyer", /收购方|买方|acquirer|buyer/i],
+    ["seller", /出售方|卖方|出让方|seller|divestor/i],
+    ["target", /被收购方|标的方|target\s+(?:company|business)/i],
+  ];
+  return families.filter(([, pattern]) => pattern.test(value)).map(([family]) => family);
+}
+
+function roleSemanticSegments(value: string): string[] {
+  return value
+    .replace(/\r/g, "")
+    .split(/\n+|[。！？!?；;]+|\.\s+(?=[A-Z])/u)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function segmentMentionsEntity(segment: string, entity: string): boolean {
+  const compactSegment = compactEvidenceText(segment);
+  const compactEntity = compactEvidenceText(entity);
+  const core = entityCore(entity);
+  return compactSegment.includes(compactEntity)
+    || (core.length >= 2 && compactSegment.includes(core));
+}
+
+function roleEntityBindings(value: string, entities: string[]): Array<{ role: string; entity: string }> {
+  const bindings: Array<{ role: string; entity: string }> = [];
+  for (const segment of roleSemanticSegments(value)) {
+    const roles = roleFamilies(segment);
+    if (!roles.length) continue;
+    for (const entity of entities) {
+      if (!segmentMentionsEntity(segment, entity)) continue;
+      for (const role of roles) bindings.push({ role, entity });
+    }
+  }
+  return bindings.filter((binding, index, all) => all.findIndex((candidate) => (
+    candidate.role === binding.role && sameEventEntity(candidate.entity, binding.entity)
+  )) === index);
+}
+
+/**
+ * Validate model-authored event attributes against the concrete cited sources.
+ * The event classifier may be incomplete; unknown actions can still become a
+ * clue, but amounts, rounds, percentages, named counterparties and transaction
+ * roles never become facts unless a source supporting the same subject/event
+ * also contains them.
+ */
+export function validateEvidenceBoundClaim(
+  evidenceTexts: Array<string | null | undefined>,
+  context: EventTimeEvidenceContext = {},
+): EvidenceBoundClaimValidation {
+  const sources = evidenceTexts.map((text) => String(text || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const subjectSources = sources.filter((source) => sourceMentionsSubject(source, context));
+  const eventSources = sources.filter((source) => evidenceSupportsEventClaim([source], context));
+  const supportingSources = eventSources.length ? eventSources : subjectSources;
+  const claimText = `${context.eventType || ""} ${context.attributeText || context.eventText || ""}`;
+  const unsupported = new Set<string>();
+
+  const requireExactAttribute = (label: string, values: string[], sourceValues: (source: string) => string[]) => {
+    for (const value of [...new Set(values.filter(Boolean))]) {
+      if (!supportingSources.some((source) => sourceValues(source).includes(value))) unsupported.add(`${label}:${value}`);
+    }
+  };
+  requireExactAttribute("round", roundOccurrences(claimText).map((item) => item.value), (source) => roundOccurrences(source).map((item) => item.value));
+  requireExactAttribute("amount", amountAttributeValues(claimText), amountAttributeValues);
+  requireExactAttribute("percentage", percentageValues(claimText), percentageValues);
+  requireExactAttribute("number", numericClaimValues(claimText), numericClaimValues);
+
+  const primary = compactEvidenceText(context.primarySubject || extractEventEntity(context.eventText || "") || "");
+  const claimEntities = [...new Set([
+    ...(context.subjects || []),
+    ...namedEntities(context.eventText || ""),
+  ].map(compactEvidenceText).filter((entity) => entity.length >= 2 && !sameEventEntity(entity, primary)))];
+  for (const entity of claimEntities) {
+    const supported = supportingSources.some((source) => {
+      const compactSource = compactEvidenceText(source);
+      return namedEntities(source).some((candidate) => sameEventEntity(candidate, entity))
+        || compactSource.includes(entity)
+        || (entityCore(entity).length >= 2 && compactSource.includes(entityCore(entity)));
+    });
+    if (!supported) unsupported.add(`entity:${entity}`);
+  }
+
+  const claimRoles = roleFamilies(claimText);
+  const claimRoleBindings = roleEntityBindings(claimText, claimEntities);
+  for (const binding of claimRoleBindings) {
+    const supported = supportingSources.some((source) => roleSemanticSegments(source).some((segment) => (
+      roleFamilies(segment).includes(binding.role) && segmentMentionsEntity(segment, binding.entity)
+    )));
+    if (!supported) unsupported.add(`role:${binding.role}:${binding.entity}`);
+  }
+  const boundRoles = new Set(claimRoleBindings.map((binding) => binding.role));
+  for (const role of claimRoles.filter((candidate) => !boundRoles.has(candidate))) {
+    if (!supportingSources.some((source) => roleFamilies(source).includes(role))) unsupported.add(`role:${role}`);
+  }
+
+  return {
+    subjectSupported: subjectSources.length > 0,
+    eventActionSupported: eventSources.length > 0,
+    unsupportedAttributes: [...unsupported],
+  };
+}
+
+/** 只替换已判定无证据的那一个精确日期，不改动其它事件日期。 */
+export function replaceUnsupportedEventDate(text: string, eventDate: string | null | undefined, fallback?: string | null): string {
+  const normalized = eventDate ? normalizePublicTimestamp(eventDate) : null;
+  if (!normalized || !text) return text;
+  const [year, month, day] = normalized.slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return text;
+  const replacement = fallback || "事件日期未确认";
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const shortMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const replacements: Array<[RegExp, string]> = [
+    [new RegExp(`(^|[^0-9])${year}\\s*[-/.]\\s*0?${month}\\s*[-/.]\\s*0?${day}(?:T\\d{1,2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?(?:Z|[+-]\\d{2}:?\\d{2})?)?(?=$|[^0-9])`, "gi"), `$1${replacement}`],
+    [new RegExp(`${year}\\s*年\\s*0?${month}\\s*月\\s*0?${day}\\s*日?`, "gi"), replacement],
+    [new RegExp(`(?:${regexEscape(months[month - 1]!)}|${regexEscape(shortMonths[month - 1]!)})\\.?\\s+${day}(?:st|nd|rd|th)?[,]?\\s+${year}`, "gi"), replacement],
+    [new RegExp(`${day}(?:st|nd|rd|th)?\\s+(?:${regexEscape(months[month - 1]!)}|${regexEscape(shortMonths[month - 1]!)})[,]?\\s+${year}`, "gi"), replacement],
+  ];
+  const replaced = replacements.reduce((result, [pattern, value]) => result.replace(pattern, value), text);
+  // A guessed precise date is often followed by a relational suffix ("日前",
+  // "之前", "around"). When the replacement already carries the supported
+  // vague relation, or when no relation is supportable, retaining that suffix
+  // creates nonsense such as "2024年春节前前" or "事件日期未确认前".
+  return replaced
+    .replace(new RegExp(`${regexEscape(replacement)}\\s*(?:日前后|前后|以前|以后|之前|之后|日前|左右|期间|前|后)`, "gu"), replacement)
+    .replace(new RegExp(`(?:before|after|around)\\s+${regexEscape(replacement)}`, "giu"), replacement);
+}
+
+/** 提取用户可见文本中的精确日，用于对 answer/summary 等二次输出做统一门禁。 */
+export function extractExplicitCalendarDates(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const dates: string[] = [];
+  const add = (year: number, month: number, day: number) => {
+    const value = ymdToIso(year, month, day)?.slice(0, 10);
+    if (value && !dates.includes(value)) dates.push(value);
+  };
+  for (const match of text.matchAll(/(?:^|[^0-9])(20\d{2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{1,2})(?=$|[^0-9])/g)) add(Number(match[1]), Number(match[2]), Number(match[3]));
+  for (const match of text.matchAll(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?/g)) add(Number(match[1]), Number(match[2]), Number(match[3]));
+  const monthLookup = new Map([
+    ["january", 1], ["jan", 1], ["february", 2], ["feb", 2], ["march", 3], ["mar", 3], ["april", 4], ["apr", 4], ["may", 5], ["june", 6], ["jun", 6],
+    ["july", 7], ["jul", 7], ["august", 8], ["aug", 8], ["september", 9], ["sep", 9], ["october", 10], ["oct", 10], ["november", 11], ["nov", 11], ["december", 12], ["dec", 12],
+  ] as Array<[string, number]>);
+  for (const match of text.matchAll(/\b(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|October|Oct|November|Nov|December|Dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?[,]?\s+(20\d{2})\b/gi)) add(Number(match[3]), monthLookup.get(match[1]!.toLocaleLowerCase()) || 0, Number(match[2]));
+  for (const match of text.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sep|October|Oct|November|Nov|December|Dec)[,]?\s+(20\d{2})\b/gi)) add(Number(match[3]), monthLookup.get(match[2]!.toLocaleLowerCase()) || 0, Number(match[1]));
+  return dates;
 }
 
 export function dateFromUrl(value: string): string | null {
@@ -248,11 +901,15 @@ export function buildEditorialCommentary(candidate: Pick<Candidate, "title" | "c
 /** 抽取主体，用于转载合并与趋势独立性判断。 */
 export function extractEventEntity(title: string, content = ""): string | null {
   const text = `${title} ${content}`;
-  const company = text.match(/([\u4e00-\u9fffA-Za-z0-9·\-]{2,20}(?:医药|制药|药业|生物|科技|航天|火箭|卫星|股份))/);
+  const company = text.match(/([\u4e00-\u9fffA-Za-z0-9·\-]{1,20}?(?:医药|制药|药业|生物|科技|航天|火箭|卫星|股份|公司))/);
   if (company?.[1]) return company[1].replace(/\s+/g, "").toLocaleLowerCase();
   const asset = text.match(/([A-Z]{1,5}[-\s]?\d{3,5}|TY[‑\-]?\d{3,5})/i);
-  if (asset?.[1]) return asset[1].replace(/\s+/g, "").toLocaleLowerCase();
-  const beforeAmount = text.match(/([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9·\-]{1,20})(?=\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币))/);
+  // Currency + amount expressions (for example USD 100m) match the generic
+  // asset-code shape but are attributes, never the event subject.
+  if (asset?.[1] && !/^(?:USD|RMB|CNY|HKD|EUR|GBP)[-\s]?\d/i.test(asset[1])) {
+    return asset[1].replace(/\s+/g, "").toLocaleLowerCase();
+  }
+  const beforeAmount = text.match(/([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9·\-]{1,20}?)(?=\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币))/);
   if (beforeAmount?.[1]) return beforeAmount[1].replace(/(?:完成|推进|计划|被曝|吸金|头部|中国|国内)$/g, "").trim().toLocaleLowerCase() || null;
   return null;
 }
@@ -272,8 +929,28 @@ function compactTitle(title: string): string {
   return title.toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
-function titleTokens(title: string): Set<string> {
-  return new Set(title.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").split(/\s+/).filter((token) => token.length > 1));
+function eventIdentityDate(candidate: Candidate): string | null {
+  const normalized = candidate.eventDate ? normalizePublicTimestamp(candidate.eventDate) : null;
+  return normalized ? normalized.slice(0, 10) : null;
+}
+
+function eventCounterparts(candidate: Candidate, actor: string): string[] {
+  const theme = eventThemeKey(candidate.title, candidate.content);
+  if (theme !== "mna" && theme !== "bd-licensing" && !/投资(?!方|者|机构|人)|入股/.test(`${candidate.title} ${candidate.content}`)) return [];
+  return [...new Set(namedEntities(`${candidate.title} ${candidate.content}`)
+    .filter((entity) => !sameEventEntity(entity, actor)))]
+    .sort();
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value) => right.includes(value));
+}
+
+function eventAmountKey(candidate: Candidate): string[] {
+  return [...`${candidate.title} ${candidate.content}`.matchAll(/\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币)/g)]
+    .map((match) => match[0]!.replace(/\s+/g, ""))
+    .filter((value, index, list) => list.indexOf(value) === index)
+    .sort();
 }
 
 function sameUnderlyingEvent(a: Candidate, b: Candidate): boolean {
@@ -281,73 +958,179 @@ function sameUnderlyingEvent(a: Candidate, b: Candidate): boolean {
   const entityB = extractEventEntity(b.title, b.content);
   const themeA = eventThemeKey(a.title, a.content);
   const themeB = eventThemeKey(b.title, b.content);
-  if (entityA && entityB && entityA === entityB && themeA === themeB) return true;
-  const amountKey = (value: string) => [...value.matchAll(/\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币)/g)].map((match) => match[0]!.replace(/\s+/g, "")).sort().join(",");
-  const amountA = amountKey(`${a.title} ${a.content}`);
-  const amountB = amountKey(`${b.title} ${b.content}`);
-  const genericEntity = (value: string | null) => !!value && /头部|大模型|企业|公司|国内|中国/.test(value);
-  if (amountA && amountA === amountB && themeA === themeB && (!entityA || !entityB || entityA === entityB || genericEntity(entityA) || genericEntity(entityB))) return true;
-  if (entityA && entityB && entityA === entityB && /同源康|TY.?9591/i.test(`${a.title}${b.title}`)) return true;
-  const compactA = compactTitle(a.title);
-  const compactB = compactTitle(b.title);
-  if (compactA === compactB || (compactA.length > 8 && compactB.length > 8 && (compactA.includes(compactB) || compactB.includes(compactA)))) return true;
-  const tokens = titleTokens(a.title);
-  const other = titleTokens(b.title);
-  const overlap = [...tokens].filter((token) => other.has(token)).length;
-  const ratio = overlap / Math.max(2, Math.min(tokens.size, other.size));
-  if (themeA === themeB && entityA && entityB && entityA === entityB && overlap >= 1) return true;
-  if (themeA === themeB && overlap >= 3 && ratio >= 0.45) return true;
-  return overlap >= 2 && ratio >= 0.55;
+  if (!entityA || !entityB || !sameEventEntity(entityA, entityB) || themeA !== themeB) return false;
+
+  // 发布时间是报道属性，不能充当事件身份；事件日本身缺失时默认不合并。
+  const dateA = eventIdentityDate(a);
+  const dateB = eventIdentityDate(b);
+  if (!dateA || !dateB || dateA !== dateB) return false;
+  if (Math.max(evidenceRank(a), evidenceRank(b)) === 0) return false;
+
+  if (themeA === "mna" || themeA === "bd-licensing" || /投资(?!方|者|机构|人)|入股/.test(`${a.title} ${a.content} ${b.title} ${b.content}`)) {
+    const counterpartA = eventCounterparts(a, entityA);
+    const counterpartB = eventCounterparts(b, entityB);
+    return counterpartA.length > 0 && counterpartB.length > 0 && sameStringSet(counterpartA, counterpartB);
+  }
+
+  if (themeA === "financing") {
+    const roundsA = financingRounds(`${a.title} ${a.content}`);
+    const roundsB = financingRounds(`${b.title} ${b.content}`);
+    if (roundsA.length || roundsB.length) return roundsA.length > 0 && roundsB.length > 0 && sameStringSet(roundsA, roundsB);
+    const amountsA = eventAmountKey(a);
+    const amountsB = eventAmountKey(b);
+    return amountsA.length > 0 && amountsB.length > 0 && sameStringSet(amountsA, amountsB);
+  }
+
+  // 其它事件只有在标题事件指纹严格一致时合并，避免同主体同日多次动作被吞并。
+  return compactTitle(a.title) === compactTitle(b.title);
 }
 
 function materialConflict(a: Candidate, b: Candidate): boolean {
   const amounts = (value: string) => [...value.matchAll(/\d+(?:\.\d+)?\s*(?:亿|千万|百万|亿元|亿美元|万美元|港元|人民币)/g)].map((match) => match[0]!.replace(/\s+/g, "")).sort();
   const left = amounts(`${a.title} ${a.content}`);
   const right = amounts(`${b.title} ${b.content}`);
-  return left.length > 0 && right.length > 0 && left.some((value) => !right.includes(value)) && right.some((value) => !left.includes(value));
+  if (left.length > 0 && right.length > 0 && left.some((value) => !right.includes(value)) && right.some((value) => !left.includes(value))) return true;
+  const rounds = (value: string) => financingRounds(value);
+  const leftRounds = rounds(`${a.title} ${a.content}`);
+  const rightRounds = rounds(`${b.title} ${b.content}`);
+  return leftRounds.length > 0 && rightRounds.length > 0
+    && leftRounds.some((value) => !rightRounds.includes(value))
+    && rightRounds.some((value) => !leftRounds.includes(value));
+}
+
+function financingRounds(value: string): string[] {
+  return [...value.matchAll(/(?:pre[-\s]?)?[a-f](?:\+|\d)?\s*轮/gi)]
+    .map((match) => match[0]!.replace(/\s+|轮/g, "").toUpperCase())
+    .filter((round) => round.length >= 1)
+    .filter((round, index, list) => list.indexOf(round) === index)
+    .sort();
+}
+
+function conflictDate(candidate: Candidate): number | null {
+  const value = candidate.eventDate || (!candidate.timeUnconfirmed ? candidate.publishedAt : null);
+  const parsed = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function financingRoundConflict(a: Candidate, b: Candidate): NonNullable<Candidate["conflicts"]>[number] | null {
+  if (eventThemeKey(a.title, a.content) !== "financing" || eventThemeKey(b.title, b.content) !== "financing") return null;
+  const entityA = extractEventEntity(a.title, a.content);
+  const entityB = extractEventEntity(b.title, b.content);
+  if (!entityA || !entityB || entityA !== entityB) return null;
+  const roundsA = financingRounds(`${a.title} ${a.content}`);
+  const roundsB = financingRounds(`${b.title} ${b.content}`);
+  if (!roundsA.length || !roundsB.length || !roundsA.some((value) => !roundsB.includes(value)) || !roundsB.some((value) => !roundsA.includes(value))) return null;
+  const dateA = conflictDate(a);
+  const dateB = conflictDate(b);
+  if (dateA === null || dateB === null || Math.abs(dateA - dateB) / 86400000 > 14) return null;
+  return {
+    type: "financing-round",
+    reason: "same-entity-near-date-different-round",
+    entity: entityA,
+    values: [...new Set([...roundsA, ...roundsB])].sort(),
+    relatedSourceUrls: [...new Set([...(a.sourceUrls ?? []), ...(b.sourceUrls ?? []), a.sourceUrl, b.sourceUrl].filter((url): url is string => !!url))].sort(),
+  };
+}
+
+function appendConflict(candidate: Candidate, conflict: NonNullable<Candidate["conflicts"]>[number]): void {
+  const key = `${conflict.type}|${conflict.entity}|${conflict.values.join(",")}|${conflict.relatedSourceUrls.join(",")}`;
+  const existing = candidate.conflicts ?? [];
+  if (!existing.some((item) => `${item.type}|${item.entity}|${item.values.join(",")}|${item.relatedSourceUrls.join(",")}` === key)) candidate.conflicts = [...existing, conflict];
+}
+
+function evidenceRank(candidate: Candidate): number {
+  return candidate.evidenceStatus === "full" ? 3 : candidate.evidenceStatus === "partial" ? 2 : 0;
+}
+
+function publicationRank(candidate: Candidate): number {
+  return candidate.publishedAtConfidence === "high" ? 3 : candidate.publishedAtConfidence === "medium" ? 2 : candidate.publishedAtConfidence === "low" ? 1 : 0;
+}
+
+function primaryCandidateRank(candidate: Candidate): Array<number | string> {
+  return [
+    evidenceRank(candidate),
+    sourceQualityRank(candidate.sourceTier),
+    publicationRank(candidate),
+    candidate.timeUnconfirmed ? 0 : 1,
+    candidate.sourceUrl || "",
+  ];
+}
+
+function shouldReplacePrimary(current: Candidate, candidate: Candidate): boolean {
+  const left = primaryCandidateRank(current);
+  const right = primaryCandidateRank(candidate);
+  for (let index = 0; index < left.length; index++) {
+    if (left[index] === right[index]) continue;
+    return right[index]! > left[index]!;
+  }
+  return false;
+}
+
+function syncPrimaryEvidence(target: Candidate, source: Candidate): void {
+  target.id = source.id;
+  target.title = source.title;
+  target.content = source.content;
+  target.summary = source.summary;
+  target.investmentNote = source.investmentNote;
+  target.source = source.source;
+  target.sourceUrl = source.sourceUrl;
+  target.sourceTier = source.sourceTier;
+  target.origin = source.origin;
+  target.domain = source.domain;
+  target.publishedAt = source.publishedAt;
+  target.publishedAtSource = source.publishedAtSource;
+  target.publishedAtConfidence = source.publishedAtConfidence;
+  target.timeUnconfirmed = source.timeUnconfirmed;
+  target.evidenceStatus = source.evidenceStatus;
+  target.eventDate = source.eventDate;
+  target.eventTimeText = source.eventTimeText;
+  target.eventDateSupport = source.eventDateSupport;
+  target.eventType = source.eventType;
+  target.subject = source.subject;
+  target.region = source.region;
+  target.relevance = source.relevance;
+  target.relevanceReason = source.relevanceReason;
+  target.importance = source.importance;
+  target.followUpReason = source.followUpReason;
 }
 
 /** 转载合并：同底层事件只保留一张卡片，聚合来源。 */
 export function mergeEventCandidates(candidates: Candidate[]): Candidate[] {
   const merged: Candidate[] = [];
   for (const candidate of candidates) {
+    for (const item of merged) {
+      const conflict = financingRoundConflict(item, candidate);
+      if (conflict) {
+        appendConflict(item, conflict);
+        appendConflict(candidate, conflict);
+      }
+    }
     const existing = merged.find((item) => {
-      const aTime = item.timeUnconfirmed ? null : Date.parse(item.publishedAt);
-      const bTime = candidate.timeUnconfirmed ? null : Date.parse(candidate.publishedAt);
-      if (aTime && bTime && Math.abs(aTime - bTime) / 86400000 > 14) return false;
-      if (item.sourceUrl && candidate.sourceUrl && item.sourceUrl === candidate.sourceUrl) return true;
       if (materialConflict(item, candidate)) return false;
+      // 同一篇来源可同时披露融资、并购等多个事件，URL 相同不能单独作为去重依据。
       return sameUnderlyingEvent(item, candidate);
     });
     if (!existing) {
       merged.push({
         ...candidate,
-        sourceUrls: candidate.sourceUrl ? [candidate.sourceUrl] : [...(candidate.sourceUrls ?? [])],
+        sourceUrls: [...new Set([...(candidate.sourceUrls ?? []), candidate.sourceUrl].filter((url): url is string => !!url))],
       });
       continue;
     }
+    const existingVerifiedFact = existing.kind === "fact" && evidenceRank(existing) > 0;
+    const candidateVerifiedFact = candidate.kind === "fact" && evidenceRank(candidate) > 0;
+    const combinedConflicts = [...(existing.conflicts ?? []), ...(candidate.conflicts ?? [])];
     const urls = [...new Set([...(existing.sourceUrls ?? []), ...(candidate.sourceUrls ?? []), existing.sourceUrl, candidate.sourceUrl].filter((url): url is string => !!url))];
-    existing.sourceUrls = urls;
-    existing.source = [...new Set(`${existing.source}; ${candidate.source}`.split(/;\s*/).filter(Boolean))].join("; ");
-    if (sourceQualityRank(candidate.sourceTier) > sourceQualityRank(existing.sourceTier)) {
-      existing.sourceTier = candidate.sourceTier;
-      existing.source = candidate.source;
-      existing.sourceUrl = candidate.sourceUrl;
-      existing.domain = candidate.domain;
-      existing.title = candidate.title;
-      existing.content = candidate.content;
-      existing.summary = candidate.summary ?? existing.summary;
-    }
-    if (!existing.timeUnconfirmed && candidate.timeUnconfirmed) {
-      /* keep confirmed time */
-    } else if (existing.timeUnconfirmed && !candidate.timeUnconfirmed) {
-      existing.publishedAt = candidate.publishedAt;
-      existing.timeUnconfirmed = false;
-    }
+    if (shouldReplacePrimary(existing, candidate)) syncPrimaryEvidence(existing, candidate);
+    existing.sourceUrls = urls.sort();
+    existing.conflicts = combinedConflicts.length ? combinedConflicts.filter((item, index, list) => list.findIndex((other) => other.type === item.type && other.entity === item.entity && other.values.join(",") === item.values.join(",") && other.relatedSourceUrls.join(",") === item.relatedSourceUrls.join(",")) === index) : undefined;
     if ((candidate.sourceUrls?.length ?? 0) + 1 > 1 || urls.length > 1) {
       existing.confidence = existing.confidence === "low" ? "medium" : existing.confidence;
     }
-    if (candidate.kind === "fact" && existing.kind !== "fact") existing.kind = "fact";
+    const verifiedFact = existingVerifiedFact || candidateVerifiedFact;
+    existing.kind = verifiedFact ? "fact" : "other";
+    existing.isClue = !verifiedFact;
+    if (!verifiedFact && !existing.followUpReason) existing.followUpReason = "当前合并来源中尚无足够正文证据支持作为已确认事实";
   }
   return merged;
 }

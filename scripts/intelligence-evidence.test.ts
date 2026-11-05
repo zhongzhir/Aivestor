@@ -22,6 +22,8 @@ assert.equal(extracted.title, "合作公告");
 assert.match(extracted.text, /1 亿美元/);
 assert.doesNotMatch(extracted.text, /菜单|页脚|print secret/);
 assert.equal(extracted.publishedAt, "2026-08-08T09:00:00+08:00");
+assert.equal(extractHtmlEvidence("<html><body><article><p>事件发生于2024-02-02，公司随后披露融资。</p></article></body></html>").publishedAt, undefined, "正文事件日不得冒充文章来源发布时间");
+assert.equal(extractHtmlEvidence("<html><body><article><p>发布时间：2024-02-23 09:30</p><p>事件发生于2024-02-02。</p></article></body></html>").publishedAt, "2024-02-23 09:30");
 assert.equal(extractHtmlEvidence("<html><body><div class='content'>新闻 国内 国际 体育 NBA CBA 综合 直播 登录 注册</div></body></html>").text, "");
 assert.equal(extractHtmlEvidence("<html><body><article><p>没有日期的正文内容。</p></article></body></html>").publishedAt, undefined);
 

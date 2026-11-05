@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { Ref } from "react";
 
 function HelpCircleIcon({ className }: { className?: string }) {
   return (
@@ -39,7 +40,13 @@ function MenuIcon() {
   );
 }
 
-export function TopBar({ onMenuOpen }: { onMenuOpen?: () => void }) {
+export function TopBar({
+  onMenuOpen,
+  menuButtonRef,
+}: {
+  onMenuOpen?: () => void;
+  menuButtonRef?: Ref<HTMLButtonElement>;
+}) {
   const pathname = usePathname();
   const crumbs = getCrumbs(pathname);
   const current = crumbs[crumbs.length - 1];
@@ -48,6 +55,7 @@ export function TopBar({ onMenuOpen }: { onMenuOpen?: () => void }) {
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-[#e5ded2] bg-[#fbfaf7] px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         <button
+          ref={menuButtonRef}
           type="button"
           aria-label="打开导航菜单"
           className="rounded-md p-1.5 text-ink-soft hover:bg-surface hover:text-ink md:hidden"
