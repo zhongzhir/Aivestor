@@ -218,6 +218,205 @@ async function coarseEmptyIsInsufficient() {
   assert.equal(generation.calls, 0);
 }
 
+async function publicationWindowExcludesOldNewsButKeepsUnknownDates() {
+  const recentCoverage = {
+    start: new Date("2026-10-30T03:42:46.000Z"),
+    end: new Date("2026-11-06T03:42:47.000Z"),
+  };
+  const recentInput: IntelligenceTaskInput = {
+    ...input,
+    name: "中国AI大模型企业资本新闻监测",
+    originalRequest: "监测中国AI大模型企业资本新闻",
+    topics: ["AI大模型"],
+    entities: ["DeepSeek"],
+    keywords: ["融资", "IPO"],
+    eventTypes: ["融资", "IPO"],
+    lookbackPeriod: { kind: "custom", start: recentCoverage.start.toISOString(), end: recentCoverage.end.toISOString() },
+  };
+  const oldSeptember: WebSearchItem = {
+    ...searchItem("https://investinglive.example/deepseek-september"),
+    title: "DeepSeek被曝筹备IPO和新一轮融资",
+    snippet: "DeepSeek被曝筹备IPO和新一轮融资。",
+    publishedAt: "2026-09-09T00:00:00.000Z",
+    query: "DeepSeek 融资 IPO",
+  };
+  const oldJuly: WebSearchItem = {
+    ...searchItem("https://wallstreetcn.example/zhipu-july"),
+    title: "智谱股份配售融资",
+    snippet: "智谱股份配售融资约40亿美元。",
+    publishedAt: "2026-07-08T00:00:00.000Z",
+    query: "AI大模型 融资",
+  };
+  const currentUnrelated: WebSearchItem = {
+    ...searchItem("https://tech.example/current-product"),
+    title: "国产AI芯片产品发布",
+    snippet: "11月4日发布一款AI芯片产品，未披露融资或IPO事项。",
+    publishedAt: "2026-11-04T00:00:00.000Z",
+    query: "AI大模型 融资 IPO",
+  };
+  const store = new MemoryStore();
+  const requestedUrls: string[] = [];
+  const generation = providerWithBundle(() => ({ facts: [], g: ["本期来源未形成可核验资本事项"], c: "low" }));
+  const brief = await runIntelligencePipeline(recentInput, recentCoverage, generatedAt, {
+    store,
+    generationProvider: generation.value,
+    retrieval: { retrieve: async () => retrievalResult([oldSeptember, oldJuly, currentUnrelated]) },
+    acquireEvidence: async <T extends EvidenceCandidate>(candidates: T[]) => {
+      requestedUrls.push(...candidates.map((candidate) => candidate.sourceUrl).filter((url): url is string => !!url));
+      const updated = candidates.map((candidate) => Object.assign(candidate, {
+        content: "国产AI芯片产品发布，未披露融资或IPO事项。",
+        evidenceStatus: "full" as const,
+        evidencePublishedAt: "2026-11-04T00:00:00.000Z",
+      }));
+      return { candidates: updated, stats: { attempted: updated.length, full: updated.length, partial: 0, unavailable: 0 } };
+    },
+  });
+  assert.deepEqual(requestedUrls, [currentUnrelated.url], "已知窗口外来源不得占用正文取证名额");
+  assert.equal(brief.itemCount, 0, "旧闻不得降级成本期线索");
+  assert.deepEqual(brief.sourceList.map((source) => source.url), [currentUnrelated.url]);
+  assert.match(brief.metadata.overview, /2 个已知发布日期来源不在报告窗口/);
+  assert.equal(brief.metadata.research?.mode, "pipeline-v2");
+  if (brief.metadata.research?.mode === "pipeline-v2") {
+    assert.deepEqual(brief.metadata.research.windowFilter, { inside: 1, unknownDate: 0, outside: 2, outsideEventFacts: 0 });
+  }
+  const durableEvidence = await store.listEvidence();
+  assert.equal(durableEvidence.length, 3, "窗口外来源仍应留在运行取证记录中");
+  assert.equal(durableEvidence.find((item) => item.url === oldSeptember.url)?.failureReason, "published_outside_coverage");
+  assert.equal(durableEvidence.find((item) => item.url === oldJuly.url)?.failureReason, "published_outside_coverage");
+
+  const discoveredWithoutDate: WebSearchItem = {
+    ...searchItem("https://example.com/deepseek-undated-financing"),
+    title: "DeepSeek推进新一轮融资",
+    snippet: "DeepSeek推进新一轮融资。",
+    publishedAt: null,
+    query: "DeepSeek 融资",
+  };
+  const unknownStore = new MemoryStore();
+  const unknownGeneration = providerWithBundle((evidenceId) => ({
+    facts: [{
+      p: "DeepSeek",
+      h: "DeepSeek推进新一轮融资",
+      s: "公开来源提及DeepSeek推进新一轮融资。",
+      a: "具体轮次、金额和时间仍待核验。",
+      d: null,
+      t: "融资",
+      e: ["DeepSeek"],
+      x: [],
+      st: "reported",
+      r: "high",
+      rr: "对应融资监测主题",
+      ids: [evidenceId],
+    }],
+    g: ["来源发布日期和事件日期均待确认"],
+    c: "low",
+  }));
+  const unknownBrief = await runIntelligencePipeline(recentInput, recentCoverage, generatedAt, {
+    store: unknownStore,
+    generationProvider: unknownGeneration.value,
+    retrieval: { retrieve: async () => retrievalResult([discoveredWithoutDate]) },
+    acquireEvidence: async <T extends EvidenceCandidate>(candidates: T[]) => {
+      const updated = candidates.map((candidate) => Object.assign(candidate, {
+        content: "DeepSeek推进新一轮融资，具体轮次、金额和时间未披露。",
+        evidenceStatus: "full" as const,
+      }));
+      return { candidates: updated, stats: { attempted: updated.length, full: updated.length, partial: 0, unavailable: 0 } };
+    },
+  });
+  assert.equal(unknownBrief.itemCount, 1, "发布日期未知但证据相关的事项应保留为时间待确认线索");
+  assert.equal(unknownBrief.otherItems[0]?.timeUnconfirmed, true);
+  assert.equal(unknownBrief.otherItems[0]?.publishedAt, "");
+  assert.equal(unknownBrief.otherItems[0]?.discoveredAt, generatedAt.toISOString(), "发现时间必须与来源发布日期分离");
+  if (unknownBrief.metadata.research?.mode === "pipeline-v2") {
+    assert.equal(unknownBrief.metadata.research.windowFilter?.unknownDate, 1);
+  }
+}
+
+async function acquiredOldDateAndOldEventCannotReenterCurrentBrief() {
+  const recentCoverage = {
+    start: new Date("2026-10-30T00:00:00.000Z"),
+    end: new Date("2026-11-06T23:59:59.999Z"),
+  };
+  const recentInput: IntelligenceTaskInput = {
+    ...input,
+    name: "中国AI大模型企业资本新闻监测",
+    originalRequest: "监测DeepSeek资本新闻",
+    topics: ["AI大模型"],
+    entities: ["DeepSeek"],
+    keywords: ["融资", "IPO"],
+    eventTypes: ["融资", "IPO"],
+    lookbackPeriod: { kind: "custom", start: recentCoverage.start.toISOString(), end: recentCoverage.end.toISOString() },
+  };
+  const initiallyUndated: WebSearchItem = {
+    ...searchItem("https://example.com/deepseek-old-discovered-now"),
+    title: "DeepSeek推进新一轮融资",
+    snippet: "DeepSeek推进新一轮融资。",
+    publishedAt: null,
+  };
+  const store = new MemoryStore();
+  const generation = provider();
+  const brief = await runIntelligencePipeline(recentInput, recentCoverage, generatedAt, {
+    store,
+    generationProvider: generation.value,
+    retrieval: { retrieve: async () => retrievalResult([initiallyUndated]) },
+    acquireEvidence: async <T extends EvidenceCandidate>(candidates: T[]) => {
+      const updated = candidates.map((candidate) => Object.assign(candidate, {
+        content: "DeepSeek于2026年9月推进新一轮融资。",
+        evidenceStatus: "full" as const,
+        evidencePublishedAt: "2026-09-09T00:00:00.000Z",
+      }));
+      return { candidates: updated, stats: { attempted: updated.length, full: updated.length, partial: 0, unavailable: 0 } };
+    },
+  });
+  assert.equal(generation.calls, 0, "正文取证后确认是旧闻时不得继续消耗生成调用");
+  assert.equal(brief.itemCount, 0);
+  assert.equal(brief.sourceList.length, 0, "已确认旧闻不应出现在本期来源列表");
+  assert.match(brief.metadata.overview, /不在报告窗口内/);
+  const oldEvidence = (await store.listEvidence())[0];
+  assert.equal(oldEvidence?.publishedAt, "2026-09-09T00:00:00.000Z");
+  assert.equal(oldEvidence?.failureReason, "published_outside_coverage");
+
+  const currentStore = new MemoryStore();
+  const currentSource: WebSearchItem = {
+    ...searchItem("https://example.com/current-report-old-event"),
+    title: "DeepSeek资本动态更新",
+    snippet: "本周报道回顾DeepSeek于9月完成的一项融资。",
+    publishedAt: "2026-11-04T00:00:00.000Z",
+  };
+  const oldEventGeneration = providerWithBundle((evidenceId) => ({
+    facts: [{
+      p: "DeepSeek", h: "DeepSeek完成融资", s: "DeepSeek于9月完成融资。", a: "历史背景。",
+      d: "2026-09-09", t: "融资", e: ["DeepSeek"], x: [], st: "confirmed", r: "high", rr: "资本事件", ids: [evidenceId],
+    }],
+    g: [], c: "medium",
+  }));
+  const oldEventBrief = await runIntelligencePipeline(recentInput, recentCoverage, generatedAt, {
+    store: currentStore,
+    generationProvider: oldEventGeneration.value,
+    retrieval: { retrieve: async () => retrievalResult([currentSource]) },
+    acquireEvidence: async <T extends EvidenceCandidate>(candidates: T[]) => {
+      const updated = candidates.map((candidate) => Object.assign(candidate, {
+        content: "本周报道回顾DeepSeek于2026年9月9日完成的一项融资。",
+        evidenceStatus: "full" as const,
+        evidencePublishedAt: "2026-11-04T00:00:00.000Z",
+      }));
+      return { candidates: updated, stats: { attempted: updated.length, full: updated.length, partial: 0, unavailable: 0 } };
+    },
+  });
+  assert.equal(oldEventBrief.itemCount, 0, `期内报道中的明确历史事件不得冒充本期新增: ${JSON.stringify(oldEventBrief)}`);
+  assert.match(oldEventBrief.metadata.overview, /明确事件日期不在报告窗口/);
+  assert.equal(oldEventBrief.sourceList.length, 1, "期内报道仍保留为可审计来源");
+  if (oldEventBrief.metadata.research?.mode === "pipeline-v2") {
+    assert.equal(oldEventBrief.metadata.research.windowFilter?.outsideEventFacts, 1);
+  }
+  const resumedOldEventBrief = await runIntelligencePipeline(recentInput, recentCoverage, generatedAt, {
+    store: currentStore,
+    generationProvider: oldEventGeneration.value,
+    retrieval: { retrieve: async () => { throw new Error("completed retrieval must not replay"); } },
+    acquireEvidence: async () => { throw new Error("completed evidence must not replay"); },
+  });
+  assert.equal(resumedOldEventBrief.itemCount, 0, "断点恢复不得丢失历史事件隔离依据");
+}
+
 async function candidatesSurviveInterruptedRetrieval() {
   const store = new MemoryStore();
   const generation = provider();
@@ -1426,6 +1625,8 @@ async function failedEvidenceFetchesTriggerBoundedBackfill() {
 async function main() {
   await successfulVerticalSlice();
   await coarseEmptyIsInsufficient();
+  await publicationWindowExcludesOldNewsButKeepsUnknownDates();
+  await acquiredOldDateAndOldEventCannotReenterCurrentBrief();
   await candidatesSurviveInterruptedRetrieval();
   await completedInvalidOutputNeverAutoReplays();
   await oneInvalidFactDoesNotDiscardValidEvidenceBoundFact();

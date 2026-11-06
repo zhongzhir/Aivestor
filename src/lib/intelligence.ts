@@ -320,6 +320,12 @@ export interface BriefResult {
       pipelineVersion: number;
       stages: string[];
       unresolvedGaps: string[];
+      windowFilter?: {
+        inside: number;
+        unknownDate: number;
+        outside: number;
+        outsideEventFacts?: number;
+      };
       confidence?: "high" | "medium" | "low";
       evidenceFallbackClues?: number;
       validation?: {

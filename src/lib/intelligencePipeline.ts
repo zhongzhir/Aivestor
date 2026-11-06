@@ -61,6 +61,8 @@ interface ExtractedFact {
   summary: string;
   assessment: string;
   eventDate: string | null;
+  /** Model-proposed date retained only for conservative window isolation. */
+  proposedEventDate: string | null;
   eventTimeText: string | null;
   eventType: string;
   entities: string[];
@@ -109,6 +111,68 @@ const MAX_MODEL_EVIDENCE_EXCERPT = 1_600;
 // impact. The current official non-thinking API defaults to 8K output, and the
 // audited peak-price reservation remains below the per-run USD 0.10 ceiling.
 const PIPELINE_GENERATION_MAX_OUTPUT_TOKENS = 8_192;
+
+type EvidenceWindowStatus = "inside" | "unknown" | "outside";
+
+interface EvidenceWindowAudit {
+  inside: number;
+  unknownDate: number;
+  outside: number;
+}
+
+/**
+ * Coverage is a publication window. Event dates and discovery timestamps are
+ * deliberately not substitutes for a source publication date: a newly found
+ * old article must not become a new weekly event. Sources without a reliable
+ * publication date remain eligible as explicitly time-unconfirmed clues.
+ */
+export function evidencePublicationWindowStatus(
+  publishedAt: string | null | undefined,
+  start: Date,
+  end: Date,
+): EvidenceWindowStatus {
+  if (!publishedAt) return "unknown";
+  const parsed = new Date(publishedAt);
+  if (!Number.isFinite(parsed.getTime())) return "unknown";
+  // Topic windows are calendar-day ranges. Provider dates are frequently
+  // normalized to midnight, so comparing instants would wrongly exclude a
+  // source from the first day when the run started later that morning.
+  const day = parsed.toISOString().slice(0, 10);
+  const firstDay = start.toISOString().slice(0, 10);
+  const lastDay = end.toISOString().slice(0, 10);
+  return day < firstDay || day > lastDay ? "outside" : "inside";
+}
+
+function factEventIsOutsideCoverage(eventDate: string | null, start: Date, end: Date): boolean {
+  if (!eventDate || !/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) return false;
+  return eventDate < start.toISOString().slice(0, 10) || eventDate > end.toISOString().slice(0, 10);
+}
+
+function scopeEvidenceToPublicationWindow(
+  evidence: IntelligencePipelineEvidence[],
+  start: Date,
+  end: Date,
+): { eligible: IntelligencePipelineEvidence[]; audit: EvidenceWindowAudit } {
+  const audit: EvidenceWindowAudit = { inside: 0, unknownDate: 0, outside: 0 };
+  const eligible = evidence.filter((item) => {
+    const status = evidencePublicationWindowStatus(item.publishedAt, start, end);
+    if (status === "inside") audit.inside += 1;
+    else if (status === "outside") audit.outside += 1;
+    else audit.unknownDate += 1;
+    return status !== "outside";
+  });
+  return { eligible, audit };
+}
+
+function markPublicationWindowExclusion(
+  item: IntelligencePipelineEvidence,
+  start: Date,
+  end: Date,
+): IntelligencePipelineEvidence {
+  return evidencePublicationWindowStatus(item.publishedAt, start, end) === "outside"
+    ? { ...item, failureReason: "published_outside_coverage" }
+    : item;
+}
 
 function clean(value: unknown, max: number): string {
   const text = String(value ?? "").replace(/\u0000/g, "").replace(/\s+/g, " ").trim();
@@ -372,7 +436,10 @@ function parseFactBundle(raw: string, evidenceById: Map<string, IntelligencePipe
       if (!evidenceIds.length || evidenceIds.some((id) => !evidenceById.has(id))) throw new Error("INTELLIGENCE_PIPELINE_UNKNOWN_EVIDENCE");
       const evidence = evidenceIds.map((id) => evidenceById.get(id)!);
       let rawEventDate: string | null = null;
-      try { rawEventDate = validCalendarDate(modelValue(item, "eventDate", "d")); } catch { increment(sanitizedFields, "event_date_dropped"); }
+      const eventDateValue = preserveStoredValidation && item.proposedEventDate !== undefined
+        ? item.proposedEventDate
+        : modelValue(item, "eventDate", "d");
+      try { rawEventDate = validCalendarDate(eventDateValue); } catch { increment(sanitizedFields, "event_date_dropped"); }
       const headline = modelString(modelValue(item, "headline", "h"), 120, "headline");
       const summary = modelString(modelValue(item, "summary", "s"), 600, "summary");
       const assessment = modelString(modelValue(item, "assessment", "a"), 400, "assessment", false);
@@ -454,6 +521,7 @@ function parseFactBundle(raw: string, evidenceById: Map<string, IntelligencePipe
         summary: sanitizeClaimText(rendered.summary),
         assessment: safeAssessment,
         eventDate: eventTime.eventDate,
+        proposedEventDate: rawEventDate,
         eventTimeText: eventTime.eventTimeText,
         eventType,
         entities: rendered.entities,
@@ -589,8 +657,9 @@ async function acquireEvidenceWithBackfill(
   input: IntelligenceTaskInput,
   store: IntelligencePipelineStore,
   acquirer: EvidenceAcquirer,
+  coverage: { start: Date; end: Date },
 ): Promise<{ evidence: IntelligencePipelineEvidence[]; attemptedIds: string[] }> {
-  let current = evidence;
+  let current = scopeEvidenceToPublicationWindow(evidence, coverage.start, coverage.end).eligible;
   const attemptedIds = new Set(current.filter((item) => item.evidenceStatus !== null).map((item) => item.itemKey));
   let remaining = Math.max(0, MAX_EVIDENCE_ATTEMPTS - attemptedIds.size);
   let firstBatch = attemptedIds.size === 0;
@@ -615,9 +684,17 @@ async function acquireEvidenceWithBackfill(
       diagnostics: { attempted: attemptedIds.size, usable },
     });
     const acquired = await acquirer(batch.map(toEvidenceCandidate), { maxUrls: batch.length });
-    const updated = batch.map((item, index) => mergeAcquired(item, acquired.candidates[index]!));
+    const updated = batch.map((item, index) => markPublicationWindowExclusion(
+      mergeAcquired(item, acquired.candidates[index]!),
+      coverage.start,
+      coverage.end,
+    ));
     await store.upsertEvidence(updated);
-    current = await store.listEvidence();
+    current = scopeEvidenceToPublicationWindow(
+      await store.listEvidence(),
+      coverage.start,
+      coverage.end,
+    ).eligible;
     remaining = Math.max(0, MAX_EVIDENCE_ATTEMPTS - attemptedIds.size);
     firstBatch = false;
   }
@@ -828,6 +905,7 @@ function evidenceBackedFallbackClues(
   input: IntelligenceTaskInput,
   evidence: IntelligencePipelineEvidence[],
   generatedAt: string,
+  coverage: { start: Date; end: Date },
 ): Candidate[] {
   const clues = new Map<string, Candidate>();
   const subjects = input.entities.map((value) => value.trim()).filter(Boolean);
@@ -854,6 +932,19 @@ function evidenceBackedFallbackClues(
           attributeText: `${subject}${eventType}`,
         });
         if (!validation.subjectSupported || !validation.eventActionSupported || validation.unsupportedAttributes.length) continue;
+        const eventContext: EventTimeEvidenceContext = {
+          primarySubject: subject,
+          subjects: [subject],
+          eventText: `${subject} ${eventType}`,
+          eventType,
+          attributeText: `${subject} ${eventType}`,
+        };
+        const supportedEventDates = extractExplicitCalendarDates(evidenceText).filter((date) => (
+          resolveEvidenceBackedEventTime(date, [evidenceText], eventContext).eventDate === date
+        ));
+        if (supportedEventDates.length > 0 && supportedEventDates.every((date) => (
+          factEventIsOutsideCoverage(date, coverage.start, coverage.end)
+        ))) continue;
         const key = `${subject.toLocaleLowerCase()}::${eventType.toLocaleLowerCase()}`;
         if (clues.has(key)) continue;
         clues.set(key, {
@@ -892,7 +983,16 @@ function evidenceBackedFallbackClues(
   return [...clues.values()].slice(0, Math.max(1, Math.min(MAX_FINAL_FACTS, input.maxItems)));
 }
 
-function insufficientEvidenceBrief(input: IntelligenceTaskInput, start: Date, end: Date, generatedAt: string, retrieval: RetrievalResult, evidence: IntelligencePipelineEvidence[], provider: IntelligenceProvider): BriefResult {
+function insufficientEvidenceBrief(
+  input: IntelligenceTaskInput,
+  start: Date,
+  end: Date,
+  generatedAt: string,
+  retrieval: RetrievalResult,
+  evidence: IntelligencePipelineEvidence[],
+  provider: IntelligenceProvider,
+  windowFilter: EvidenceWindowAudit,
+): BriefResult {
   const sourceList = evidence.map((item) => ({ source: item.sourceName, url: item.url, publishedAt: item.publishedAt, sourceTier: item.sourceTier, origin: "web-search" }));
   const metadata = safeRetrievalMetadata(retrieval, {
     searchCandidates: evidence.length,
@@ -918,22 +1018,51 @@ function insufficientEvidenceBrief(input: IntelligenceTaskInput, start: Date, en
     sourceList,
     metadata: {
       overview: evidence.length
-        ? "本次已保存候选来源，但可核验正文不足，暂时无法判断是否存在符合条件的新事项。"
-        : "本次检索未获得可核验来源，这不等于市场上没有相关事项。",
+        ? "本次已保存本期或日期待确认的候选来源，但可核验正文不足，暂时无法判断是否存在符合条件的新事项。"
+        : windowFilter.outside > 0
+          ? `本次命中的 ${windowFilter.outside} 个已知发布日期来源均不在报告窗口内，未形成本期新增；当前检索覆盖不足，不能据此断言市场上没有其他相关事项。`
+          : "本次检索未获得可核验来源，这不等于市场上没有相关事项。",
       origins: ["web-search"],
       generationProvider: provider.id,
       generationModel: provider.model || null,
       retrieval: { ...metadata, coverageConclusion: "insufficient_evidence" },
-      research: { mode: "pipeline-v2", pipelineVersion: PIPELINE_VERSION, stages: ["understanding", "retrieval", "evidence", "brief"], unresolvedGaps: ["可核验正文或相关来源不足"] },
+      research: {
+        mode: "pipeline-v2",
+        pipelineVersion: PIPELINE_VERSION,
+        stages: ["understanding", "retrieval", "evidence", "brief"],
+        unresolvedGaps: [
+          "可核验正文或相关来源不足",
+          ...(windowFilter.outside > 0 ? [`${windowFilter.outside} 个已知发布日期来源不在本期窗口，已隔离`] : []),
+        ],
+        windowFilter,
+      },
     },
   };
 }
 
-function buildBrief(input: IntelligenceTaskInput, start: Date, end: Date, generatedAt: string, retrieval: RetrievalResult, evidence: IntelligencePipelineEvidence[], bundle: FactBundle, provider: IntelligenceProvider): BriefResult {
+function buildBrief(
+  input: IntelligenceTaskInput,
+  start: Date,
+  end: Date,
+  generatedAt: string,
+  retrieval: RetrievalResult,
+  evidence: IntelligencePipelineEvidence[],
+  bundle: FactBundle,
+  provider: IntelligenceProvider,
+  windowFilter: EvidenceWindowAudit,
+): BriefResult {
   const evidenceById = new Map(evidence.map((item) => [item.itemKey, item]));
-  const modelItems = bundle.facts.map((fact) => itemFromFact(fact, evidenceById, generatedAt));
-  const fallbackClues = modelItems.length === 0
-    ? evidenceBackedFallbackClues(input, evidence, generatedAt)
+  const currentFacts = bundle.facts.filter((fact) => !factEventIsOutsideCoverage(
+    fact.eventDate || fact.proposedEventDate,
+    start,
+    end,
+  ));
+  const outsideEventFacts = bundle.facts.length - currentFacts.length;
+  const modelItems = currentFacts.map((fact) => itemFromFact(fact, evidenceById, generatedAt));
+  // A fact rejected only because its explicit event date is outside the
+  // requested period must not be reintroduced as a date-less fallback clue.
+  const fallbackClues = modelItems.length === 0 && bundle.facts.length === 0
+    ? evidenceBackedFallbackClues(input, evidence, generatedAt, { start, end })
     : [];
   const items = mergeEventCandidates([...modelItems, ...fallbackClues]);
   const importantFacts = items.filter((item) => item.kind === "fact");
@@ -951,7 +1080,11 @@ function buildBrief(input: IntelligenceTaskInput, start: Date, end: Date, genera
   });
   metadata.sources = sourceDiagnostics(retrieval, evidence);
   const overview = items.length === 0
-    ? "本次已核验部分来源，但没有形成通过事实级来源绑定的事项；这不代表市场上没有相关事项。"
+    ? outsideEventFacts > 0
+      ? `本次已核验来源中有 ${outsideEventFacts} 条事项的明确事件日期不在报告窗口内，未作为本期新增发布；这不代表市场上没有其他相关事项。`
+      : windowFilter.outside > 0
+        ? `本次检索命中的 ${windowFilter.outside} 个已知发布日期来源不在报告窗口内；其余本期或日期待确认来源未形成通过事实级来源绑定的事项，不能据此断言市场上没有其他相关事项。`
+      : "本次已核验部分来源，但没有形成通过事实级来源绑定的事项；这不代表市场上没有相关事项。"
     : `本次基于已核验来源形成 ${items.length} 条事项${retrieval.status === "success" ? "。" : "；来源覆盖不完整，结论仅适用于已获取证据。"}`;
   return {
     taskName: input.name,
@@ -973,7 +1106,12 @@ function buildBrief(input: IntelligenceTaskInput, start: Date, end: Date, genera
         mode: "pipeline-v2",
         pipelineVersion: PIPELINE_VERSION,
         stages: ["understanding", "retrieval", "evidence", "facts", "brief"],
-        unresolvedGaps: bundle.unresolvedGaps,
+        unresolvedGaps: [
+          ...bundle.unresolvedGaps,
+          ...(windowFilter.outside > 0 ? [`${windowFilter.outside} 个已知发布日期来源不在本期窗口，已隔离`] : []),
+          ...(outsideEventFacts > 0 ? [`${outsideEventFacts} 条明确事件日期不在本期窗口，已隔离为历史背景`] : []),
+        ].slice(0, 12),
+        windowFilter: { ...windowFilter, outsideEventFacts },
         confidence: bundle.confidence,
         validation: bundle.validation,
         evidenceFallbackClues: fallbackClues.length,
@@ -1024,7 +1162,10 @@ export async function runIntelligencePipeline(
           queries: plannedQueries,
           onBatch: async (batch) => {
             try {
-              const persisted = batch.results.map((item) => fromSearchItem(item, batch.provider)).filter((item): item is IntelligencePipelineEvidence => !!item);
+              const persisted = batch.results
+                .map((item) => fromSearchItem(item, batch.provider))
+                .filter((item): item is IntelligencePipelineEvidence => !!item)
+                .map((item) => markPublicationWindowExclusion(item, coverage.start, coverage.end));
             await store.upsertEvidence(persisted);
             } catch {
               // A completed provider response must never be followed by fallback calls when
@@ -1083,15 +1224,30 @@ export async function runIntelligencePipeline(
         }
         throw error;
       }
-      const allCandidates = retrieval.results.map((item) => fromSearchItem(item, item.searchProviders?.[0] || null)).filter((item): item is IntelligencePipelineEvidence => !!item);
+      const allCandidates = retrieval.results
+        .map((item) => fromSearchItem(item, item.searchProviders?.[0] || null))
+        .filter((item): item is IntelligencePipelineEvidence => !!item)
+        .map((item) => markPublicationWindowExclusion(item, coverage.start, coverage.end));
       await store.upsertEvidence(allCandidates);
-      await store.saveCheckpoint({ stage: "retrieval", status: retrieval.status === "success" ? "completed" : retrieval.status === "partial" ? "partial" : "failed", payload: { ...retrieval }, diagnostics: { queryCount: plannedQueries.length, candidateCount: allCandidates.length } });
+      const initialWindow = scopeEvidenceToPublicationWindow(allCandidates, coverage.start, coverage.end);
+      await store.saveCheckpoint({
+        stage: "retrieval",
+        status: retrieval.status === "success" ? "completed" : retrieval.status === "partial" ? "partial" : "failed",
+        payload: { ...retrieval },
+        diagnostics: {
+          queryCount: plannedQueries.length,
+          candidateCount: allCandidates.length,
+          publicationWindow: initialWindow.audit,
+        },
+      });
     }
   }
 
   if (!retrieval) throw new Error("INTELLIGENCE_PIPELINE_RETRIEVAL_MISSING");
 
-  let evidence = await store.listEvidence();
+  let persistedEvidence = await store.listEvidence();
+  let publicationWindow = scopeEvidenceToPublicationWindow(persistedEvidence, coverage.start, coverage.end);
+  let evidence = publicationWindow.eligible;
   const evidenceCheckpoint = await store.loadCheckpoint("evidence");
   if (!evidenceCheckpoint || evidenceCheckpoint.status !== "completed") {
     const acquired = await acquireEvidenceWithBackfill(
@@ -1099,8 +1255,11 @@ export async function runIntelligencePipeline(
       input,
       store,
       dependencies.acquireEvidence || acquireEvidence,
+      coverage,
     );
-    evidence = acquired.evidence;
+    persistedEvidence = await store.listEvidence();
+    publicationWindow = scopeEvidenceToPublicationWindow(persistedEvidence, coverage.start, coverage.end);
+    evidence = publicationWindow.eligible;
     const full = evidence.filter((item) => item.evidenceStatus === "full").length;
     const partial = evidence.filter((item) => item.evidenceStatus === "partial").length;
     const unavailable = evidence.filter((item) => item.evidenceStatus === "unavailable").length;
@@ -1109,18 +1268,40 @@ export async function runIntelligencePipeline(
       status: "completed",
       payload: { attempted: acquired.attemptedIds.length, full, partial, unavailable },
       diagnostics: {
-        candidateCount: evidence.length,
+        candidateCount: persistedEvidence.length,
+        publicationWindow: publicationWindow.audit,
         attemptLimit: MAX_EVIDENCE_ATTEMPTS,
         targetUsable: TARGET_USABLE_EVIDENCE,
         candidatePoolExhausted: evidence.every((item) => item.evidenceStatus !== null),
       },
     });
+  } else {
+    // A checkpoint created by an older worker may already contain fetched
+    // sources whose publication dates are outside this run. Re-scope every
+    // resume without mutating or deleting the durable evidence rows.
+    persistedEvidence = await store.listEvidence();
+    publicationWindow = scopeEvidenceToPublicationWindow(persistedEvidence, coverage.start, coverage.end);
+    evidence = publicationWindow.eligible;
   }
 
   const usableEvidence = evidence.filter((item) => item.evidenceStatus === "full" || item.evidenceStatus === "partial");
   if (!usableEvidence.length) {
-    const brief = insufficientEvidenceBrief(input, coverage.start, coverage.end, generatedAt.toISOString(), retrieval, evidence, generationProvider);
-    await store.saveCheckpoint({ stage: "brief", status: "partial", payload: { brief }, diagnostics: { reason: "insufficient_evidence" } });
+    const brief = insufficientEvidenceBrief(
+      input,
+      coverage.start,
+      coverage.end,
+      generatedAt.toISOString(),
+      retrieval,
+      evidence,
+      generationProvider,
+      publicationWindow.audit,
+    );
+    await store.saveCheckpoint({
+      stage: "brief",
+      status: "partial",
+      payload: { brief },
+      diagnostics: { reason: "insufficient_evidence", publicationWindow: publicationWindow.audit },
+    });
     return brief;
   }
 
@@ -1238,7 +1419,17 @@ export async function runIntelligencePipeline(
     }
   }
 
-  const brief = buildBrief(input, coverage.start, coverage.end, generatedAt.toISOString(), retrieval, evidence, bundle, generationProvider);
+  const brief = buildBrief(
+    input,
+    coverage.start,
+    coverage.end,
+    generatedAt.toISOString(),
+    retrieval,
+    evidence,
+    bundle,
+    generationProvider,
+    publicationWindow.audit,
+  );
   const finalizedFactsCheckpoint = await store.loadCheckpoint("facts");
   await store.saveCheckpoint({
     stage: "brief",
