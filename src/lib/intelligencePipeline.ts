@@ -120,6 +120,11 @@ interface EvidenceWindowAudit {
   outside: number;
 }
 
+function knownPublicationTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return Number.isFinite(new Date(value).getTime()) ? value : null;
+}
+
 /**
  * Coverage is a publication window. Event dates and discovery timestamps are
  * deliberately not substitutes for a source publication date: a newly found
@@ -131,9 +136,9 @@ export function evidencePublicationWindowStatus(
   start: Date,
   end: Date,
 ): EvidenceWindowStatus {
-  if (!publishedAt) return "unknown";
-  const parsed = new Date(publishedAt);
-  if (!Number.isFinite(parsed.getTime())) return "unknown";
+  const knownPublishedAt = knownPublicationTimestamp(publishedAt);
+  if (!knownPublishedAt) return "unknown";
+  const parsed = new Date(knownPublishedAt);
   // Topic windows are calendar-day ranges. Provider dates are frequently
   // normalized to midnight, so comparing instants would wrongly exclude a
   // source from the first day when the run started later that morning.
@@ -453,7 +458,10 @@ function parseFactBundle(raw: string, evidenceById: Map<string, IntelligencePipe
       const context: EventTimeEvidenceContext = hasStructuredAttributes ? {
         primarySubject,
         subjects: primarySubject ? [primarySubject] : [],
-        eventText: `${primarySubject} ${eventType}`,
+        // Preserve the proposed event action for evidence matching. Structured
+        // attributes are still validated independently below, so this cannot
+        // promote an unsupported amount, participant or role.
+        eventText: `${headline} ${summary}`,
         eventType,
         attributeText: `${primarySubject} ${eventType}`,
       } : {
@@ -487,7 +495,12 @@ function parseFactBundle(raw: string, evidenceById: Map<string, IntelligencePipe
       const safeContext: EventTimeEvidenceContext = {
         primarySubject,
         subjects: rendered.entities,
-        eventText: `${rendered.headline} ${rendered.summary}`,
+        // Structured rendering deliberately drops unsupported attributes, but it
+        // can also collapse a supported event phrase to only "subject + type".
+        // Keep the model's event wording solely for evidence-bound date matching;
+        // amounts, parties and other user-visible fields still come exclusively
+        // from the structured attribute gate above.
+        eventText: hasStructuredAttributes ? `${headline} ${summary}` : `${rendered.headline} ${rendered.summary}`,
         eventType,
         attributeText: `${rendered.headline} ${rendered.summary}`,
       };
@@ -596,7 +609,7 @@ function fromSearchItem(item: WebSearchItem, provider: string | null): Intellige
     query: boundedExternal(item.query, 500),
     snippet: boundedExternal(item.snippet, 1_200),
     contentExcerpt: "",
-    publishedAt: item.publishedAt,
+    publishedAt: knownPublicationTimestamp(item.publishedAt),
     fetchedAt: null,
     evidenceStatus: null,
     failureReason: null,
@@ -645,7 +658,7 @@ function mergeAcquired(base: IntelligencePipelineEvidence, acquired: EvidenceCan
     ...base,
     title: boundedExternal(acquired.title || base.title, 400),
     contentExcerpt: boundedExternal(acquired.content || base.snippet, MAX_EVIDENCE_EXCERPT),
-    publishedAt: acquired.evidencePublishedAt || acquired.publishedAt || base.publishedAt,
+    publishedAt: knownPublicationTimestamp(acquired.evidencePublishedAt || acquired.publishedAt || base.publishedAt),
     fetchedAt: new Date().toISOString(),
     evidenceStatus: acquired.evidenceStatus || "unavailable",
     failureReason: acquired.evidenceFailureReason || null,
@@ -854,6 +867,15 @@ function sourceDiagnostics(retrieval: RetrievalResult, evidence: IntelligencePip
 function itemFromFact(fact: ExtractedFact, evidenceById: Map<string, IntelligencePipelineEvidence>, generatedAt: string): Candidate {
   const evidence = fact.evidenceIds.map((id) => evidenceById.get(id)!).filter(Boolean);
   const primary = evidence.find((item) => item.evidenceStatus === "full") || evidence[0]!;
+  const hasKnownPublicationDate = evidence.some((item) => !!knownPublicationTimestamp(item.publishedAt));
+  const primaryPublishedAt = knownPublicationTimestamp(primary.publishedAt) || "";
+  // A model cannot promote an event into a confirmed item when neither the
+  // source publication date nor the evidence-bound event date locates it in
+  // this run. Keep the evidence as a useful clue; a trustworthy in-window
+  // event date is sufficient even when the publisher omitted its own date.
+  const effectiveStatus = fact.status === "confirmed" && !hasKnownPublicationDate && !fact.eventDate
+    ? "reported"
+    : fact.status;
   return {
     id: `pipeline:${createHash("sha256").update(exactFactIdentity(fact)).digest("hex").slice(0, 24)}`,
     title: fact.headline,
@@ -863,34 +885,36 @@ function itemFromFact(fact: ExtractedFact, evidenceById: Map<string, Intelligenc
     source: primary.sourceName,
     sourceUrl: primary.url,
     sourceUrls: evidence.map((item) => item.url),
-    publishedAt: primary.publishedAt || "",
-    timeUnconfirmed: !primary.publishedAt,
+    publishedAt: primaryPublishedAt,
+    timeUnconfirmed: !primaryPublishedAt && !fact.eventDate,
     subject: fact.entities.join("、") || fact.headline,
     region: null,
-    kind: fact.status === "confirmed" ? "fact" : "other",
+    kind: effectiveStatus === "confirmed" ? "fact" : "other",
     sourceTier: primary.sourceTier,
     origin: "web-search",
     domain: new URL(primary.url).hostname,
     importance: fact.relevance,
     relevance: fact.relevance,
     relevanceReason: fact.relevanceReason,
-    confidence: fact.status === "confirmed" ? "high" : fact.status === "reported" ? "medium" : "low",
-    isClue: fact.status === "reported",
-    followUpReason: fact.status === "reported"
-      ? fact.rejectedAttributeLabels?.length
+    confidence: effectiveStatus === "confirmed" ? "high" : effectiveStatus === "reported" ? "medium" : "low",
+    isClue: effectiveStatus === "reported",
+    followUpReason: effectiveStatus === "reported"
+      ? !hasKnownPublicationDate && !fact.eventDate
+        ? "来源发布日期和事件日期均待确认"
+        : fact.rejectedAttributeLabels?.length
         ? `待继续核验：${fact.rejectedAttributeLabels.join("、")}`
         : "来源或事件要素尚不足以充分确认"
       : undefined,
     evidenceStatus: primary.evidenceStatus || "unavailable",
-    publishedAtSource: primary.publishedAt ? "evidence" : "unknown",
-    publishedAtConfidence: primary.publishedAt ? "high" : "unknown",
+    publishedAtSource: primaryPublishedAt ? "evidence" : "unknown",
+    publishedAtConfidence: primaryPublishedAt ? "high" : "unknown",
     eventType: fact.eventType,
     eventDate: fact.eventDate || undefined,
     eventTimeText: fact.eventTimeText || undefined,
     eventDateSupport: fact.eventDate ? "evidence" : undefined,
     discoveredAt: generatedAt,
     fetchedAt: primary.fetchedAt || generatedAt,
-    supportLevel: fact.status === "confirmed" ? "direct" : fact.status === "context" ? "context" : "unknown",
+    supportLevel: effectiveStatus === "confirmed" ? "direct" : effectiveStatus === "context" ? "context" : "unknown",
   };
 }
 

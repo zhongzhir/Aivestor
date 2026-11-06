@@ -288,7 +288,7 @@ async function publicationWindowExcludesOldNewsButKeepsUnknownDates() {
     ...searchItem("https://example.com/deepseek-undated-financing"),
     title: "DeepSeek推进新一轮融资",
     snippet: "DeepSeek推进新一轮融资。",
-    publishedAt: null,
+    publishedAt: "not-a-publication-date",
     query: "DeepSeek 融资",
   };
   const unknownStore = new MemoryStore();
@@ -302,7 +302,7 @@ async function publicationWindowExcludesOldNewsButKeepsUnknownDates() {
       t: "融资",
       e: ["DeepSeek"],
       x: [],
-      st: "reported",
+      st: "confirmed",
       r: "high",
       rr: "对应融资监测主题",
       ids: [evidenceId],
@@ -324,11 +324,52 @@ async function publicationWindowExcludesOldNewsButKeepsUnknownDates() {
   });
   assert.equal(unknownBrief.itemCount, 1, "发布日期未知但证据相关的事项应保留为时间待确认线索");
   assert.equal(unknownBrief.otherItems[0]?.timeUnconfirmed, true);
+  assert.equal(unknownBrief.otherItems[0]?.kind, "other", "模型不得把双日期未知的事项自报为本期确认事实");
+  assert.equal(unknownBrief.otherItems[0]?.isClue, true);
+  assert.equal(unknownBrief.otherItems[0]?.followUpReason, "来源发布日期和事件日期均待确认");
   assert.equal(unknownBrief.otherItems[0]?.publishedAt, "");
   assert.equal(unknownBrief.otherItems[0]?.discoveredAt, generatedAt.toISOString(), "发现时间必须与来源发布日期分离");
   if (unknownBrief.metadata.research?.mode === "pipeline-v2") {
     assert.equal(unknownBrief.metadata.research.windowFilter?.unknownDate, 1);
   }
+
+  const datedEventStore = new MemoryStore();
+  const datedEventGeneration = providerWithBundle((evidenceId) => ({
+    facts: [{
+      p: "DeepSeek",
+      h: "DeepSeek完成新一轮融资",
+      s: "DeepSeek于2026年11月3日完成新一轮融资。",
+      a: "融资事件发生在本期窗口内。",
+      d: "2026-11-03",
+      t: "融资",
+      e: ["DeepSeek"],
+      x: [],
+      st: "confirmed",
+      r: "high",
+      rr: "对应融资监测主题",
+      ids: [evidenceId],
+    }],
+    g: ["来源发布日期待确认"],
+    c: "medium",
+  }));
+  const datedEventBrief = await runIntelligencePipeline(recentInput, recentCoverage, generatedAt, {
+    store: datedEventStore,
+    generationProvider: datedEventGeneration.value,
+    retrieval: { retrieve: async () => retrievalResult([{
+      ...discoveredWithoutDate,
+      url: "https://example.com/deepseek-undated-source-dated-event",
+    }]) },
+    acquireEvidence: async <T extends EvidenceCandidate>(candidates: T[]) => {
+      const updated = candidates.map((candidate) => Object.assign(candidate, {
+        content: "DeepSeek于2026年11月3日完成新一轮融资。",
+        evidenceStatus: "full" as const,
+      }));
+      return { candidates: updated, stats: { attempted: updated.length, full: updated.length, partial: 0, unavailable: 0 } };
+    },
+  });
+  assert.equal(datedEventBrief.importantFacts.length, 1, "可信期内事件日应允许发布日期未知的合法事实通过");
+  assert.equal(datedEventBrief.importantFacts[0]?.eventDate, "2026-11-03");
+  assert.equal(datedEventBrief.importantFacts[0]?.publishedAt, "");
 }
 
 async function acquiredOldDateAndOldEventCannotReenterCurrentBrief() {
