@@ -190,10 +190,10 @@ for migration in \
   db/migrations/052_intelligence_external_generation_budget.sql \
   db/migrations/053_intelligence_pipeline_checkpoints.sql
 do
-  runuser -u postgres -- psql \
-    --dbname=zhongjian_zhitou \
-    --set=ON_ERROR_STOP=1 \
-    --file="$migration"
+  cat "$migration" |
+    runuser -u postgres -- psql \
+      --dbname=zhongjian_zhitou \
+      --set=ON_ERROR_STOP=1
 done
 
 runuser -u postgres -- psql \
