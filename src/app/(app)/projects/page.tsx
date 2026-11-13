@@ -7,6 +7,7 @@ import { ProjectFilters } from "./ProjectFilters";
 import { ALL_STAGES, STAGE_LABELS } from "@/lib/stages";
 import { buildAccessScope, scopedProjectWhere } from "@/lib/resourceAccess";
 import { getProjectManagementOptions } from "@/lib/projectManagement";
+import { ProjectMobileCard } from "@/components/project/ProjectMobileCard";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ interface ProjectRow {
   category_id: string | null;
   category_name: string | null;
   is_priority: boolean;
+  next_action: string | null;
   tags: { id: string; name: string }[];
 }
 
@@ -146,6 +148,7 @@ export default async function ProjectsPage({
             p.stage, p.process_stage, p.outcome,
             p.created_at, p.updated_at,
             p.category_id, c.name AS category_name, p.is_priority,
+            p.next_action,
             COALESCE((SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name)
                         FROM project_tag_links l JOIN project_tags t ON t.id = l.tag_id
                        WHERE l.project_id = p.id), '[]'::json) AS tags,
@@ -183,8 +186,8 @@ export default async function ProjectsPage({
   );
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-8 lg:px-8">
-      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-6">
+    <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-8 lg:px-8">
+      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] p-4 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm text-ink-soft">项目管线</p>
@@ -201,7 +204,7 @@ export default async function ProjectsPage({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 grid grid-cols-3 gap-2 sm:mt-6 sm:gap-3">
           <PipelineMetric label="当前列表" value={projects.length} note="按筛选条件显示" />
           <PipelineMetric label="活跃项目" value={activeCount} note="评估或投后跟踪" />
           <PipelineMetric label="近期线索" value={reviewCount} note="值得重新看一眼" />
@@ -238,7 +241,15 @@ export default async function ProjectsPage({
           )}
         </div>
       ) : (
-        <div className="mt-6 overflow-hidden rounded-lg border border-line bg-white">
+        <div className="mt-5 space-y-3 lg:hidden" aria-label="移动端项目列表">
+          {projects.map((project) => (
+            <ProjectMobileCard key={project.id} project={project} focus={focus} />
+          ))}
+        </div>
+      )}
+
+      {projects.length > 0 && (
+        <div className="mt-6 hidden overflow-hidden rounded-lg border border-line bg-white lg:block">
           <div className="hidden grid-cols-[minmax(0,1.4fr)_0.9fr_0.8fr_0.8fr_auto] gap-4 border-b border-line bg-surface px-4 py-3 text-xs font-medium text-ink-soft lg:grid">
             <span>项目</span>
             <span>阶段</span>
@@ -253,7 +264,7 @@ export default async function ProjectsPage({
                 <Link
                   key={project.id}
                   href={focus === "ic" ? `/projects/${project.id}?tab=decision&focus=ic` : `/projects/${project.id}`}
-                  className="grid grid-cols-1 gap-3 px-4 py-4 transition-colors hover:bg-[#fbfaf7] lg:grid-cols-[minmax(0,1.4fr)_0.9fr_0.8fr_0.8fr_auto] lg:items-center"
+                  className="grid grid-cols-[minmax(0,1.4fr)_0.9fr_0.8fr_0.8fr_auto] items-center gap-4 px-4 py-4 transition-colors hover:bg-[#fbfaf7]"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -325,10 +336,10 @@ function PipelineMetric({
   note: string;
 }) {
   return (
-    <div className="rounded-lg border border-[#ece4d8] bg-white/70 p-4">
-      <div className="font-numeric text-2xl font-semibold text-ink">{value}</div>
-      <div className="mt-1 text-sm font-medium text-ink">{label}</div>
-      <div className="mt-1 text-xs text-ink-soft">{note}</div>
+    <div className="min-w-0 rounded-lg border border-[#ece4d8] bg-white/70 p-3 sm:p-4">
+      <div className="font-numeric text-xl font-semibold text-ink sm:text-2xl">{value}</div>
+      <div className="mt-1 truncate text-xs font-medium text-ink sm:text-sm">{label}</div>
+      <div className="mt-1 hidden text-xs text-ink-soft sm:block">{note}</div>
     </div>
   );
 }

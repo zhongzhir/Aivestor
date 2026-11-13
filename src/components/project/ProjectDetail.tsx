@@ -31,6 +31,7 @@ import { ProjectManagementPanel } from "./ProjectManagementPanel";
 import { DeepResearchJobPanel } from "./DeepResearchJobPanel";
 
 type Tab = "analysis" | "decision" | "post";
+type MobileSection = "materials" | "context" | "source" | "report";
 
 export interface DocMeta {
   id: string;
@@ -188,6 +189,12 @@ export function ProjectDetail({
   const [workflowState, setWorkflowState] = useState<WorkflowMeta>(workflow);
   const [decisionEventState, setDecisionEventState] =
     useState<DecisionEventMeta[]>(decisionEvents);
+  const [mobileSections, setMobileSections] = useState<Record<MobileSection, boolean>>({
+    materials: true,
+    context: false,
+    source: false,
+    report: true,
+  });
 
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
   const hasReportContextDoc = hasUsableReportContextMetadata(docMeta);
@@ -398,6 +405,7 @@ export function ProjectDetail({
 
   function focusDeepResearch() {
     setTab("analysis");
+    setMobileSections((sections) => ({ ...sections, report: true }));
     setShowDeepResearchWorkbench(true);
     window.setTimeout(() => {
       document.getElementById("deep-research-workbench")?.scrollIntoView({
@@ -409,6 +417,7 @@ export function ProjectDetail({
 
   function focusMaterials() {
     setTab("analysis");
+    setMobileSections((sections) => ({ ...sections, materials: true }));
     window.setTimeout(() => {
       document.getElementById("project-materials")?.scrollIntoView({
         behavior: "smooth",
@@ -419,6 +428,7 @@ export function ProjectDetail({
 
   function focusJudgmentPoints() {
     setTab("analysis");
+    setMobileSections((sections) => ({ ...sections, report: true }));
     window.setTimeout(() => {
       document.getElementById("judgment-points")?.scrollIntoView({
         behavior: "smooth",
@@ -496,13 +506,27 @@ export function ProjectDetail({
     },
   }[analysisRecommendation];
 
+  function selectTab(nextTab: Tab) {
+    setTab(nextTab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", nextTab);
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  function toggleMobileSection(section: MobileSection) {
+    setMobileSections((sections) => ({
+      ...sections,
+      [section]: !sections[section],
+    }));
+  }
+
   return (
-    <div className="mx-auto w-full max-w-7xl px-6 py-5 lg:px-8">
-      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] px-5 py-4">
+    <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] px-4 py-3 sm:px-5 sm:py-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-2xl font-semibold text-ink">
+              <h1 className="min-w-0 break-words text-xl font-semibold text-ink sm:text-2xl">
                 {projectName}
               </h1>
               <span className="rounded-full border border-[#dfd4c4] bg-white px-2.5 py-1 text-xs font-medium text-ink-soft">
@@ -518,8 +542,8 @@ export function ProjectDetail({
                 </span>
               )}
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-soft">
-              <span>
+            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-ink-soft sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
+              <span className="col-span-2 sm:col-span-1">
                 下一步：
                 <span className="font-medium text-ink">
                   {workflowState.nextAction || workspaceState.title}
@@ -543,11 +567,11 @@ export function ProjectDetail({
               </span>
             </div>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             {latestReportId ? (
               <Link
                 href={`/projects/${projectId}/report`}
-                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 sm:min-h-0"
               >
                 查看最新报告
               </Link>
@@ -555,7 +579,7 @@ export function ProjectDetail({
               <button
                 type="button"
                 onClick={focusMaterials}
-                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                className="min-h-11 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 sm:min-h-0"
               >
                 补充报告材料
               </button>
@@ -563,28 +587,28 @@ export function ProjectDetail({
               <button
                 type="button"
                 onClick={focusJudgmentPoints}
-                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                className="min-h-11 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 sm:min-h-0"
               >
                 精简判断要点
               </button>
             ) : analysisRecommendation === "brief" ? (
               <Link
                 href={`/projects/${projectId}/brief-analysis`}
-                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 sm:min-h-0"
               >
                 先做快速判断
               </Link>
             ) : analysisRecommendation === "deep_research" ? (
               <button
                 onClick={focusDeepResearch}
-                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                className="min-h-11 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 sm:min-h-0"
               >
                 进入深度投研
               </button>
             ) : (
               <button
                 onClick={handleGenerate}
-                className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90"
+                className="min-h-11 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:opacity-90 sm:min-h-0"
               >
                 生成标准分析
               </button>
@@ -595,7 +619,7 @@ export function ProjectDetail({
                 setTab("analysis");
                 window.setTimeout(() => document.getElementById("analysis-recommendation")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
               }}
-              className="rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface"
+              className="min-h-11 rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface sm:min-h-0"
             >
               查看分析方式
             </button>
@@ -606,7 +630,7 @@ export function ProjectDetail({
       <details className="group mt-4 rounded-lg border border-line bg-white">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
           <span>
-            <span className="text-sm font-medium text-ink">项目管理与记录</span>
+            <span className="text-sm font-medium text-ink">项目管理与跟踪</span>
             <span className="ml-2 text-xs text-ink-faint">{activityItems.length} 条动态</span>
           </span>
           <span className="text-xs font-medium text-accent group-open:hidden">展开</span>
@@ -620,7 +644,8 @@ export function ProjectDetail({
 
       <div className="mt-4">
         <div className="min-w-0">
-          <div className="flex gap-1 border-b border-line">
+          <div className="sticky top-0 z-20 -mx-4 bg-canvas/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:static md:mx-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-0">
+          <div className="grid grid-cols-3 gap-1 rounded-xl border border-line bg-white p-1 shadow-[0_4px_16px_rgba(55,53,47,0.06)] md:flex md:gap-1 md:rounded-none md:border-x-0 md:border-t-0 md:bg-transparent md:p-0 md:shadow-none" role="tablist" aria-label="项目工作阶段">
             {([
               ["analysis", "项目分析"],
               ["decision", "投资决策"],
@@ -628,20 +653,27 @@ export function ProjectDetail({
             ] as [Tab, string][]).map(([id, label]) => (
               <button
                 key={id}
-                onClick={() => setTab(id)}
-                className={`-mb-px border-b-2 px-4 py-2 text-sm transition-colors ${
+                id={`project-stage-tab-${id}`}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                aria-controls={`project-stage-panel-${id}`}
+                onClick={() => selectTab(id)}
+                className={`min-h-11 rounded-lg border-b-2 px-2 py-2 text-xs transition-colors sm:text-sm md:-mb-px md:min-h-0 md:rounded-none md:px-4 ${
                   tab === id
-                    ? "border-accent font-medium text-accent"
-                    : "border-transparent text-ink-soft hover:text-ink"
+                    ? "border-accent bg-accent-soft font-medium text-accent md:bg-transparent"
+                    : "border-transparent text-ink-soft hover:bg-surface hover:text-ink md:hover:bg-transparent"
                 }`}
               >
                 {label}
               </button>
             ))}
           </div>
+          </div>
 
           {tab === "decision" && (
-            <div id="ic-workspace" className="mt-6 scroll-mt-24 space-y-6">
+            <div id="project-stage-panel-decision" role="tabpanel" aria-labelledby="project-stage-tab-decision" className="mt-6 scroll-mt-24 space-y-6">
+              <div id="ic-workspace" className="scroll-mt-24">
               <ICMemoWorkspace
                 projectId={projectId}
                 projectName={projectName}
@@ -662,22 +694,25 @@ export function ProjectDetail({
                 latestReportId={latestReportId}
                 judgmentPointCount={judgmentPointCount}
                 onGenerateReport={handleGenerate}
-                onSelectTab={setTab}
+                onSelectTab={selectTab}
               />
+              </div>
               <DecisionTools projectId={projectId} processStage={processStage} />
             </div>
           )}
 
           {tab === "post" && (
-            <PostInvestment
-              projectId={projectId}
-              docMeta={docMeta}
-              onUploadComplete={handleUploadComplete}
-            />
+            <div id="project-stage-panel-post" role="tabpanel" aria-labelledby="project-stage-tab-post">
+              <PostInvestment
+                projectId={projectId}
+                docMeta={docMeta}
+                onUploadComplete={handleUploadComplete}
+              />
+            </div>
           )}
 
           {tab === "analysis" && (
-            <>
+            <div id="project-stage-panel-analysis" role="tabpanel" aria-labelledby="project-stage-tab-analysis">
               {!isOrgProject && hasOrg && (
                 <div className="mt-6 flex items-center justify-between gap-3 rounded-lg border border-line bg-white p-4">
                   <p className="text-xs text-ink-soft">
@@ -720,6 +755,12 @@ export function ProjectDetail({
                 </div>
               )}
 
+              <ResponsiveDisclosure
+                title="材料与证据"
+                summary={`${parsedDocCount}/${docMeta.length} 份材料已解析 · 完整度 ${effectiveCompleteness}%`}
+                open={mobileSections.materials}
+                onToggle={() => toggleMobileSection("materials")}
+              >
               <div id="project-materials" className="scroll-mt-24">
                 <DocumentPanel
                   projectId={projectId}
@@ -730,10 +771,24 @@ export function ProjectDetail({
                   onGenerate={handleGenerate}
                 />
               </div>
+              </ResponsiveDisclosure>
 
-              <ProjectContextCards projectId={projectId} />
+              <ResponsiveDisclosure
+                title="关系、知识与协作背景"
+                summary="项目来源、关键人物和历史判断"
+                open={mobileSections.context}
+                onToggle={() => toggleMobileSection("context")}
+              >
+                <ProjectContextCards projectId={projectId} />
+              </ResponsiveDisclosure>
 
               <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.95fr)]">
+                <ResponsiveDisclosure
+                  title="材料原文"
+                  summary={docMeta.length > 0 ? `${docMeta.length} 份材料可回看` : "尚未上传材料"}
+                  open={mobileSections.source}
+                  onToggle={() => toggleMobileSection("source")}
+                >
                 <section className="rounded-lg border border-line bg-white p-5">
                   <h2 className="text-sm font-semibold text-ink">材料文本</h2>
                   <p className="mt-2 text-xs text-ink-faint">
@@ -758,7 +813,14 @@ export function ProjectDetail({
                     {bpText || "暂无可显示文本"}
                   </div>
                 </section>
+                </ResponsiveDisclosure>
 
+                <ResponsiveDisclosure
+                  title="分析与报告"
+                  summary={latestReportId ? "已有分析报告，可继续复核与推进" : recommendationCopy.title}
+                  open={mobileSections.report}
+                  onToggle={() => toggleMobileSection("report")}
+                >
                 <section className="space-y-6 rounded-lg border border-line bg-white p-5">
                   <div id="analysis-recommendation" className="scroll-mt-24 rounded-lg border border-[#d7e4dc] bg-[#f7fbf8] p-4">
                     <p className="text-xs font-medium uppercase tracking-wide text-accent">{recommendationCopy.eyebrow}</p>
@@ -1009,6 +1071,7 @@ export function ProjectDetail({
                     </div>
                   </details>
                 </section>
+                </ResponsiveDisclosure>
               </div>
 
               {(finLoading || finError || financials) && (
@@ -1029,7 +1092,7 @@ export function ProjectDetail({
                   ) : null}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
@@ -1043,6 +1106,42 @@ export function ProjectDetail({
           onSaved={() => router.refresh()}
         />
       )}
+    </div>
+  );
+}
+
+function ResponsiveDisclosure({
+  title,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="xl:contents">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="mt-4 flex min-h-14 w-full items-center justify-between gap-3 rounded-lg border border-line bg-white px-4 py-3 text-left xl:hidden"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-ink">{title}</span>
+          <span className="mt-0.5 block truncate text-xs text-ink-faint">{summary}</span>
+        </span>
+        <span className="shrink-0 text-xs font-medium text-accent">
+          {open ? "收起" : "展开"}
+        </span>
+      </button>
+      <div className={`${open ? "block" : "hidden"} xl:block`}>
+        {children}
+      </div>
     </div>
   );
 }

@@ -30,6 +30,7 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
   const paramsRef = useRef(new URLSearchParams(searchParams.toString()));
 
   const [search, setSearch] = useState(searchParams.get("search") ?? "");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialMount = useRef(true);
 
@@ -40,6 +41,8 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
   const tag = searchParams.get("tag") ?? "";
   const priority = searchParams.get("priority") === "1";
   const sort = searchParams.get("sort") ?? "created_desc";
+  const advancedFilterCount = [stage, processStage, outcome, category, tag].filter(Boolean).length
+    + (sort !== "created_desc" ? 1 : 0);
 
   useEffect(() => {
     paramsRef.current = new URLSearchParams(searchParams.toString());
@@ -72,19 +75,39 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
   }, [search]);
 
   return (
-    <div className="mt-5 rounded-lg border border-line bg-white p-4">
-      <input
-        type="text"
-        value={search}
-        onChange={(event) => setSearch(event.target.value)}
-        placeholder="搜索项目、公司、赛道或判断要点"
-        className="w-full rounded-lg border border-line bg-[#fffdfa] px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-[var(--brand-primary)] focus:outline-none"
-      />
-      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+    <section className="mt-5 rounded-lg border border-line bg-white p-3 sm:p-4" aria-label="项目筛选">
+      <div className="flex items-center gap-2">
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="搜索项目、公司、赛道或判断要点"
+          className="min-h-11 min-w-0 flex-1 rounded-lg border border-line bg-[#fffdfa] px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-accent/15"
+        />
+        <label className={`inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-3 text-xs font-medium transition-colors ${priority ? "border-accent bg-accent-soft text-accent" : "border-line bg-white text-ink-soft hover:bg-surface"}`}>
+          <input className="sr-only" type="checkbox" checked={priority} onChange={(event) => pushParams({ priority: event.target.checked ? "1" : "" })} />
+          <span aria-hidden="true">{priority ? "★" : "☆"}</span>
+          <span className="hidden sm:inline">重点项目</span>
+          <span className="sm:hidden">重点</span>
+        </label>
+        <button
+          type="button"
+          aria-expanded={filtersOpen}
+          aria-controls="project-advanced-filters"
+          onClick={() => setFiltersOpen((value) => !value)}
+          className={`inline-flex min-h-11 shrink-0 items-center justify-center rounded-lg border px-3 text-xs font-medium md:hidden ${filtersOpen || advancedFilterCount > 0 ? "border-accent bg-accent-soft text-accent" : "border-line text-ink-soft"}`}
+        >
+          筛选{advancedFilterCount > 0 ? ` ${advancedFilterCount}` : ""}
+        </button>
+      </div>
+      <div
+        id="project-advanced-filters"
+        className={`${filtersOpen ? "grid" : "hidden"} mt-3 grid-cols-2 gap-2 text-xs md:flex md:flex-wrap`}
+      >
         <select
           value={stage}
           onChange={(event) => pushParams({ stage: event.target.value })}
-          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+          className="min-h-11 min-w-0 rounded-md border border-line bg-white px-2 py-2 text-ink md:min-h-0 md:py-1.5"
         >
           <option value="">融资阶段：全部</option>
           {stageOptions.map((option) => (
@@ -96,7 +119,7 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
         <select
           value={processStage}
           onChange={(event) => pushParams({ process_stage: event.target.value })}
-          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+          className="min-h-11 min-w-0 rounded-md border border-line bg-white px-2 py-2 text-ink md:min-h-0 md:py-1.5"
         >
           <option value="">流程阶段：全部</option>
           {ALL_STAGES.map((option) => (
@@ -108,7 +131,7 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
         <select
           value={outcome}
           onChange={(event) => pushParams({ outcome: event.target.value })}
-          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+          className="min-h-11 min-w-0 rounded-md border border-line bg-white px-2 py-2 text-ink md:min-h-0 md:py-1.5"
         >
           <option value="">投资结论：全部</option>
           {OUTCOME_OPTIONS.map((option) => (
@@ -120,7 +143,7 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
         <select
           value={category}
           onChange={(event) => pushParams({ category: event.target.value })}
-          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+          className="min-h-11 min-w-0 rounded-md border border-line bg-white px-2 py-2 text-ink md:min-h-0 md:py-1.5"
         >
           <option value="">分类：全部</option>
           {categories.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
@@ -128,19 +151,15 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
         <select
           value={tag}
           onChange={(event) => pushParams({ tag: event.target.value })}
-          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+          className="min-h-11 min-w-0 rounded-md border border-line bg-white px-2 py-2 text-ink md:min-h-0 md:py-1.5"
         >
           <option value="">标签：全部</option>
           {tags.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
         </select>
-        <label className="inline-flex items-center gap-1.5 rounded-md border border-line bg-white px-2 py-1.5 text-ink">
-          <input type="checkbox" checked={priority} onChange={(event) => pushParams({ priority: event.target.checked ? "1" : "" })} />
-          仅看重点
-        </label>
         <select
           value={sort}
           onChange={(event) => pushParams({ sort: event.target.value })}
-          className="rounded-md border border-line bg-white px-2 py-1.5 text-ink"
+          className="min-h-11 min-w-0 rounded-md border border-line bg-white px-2 py-2 text-ink md:min-h-0 md:py-1.5"
         >
           {SORT_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -156,12 +175,12 @@ export function ProjectFilters({ stageOptions, categories, tags }: Props) {
               paramsRef.current = new URLSearchParams();
               router.replace("/projects");
             }}
-            className="rounded-md border border-line px-2 py-1.5 text-ink-soft hover:bg-surface"
+            className="col-span-2 min-h-11 rounded-md border border-line px-3 py-2 text-ink-soft hover:bg-surface md:min-h-0 md:py-1.5"
           >
             清除筛选
           </button>
         )}
       </div>
-    </div>
+    </section>
   );
 }

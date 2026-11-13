@@ -56,6 +56,9 @@ const skillRunner = fs.readFileSync(path.join(root, "src/components/skills/Skill
 const appShell = fs.readFileSync(path.join(root, "src/components/AppShell.tsx"), "utf8");
 const mobileBottomNav = fs.readFileSync(path.join(root, "src/components/MobileBottomNav.tsx"), "utf8");
 const dashboard = fs.readFileSync(path.join(root, "src/app/(app)/dashboard/page.tsx"), "utf8");
+const projectsPage = fs.readFileSync(path.join(root, "src/app/(app)/projects/page.tsx"), "utf8");
+const projectFilters = fs.readFileSync(path.join(root, "src/app/(app)/projects/ProjectFilters.tsx"), "utf8");
+const projectMobileCard = fs.readFileSync(path.join(root, "src/components/project/ProjectMobileCard.tsx"), "utf8");
 
 assert.match(projectDetail, /id="ic-workspace"/);
 assert.match(projectDetail, /id="project-next-action"/);
@@ -67,5 +70,16 @@ assert.match(appShell, /pb-20 md:pb-0/);
 assert.match(mobileBottomNav, /移动端主导航/);
 assert.match(mobileBottomNav, /md:hidden/);
 assert.match(dashboard, /QuickWorkLauncher/);
+assert.match(projectsPage, /ProjectMobileCard/);
+assert.match(projectsPage, /p\.next_action/);
+assert.match(projectMobileCard, /下一步/);
+assert.match(projectMobileCard, /project\.next_action/);
+assert.match(projectFilters, /project-advanced-filters/);
+assert.match(projectFilters, /aria-expanded=\{filtersOpen\}/);
+assert.match(projectDetail, /role="tablist"/);
+assert.match(projectDetail, /sticky top-0/);
+assert.match(projectDetail, /ResponsiveDisclosure/);
+assert.match(projectDetail, /材料与证据/);
+assert.match(projectDetail, /分析与报告/);
 
 console.log("work scene navigation checks passed");
