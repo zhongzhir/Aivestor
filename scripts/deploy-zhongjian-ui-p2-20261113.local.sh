@@ -24,9 +24,12 @@ overlay_files=(
 
 rollback_on_error() {
   code=$?
+  failed_line=${1:-unknown}
+  failed_command=${2:-unknown}
   trap - ERR
   set +e
   printf '\n发布失败，开始执行安全回退。\n'
+  printf '失败位置：第 %s 行；命令：%s\n' "$failed_line" "$failed_command"
 
   if [ "$switched" = 1 ] && [ -n "$old_release" ] && [ -f "$old_release/.env.local" ]; then
     pm2 delete "$intel_name" >/dev/null 2>&1 || true
@@ -61,7 +64,7 @@ rollback_on_error() {
   printf '请完整回传本次输出，不要重复执行。\n'
   exit "$code"
 }
-trap rollback_on_error ERR
+trap 'rollback_on_error "$LINENO" "$BASH_COMMAND"' ERR
 
 printf '===== 1. 生产边界与目标版本门禁 =====\n'
 cd "$repo"
@@ -86,7 +89,8 @@ test "$brand" = zhongjian-zhitou
 test "$public_origin" = https://aivestor.com.cn
 
 test ! -e "$release"
-test "$(pm2 pid "$intel_name" | tail -1)" = 0
+intel_pid=$(pm2 pid "$intel_name" 2>/dev/null | tail -1 || true)
+test -z "$intel_pid" || test "$intel_pid" = 0
 
 printf '拉取并核验远端 main；如网络握手失败，本脚本将在生产切换前停止。\n'
 git fetch --no-tags origin main
