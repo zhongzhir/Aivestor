@@ -103,6 +103,8 @@ export async function POST(req: Request) {
     companyName?: string;
     industry?: string;
     stage?: string;
+    nextAction?: string;
+    workspaceNote?: string;
   };
   try {
     body = await req.json();
@@ -114,6 +116,8 @@ export async function POST(req: Request) {
   if (!name) {
     return NextResponse.json({ error: "请填写项目名称" }, { status: 400 });
   }
+  const nextAction = body.nextAction?.trim().slice(0, 2_000) || null;
+  const workspaceNote = body.workspaceNote?.trim().slice(0, 4_000) || null;
 
   // 有 org 且开通 collaboration 能力位时，创建为组织项目（写 org_id + owner_id=创建者）；
   // 否则与现状一致（纯个人项目，org_id / owner_id 均为 NULL）。
@@ -124,8 +128,10 @@ export async function POST(req: Request) {
   }
 
   const rows = await query<{ id: string }>(
-    `INSERT INTO projects (user_id, name, company_name, industry, stage, org_id, owner_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO projects
+       (user_id, name, company_name, industry, stage, org_id, owner_id,
+        next_action, workspace_note)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING id`,
     [
       session.user.id,
@@ -135,6 +141,8 @@ export async function POST(req: Request) {
       body.stage?.trim() || null,
       orgId,
       orgId ? session.user.id : null,
+      nextAction,
+      workspaceNote,
     ]
   );
 

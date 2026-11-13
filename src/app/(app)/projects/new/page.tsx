@@ -2,14 +2,18 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 
 type Phase = "idle" | "working" | "done" | "error";
 
 export default function NewProjectPage() {
+  const searchParams = useSearchParams();
+  const initialBrief = (searchParams.get("brief") ?? "").slice(0, 2_000);
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [industry, setIndustry] = useState("");
   const [stage, setStage] = useState("");
+  const [taskBrief, setTaskBrief] = useState(initialBrief);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -123,7 +127,14 @@ export default function NewProjectPage() {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, companyName, industry, stage }),
+        body: JSON.stringify({
+          name,
+          companyName,
+          industry,
+          stage,
+          workspaceNote: taskBrief ? `工作台任务：${taskBrief}` : undefined,
+          nextAction: taskBrief ? `完成本次分析：${taskBrief}` : undefined,
+        }),
       });
       if (!res.ok) {
         throw new Error((await res.json()).error || "创建项目失败");
@@ -174,13 +185,35 @@ export default function NewProjectPage() {
   const busy = phase === "working";
 
   return (
-    <div className="mx-auto max-w-doc px-6 py-12">
+    <div className="mx-auto max-w-doc px-4 py-7 sm:px-6 sm:py-12">
       <h1 className="text-xl font-semibold text-ink">新建项目分析</h1>
       <p className="mt-2 text-sm text-ink-soft">
         填写项目信息并上传 BP，系统将自动解析文本。
       </p>
 
       <div className="mt-8 space-y-5">
+        {initialBrief && (
+          <div className="rounded-xl border border-[#d9e3dc] bg-[#f7fbf8] px-4 py-3">
+            <p className="text-xs font-medium text-accent">已从工作台带入任务说明</p>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">
+              创建后会写入项目工作区，后续可在“项目管理与跟踪”中继续维护。
+            </p>
+          </div>
+        )}
+
+        <div>
+          <label className="mb-1.5 block text-sm text-ink-soft">本次分析目标</label>
+          <textarea
+            value={taskBrief}
+            onChange={(e) => setTaskBrief(e.target.value)}
+            disabled={busy}
+            rows={3}
+            maxLength={2_000}
+            placeholder="例如：重点核验技术、订单和收入预测"
+            className="w-full rounded-md border border-line px-3 py-2 text-sm leading-6 outline-none placeholder:text-ink-faint focus:border-accent"
+          />
+        </div>
+
         <div>
           <label className="mb-1.5 block text-sm text-ink-soft">
             项目名称 <span className="text-red-500">*</span>
@@ -193,7 +226,7 @@ export default function NewProjectPage() {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <div>
             <label className="mb-1.5 block text-sm text-ink-soft">公司</label>
             <input
@@ -242,7 +275,7 @@ export default function NewProjectPage() {
               setDragOver(false);
               if (!busy) pickFile(e.dataTransfer.files[0]);
             }}
-            className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed py-12 transition-colors ${
+            className={`flex min-h-[176px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-10 text-center transition-colors ${
               dragOver
                 ? "border-accent bg-accent-soft/50"
                 : "border-line hover:border-accent/60"
@@ -305,7 +338,7 @@ export default function NewProjectPage() {
         <button
           onClick={handleSubmit}
           disabled={busy}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="min-h-11 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 sm:w-auto"
         >
           {busy ? "处理中…" : "创建并解析"}
         </button>

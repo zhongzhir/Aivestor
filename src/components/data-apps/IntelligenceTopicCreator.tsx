@@ -51,8 +51,16 @@ function scheduleLabel(task: DraftTask) {
   return `${day} ${schedule.time} · ${schedule.timezone}`;
 }
 
-export function IntelligenceTopicCreator({ onCancel, onCreated }: { onCancel: () => void; onCreated: (topicId: string) => void }) {
-  const [description, setDescription] = useState("");
+export function IntelligenceTopicCreator({
+  onCancel,
+  onCreated,
+  initialDescription = "",
+}: {
+  onCancel: () => void;
+  onCreated: (topicId: string) => void;
+  initialDescription?: string;
+}) {
+  const [description, setDescription] = useState(initialDescription);
   const [draft, setDraft] = useState<DraftResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -145,6 +153,11 @@ export function IntelligenceTopicCreator({ onCancel, onCreated }: { onCancel: ()
         <button type="button" onClick={onCancel} className="text-sm text-ink-faint hover:text-ink">← 情报工作空间</button>
         <h1 className="mt-6 text-2xl font-semibold text-ink">新建投资情报主题</h1>
         <p className="mt-2 text-sm leading-6 text-ink-soft">用一句话说明关注对象、事件和时间要求。系统会先整理成草稿，确认前不会保存或运行。</p>
+        {initialDescription && (
+          <div className="mt-5 rounded-xl border border-[#d9e3dc] bg-[#f7fbf8] px-4 py-3 text-xs leading-5 text-ink-soft">
+            已从工作台带入研究意图。你可以继续修改，确认后系统才会保存主题并开始运行。
+          </div>
+        )}
         <label className="mt-6 block">
           <span className="sr-only">研究意图</span>
           <textarea
@@ -158,7 +171,7 @@ export function IntelligenceTopicCreator({ onCancel, onCreated }: { onCancel: ()
         </label>
         {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
         <div className="mt-4 flex justify-end">
-          <button type="button" onClick={createDraft} disabled={busy || !description.trim()} className="rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50">
+          <button type="button" onClick={createDraft} disabled={busy || !description.trim()} className="min-h-11 w-full rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white disabled:opacity-50 sm:w-auto">
             {busy ? "正在整理…" : "整理成主题"}
           </button>
         </div>

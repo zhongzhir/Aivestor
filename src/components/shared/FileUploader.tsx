@@ -232,11 +232,18 @@ export function FileUploader({
     try {
       const done = await uploadOne(queue[index].file);
       setItem(index, { status: "done", warning: done.warning });
+      onUploadComplete?.([
+        { fileName: queue[index].file.name, status: "done", warning: done.warning },
+      ]);
     } catch (e) {
+      const error = e instanceof Error ? e.message : "上传失败";
       setItem(index, {
         status: "error",
-        error: e instanceof Error ? e.message : "上传失败",
+        error,
       });
+      onUploadComplete?.([
+        { fileName: queue[index].file.name, status: "error", error },
+      ]);
     }
   }
 
@@ -244,13 +251,13 @@ export function FileUploader({
     <div>
       {/* 项目模式：文档分类选择 */}
       {target === "project" && (
-        <div className="mb-3 flex items-center gap-2 text-xs">
+        <div className="mb-3 flex flex-col gap-1.5 text-xs sm:flex-row sm:items-center sm:gap-2">
           <span className="text-ink-faint">文档类型：</span>
           <select
             value={docKind}
             onChange={(e) => setDocKind(e.target.value as DocKindValue)}
             disabled={busy}
-            className="rounded border border-line bg-white px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none disabled:opacity-60"
+            className="min-h-11 rounded border border-line bg-white px-2 py-2 text-sm text-ink focus:border-accent focus:outline-none disabled:opacity-60 sm:min-h-0 sm:py-1 sm:text-xs"
           >
             {options.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -280,7 +287,7 @@ export function FileUploader({
           setDragOver(false);
           if (!busy) addFiles(e.dataTransfer.files);
         }}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed py-8 text-center transition-colors ${
+        className={`flex min-h-[156px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-8 text-center transition-colors ${
           dragOver
             ? "border-accent bg-accent-soft/50"
             : "border-line hover:border-accent/60"
@@ -291,6 +298,7 @@ export function FileUploader({
           type="file"
           multiple
           accept={ACCEPT}
+          aria-label="选择要上传的材料"
           className="hidden"
           onChange={(e) => addFiles(e.target.files)}
         />
@@ -305,11 +313,11 @@ export function FileUploader({
 
       {/* 上传队列 */}
       {queue.length > 0 && (
-        <div className="mt-3 space-y-1.5">
+        <div className="mt-3 space-y-2" aria-live="polite" aria-label="上传队列">
           {queue.map((it, i) => (
             <div
               key={i}
-              className="flex items-center gap-2 rounded-md border border-line px-3 py-2 text-xs"
+              className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-white px-3 py-2.5 text-xs"
             >
               <span className="flex-1 truncate text-ink">{it.file.name}</span>
               {it.status === "uploading" && (
@@ -319,14 +327,14 @@ export function FileUploader({
                 <span className="text-ink-faint">等待中</span>
               )}
               {it.status === "done" && (
-                <span className="text-accent">✅ 完成</span>
+                <span className="font-medium text-accent">完成</span>
               )}
               {it.status === "error" && (
                 <>
-                  <span className="text-red-600">❌ 失败</span>
+                  <span className="font-medium text-red-600">失败</span>
                   <button
                     onClick={() => retry(i)}
-                    className="text-accent hover:underline"
+                    className="min-h-11 rounded-lg border border-line px-3 font-medium text-accent hover:bg-accent-soft sm:min-h-0 sm:border-0 sm:px-1 sm:hover:bg-transparent sm:hover:underline"
                   >
                     重试
                   </button>
@@ -337,7 +345,7 @@ export function FileUploader({
                   className="max-w-[55%] truncate text-amber-600"
                   title={it.warning}
                 >
-                  ⚠️ {it.warning}
+                  提示：{it.warning}
                 </span>
               )}
               {it.status === "error" && it.error && (

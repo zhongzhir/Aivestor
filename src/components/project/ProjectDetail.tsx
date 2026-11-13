@@ -187,6 +187,9 @@ export function ProjectDetail({
   const [finLoading, setFinLoading] = useState(false);
   const [finError, setFinError] = useState("");
   const [workflowState, setWorkflowState] = useState<WorkflowMeta>(workflow);
+  const [incomingBriefSaving, setIncomingBriefSaving] = useState(false);
+  const [incomingBriefSaved, setIncomingBriefSaved] = useState(false);
+  const [sourceDrawerOpen, setSourceDrawerOpen] = useState(false);
   const [decisionEventState, setDecisionEventState] =
     useState<DecisionEventMeta[]>(decisionEvents);
   const [mobileSections, setMobileSections] = useState<Record<MobileSection, boolean>>({
@@ -300,6 +303,42 @@ export function ProjectDetail({
       }
     } finally {
       setTransferring(false);
+    }
+  }
+
+  async function saveIncomingBrief() {
+    const brief = (searchParams.get("brief") ?? "").trim().slice(0, 2_000);
+    if (!brief || incomingBriefSaving) return;
+    setIncomingBriefSaving(true);
+    try {
+      const noteLine = `工作台任务：${brief}`;
+      const workspaceNote = workflowState.workspaceNote?.includes(noteLine)
+        ? workflowState.workspaceNote
+        : [workflowState.workspaceNote, noteLine].filter(Boolean).join("\n");
+      const response = await fetch(`/api/projects/${projectId}/workflow`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nextAction: brief,
+          nextActionDueAt: workflowState.nextActionDueAt,
+          evidenceCompleteness: effectiveCompleteness,
+          workspaceNote,
+        }),
+      });
+      if (!response.ok) throw new Error(await readError(response, "保存失败"));
+      const data = await response.json();
+      const saved = data.workflow ?? {};
+      setWorkflowState({
+        nextAction: saved.next_action ?? brief,
+        nextActionDueAt: saved.next_action_due_at ?? null,
+        evidenceCompleteness: saved.evidence_completeness ?? effectiveCompleteness,
+        workspaceNote: saved.workspace_note ?? workspaceNote,
+      });
+      setIncomingBriefSaved(true);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "保存失败");
+    } finally {
+      setIncomingBriefSaving(false);
     }
   }
 
@@ -458,6 +497,7 @@ export function ProjectDetail({
   });
   const effectiveCompleteness =
     workflowState.evidenceCompleteness ?? estimateEvidenceCompleteness(evidenceItems);
+  const incomingBrief = (searchParams.get("brief") ?? "").trim().slice(0, 2_000);
   const activityItems = buildActivityItems({
     projectId,
     projectCreatedAt,
@@ -623,9 +663,38 @@ export function ProjectDetail({
             >
               查看分析方式
             </button>
+            <button
+              type="button"
+              onClick={() => setSourceDrawerOpen(true)}
+              className="col-span-2 min-h-11 rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface xl:hidden"
+            >
+              查看来源与材料
+            </button>
           </div>
         </div>
       </div>
+
+      {incomingBrief && (
+        <section className="mt-4 rounded-xl border border-[#d9e3dc] bg-[#f7fbf8] px-4 py-3" aria-label="工作台任务说明">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-medium text-accent">工作台任务已带入</p>
+              <p className="mt-1 text-sm leading-6 text-ink">{incomingBrief}</p>
+              <p className="mt-1 text-xs leading-5 text-ink-soft">
+                当前先进入对应工作区；保存后会成为项目下一步，并进入项目管理记录。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={saveIncomingBrief}
+              disabled={incomingBriefSaving || incomingBriefSaved}
+              className="min-h-11 shrink-0 rounded-lg border border-accent bg-white px-4 text-sm font-medium text-accent disabled:border-line disabled:text-ink-faint"
+            >
+              {incomingBriefSaved ? "已保存为下一步" : incomingBriefSaving ? "保存中…" : "保存为项目下一步"}
+            </button>
+          </div>
+        </section>
+      )}
 
       <details className="group mt-4 rounded-lg border border-line bg-white">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
@@ -1106,6 +1175,78 @@ export function ProjectDetail({
           onSaved={() => router.refresh()}
         />
       )}
+      {sourceDrawerOpen && (
+        <SourceDrawer
+          documents={docMeta}
+          sourceText={bpText}
+          onClose={() => setSourceDrawerOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SourceDrawer({
+  documents,
+  sourceText,
+  onClose,
+}: {
+  documents: DocMeta[];
+  sourceText: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" role="presentation" onMouseDown={onClose}>
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="source-drawer-title"
+        className="flex h-full w-full max-w-xl flex-col bg-canvas shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-4 sm:px-6">
+          <div>
+            <h2 id="source-drawer-title" className="text-base font-semibold text-ink">来源与材料</h2>
+            <p className="mt-1 text-xs leading-5 text-ink-soft">回看用于分析的原始文件和解析文本。</p>
+          </div>
+          <button type="button" autoFocus onClick={onClose} className="min-h-11 rounded-lg px-3 text-sm text-ink-soft hover:bg-surface" aria-label="关闭来源抽屉">
+            关闭
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          <section>
+            <h3 className="text-xs font-medium uppercase tracking-wide text-ink-faint">原始文件</h3>
+            {documents.length > 0 ? (
+              <ul className="mt-2 space-y-2">
+                {documents.map((document) => (
+                  <li key={document.id} className="rounded-lg border border-line bg-white px-3 py-2">
+                    <p className="break-words text-sm font-medium text-ink">{document.filename}</p>
+                    <p className="mt-1 text-xs text-ink-faint">
+                      {FILE_TYPE_LABEL[document.fileType] ?? document.fileType.toUpperCase()} · {document.chars.toLocaleString()} 字 · {document.parseStatus === "done" ? "已解析" : document.parseStatus}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-ink-faint">尚未上传材料。</p>
+            )}
+          </section>
+          <section className="mt-5">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-ink-faint">解析文本</h3>
+            <div className="mt-2 max-h-[58vh] overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-white p-4 text-xs leading-6 text-ink-soft">
+              {sourceText || "暂无可显示文本"}
+            </div>
+          </section>
+        </div>
+      </aside>
     </div>
   );
 }

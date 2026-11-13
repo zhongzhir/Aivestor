@@ -123,7 +123,7 @@ export function DeepResearchJobPanel({
 
   const active = latest && ["queued", "running"].includes(latest.status);
   return (
-    <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-4">
+    <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 sm:p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-emerald-900">完整模式：后台外部取证＋深度报告</p>
@@ -134,14 +134,14 @@ export function DeepResearchJobPanel({
         <button
           onClick={start}
           disabled={!hasParsedDoc || busy || Boolean(active)}
-          className="rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="min-h-11 w-full rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           {active ? "研究进行中" : busy ? "正在提交…" : "启动完整深度投研"}
         </button>
       </div>
-      {error && <p className="mt-3 text-xs text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-xs text-red-700">{error}</p>}
       {latest && (
-        <div className="mt-4 rounded-md border border-emerald-200 bg-white p-3">
+        <div className="mt-4 rounded-md border border-emerald-200 bg-white p-3" aria-live="polite">
           <div className="flex items-center justify-between gap-3 text-xs text-emerald-900">
             <span>{PHASE_LABEL[latest.phase] || latest.phase}</span>
             <span>{latest.progress}%</span>
@@ -150,14 +150,14 @@ export function DeepResearchJobPanel({
             <div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${latest.progress}%` }} />
           </div>
           {latest.status === "completed" && latest.report_id && (
-            <Link href={`/projects/${projectId}/report?reportId=${latest.report_id}`} className="mt-3 inline-block text-xs font-medium text-emerald-800 underline">
+            <Link href={`/projects/${projectId}/report?reportId=${latest.report_id}`} className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-emerald-800 underline">
               打开完整深度投研报告
             </Link>
           )}
           {latest.status === "failed" && (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-red-700">
+            <div className="mt-3 flex flex-col gap-2 text-xs text-red-700 sm:flex-row sm:items-center sm:justify-between">
               <span>{latest.error_message || "后台任务失败，已保留过程状态"}</span>
-              <button onClick={() => retry(latest.id)} disabled={busy || latest.attempt_count >= latest.max_attempts} className="rounded border border-red-300 px-2 py-1 disabled:opacity-50">
+              <button onClick={() => retry(latest.id)} disabled={busy || latest.attempt_count >= latest.max_attempts} className="min-h-11 rounded border border-red-300 px-3 py-2 font-medium disabled:opacity-50">
                 重试（{latest.attempt_count}/{latest.max_attempts}）
               </button>
             </div>
@@ -169,13 +169,13 @@ export function DeepResearchJobPanel({
           <summary className="cursor-pointer font-medium">尽调任务 {tasks.filter((task) => !["done", "dismissed"].includes(task.status)).length} 项待处理</summary>
           <div className="mt-2 space-y-2">
             {tasks.slice(0, 20).map((task) => (
-              <div key={task.id} className="flex items-start gap-2 rounded border border-emerald-200 bg-white p-2">
+              <div key={task.id} className="flex flex-col gap-2 rounded border border-emerald-200 bg-white p-2 sm:flex-row sm:items-start">
                 <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium">{task.priority}</span>
                 <div className="min-w-0 flex-1">
                   <p className={task.status === "done" ? "line-through opacity-60" : ""}>{task.title}</p>
                   {task.details && <p className="mt-1 text-emerald-800/70">{task.details}</p>}
                 </div>
-                <select value={task.status} onChange={(event) => updateTask(task, event.target.value as Task["status"])} className="rounded border border-emerald-200 bg-white px-1 py-1">
+                <select value={task.status} onChange={(event) => updateTask(task, event.target.value as Task["status"])} className="min-h-11 rounded border border-emerald-200 bg-white px-2 py-2 sm:min-h-0 sm:py-1">
                   <option value="open">待处理</option>
                   <option value="in_progress">处理中</option>
                   <option value="done">已完成</option>

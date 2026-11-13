@@ -11,6 +11,11 @@ import {
   MOBILE_PRIMARY_NAV,
   isPrimaryNavigationActive,
 } from "@/lib/primaryNavigation";
+import {
+  buildWorkIntentHref,
+  classifyWorkIntent,
+  WORK_INTENTS,
+} from "@/lib/workIntent";
 
 assert.equal(WORK_SCENES.length, 6, "工作台应保持六个高频场景，不继续扩张");
 assert.equal(new Set(WORK_SCENES.map((scene) => scene.id)).size, WORK_SCENES.length);
@@ -49,6 +54,16 @@ assert.equal(isPrimaryNavigationActive("/dashboard", "/dashboard"), true);
 assert.equal(SKILL_SCENES.length, 7, "SKILL 常用工作应只复用已确认的七类场景");
 assert.ok(SKILL_SCENES.every((scene) => scene.keywords.length > 0));
 
+assert.equal(WORK_INTENTS.length, 6, "统一任务入口必须覆盖六条已确认流程");
+assert.equal(classifyWorkIntent("批量初筛这 12 份 BP"), "batch-screening");
+assert.equal(classifyWorkIntent("准备云合智能投委会 IC 材料"), "ic-preparation");
+assert.equal(classifyWorkIntent("形成创始人访谈和尽调问题清单"), "due-diligence");
+assert.equal(classifyWorkIntent("每周跟踪机器人公司融资动态"), "intelligence");
+assert.equal(classifyWorkIntent("研究低空经济竞争格局"), "industry-research");
+assert.equal(classifyWorkIntent("分析云合智能商业计划书"), "company-analysis");
+assert.match(buildWorkIntentHref("company-analysis", "分析项目"), /^\/projects\/new\?brief=/);
+assert.match(buildWorkIntentHref("intelligence", "每周跟踪"), /new=1/);
+
 const root = process.cwd();
 const projectDetail = fs.readFileSync(path.join(root, "src/components/project/ProjectDetail.tsx"), "utf8");
 const reportView = fs.readFileSync(path.join(root, "src/components/project/ReportView.tsx"), "utf8");
@@ -59,6 +74,10 @@ const dashboard = fs.readFileSync(path.join(root, "src/app/(app)/dashboard/page.
 const projectsPage = fs.readFileSync(path.join(root, "src/app/(app)/projects/page.tsx"), "utf8");
 const projectFilters = fs.readFileSync(path.join(root, "src/app/(app)/projects/ProjectFilters.tsx"), "utf8");
 const projectMobileCard = fs.readFileSync(path.join(root, "src/components/project/ProjectMobileCard.tsx"), "utf8");
+const unifiedTaskLauncher = fs.readFileSync(path.join(root, "src/components/dashboard/UnifiedTaskLauncher.tsx"), "utf8");
+const fileUploader = fs.readFileSync(path.join(root, "src/components/shared/FileUploader.tsx"), "utf8");
+const deepResearchPanel = fs.readFileSync(path.join(root, "src/components/project/DeepResearchJobPanel.tsx"), "utf8");
+const projectApi = fs.readFileSync(path.join(root, "src/app/api/projects/route.ts"), "utf8");
 
 assert.match(projectDetail, /id="ic-workspace"/);
 assert.match(projectDetail, /id="project-next-action"/);
@@ -81,5 +100,12 @@ assert.match(projectDetail, /sticky top-0/);
 assert.match(projectDetail, /ResponsiveDisclosure/);
 assert.match(projectDetail, /材料与证据/);
 assert.match(projectDetail, /分析与报告/);
+assert.match(projectDetail, /SourceDrawer/);
+assert.match(projectDetail, /保存为项目下一步/);
+assert.match(unifiedTaskLauncher, /带着任务继续/);
+assert.match(unifiedTaskLauncher, /classifyWorkIntent/);
+assert.match(fileUploader, /onUploadComplete\?\.\(\[/);
+assert.match(deepResearchPanel, /aria-live="polite"/);
+assert.match(projectApi, /workspace_note/);
 
 console.log("work scene navigation checks passed");

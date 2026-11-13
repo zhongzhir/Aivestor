@@ -71,12 +71,14 @@ export function SkillsClient({
   isLoggedIn,
   hasZjjrData = false,
   initialScene = null,
+  initialBrief = "",
 }: {
   initialCatalog: RawSkill[];
   initialCustom: RawSkill[];
   isLoggedIn: boolean;
   hasZjjrData?: boolean;
   initialScene?: string | null;
+  initialBrief?: string;
 }) {
   const [catalog, setCatalog] = useState<SkillItem[]>(() =>
     withType(initialCatalog, "catalog")
@@ -282,6 +284,15 @@ export function SkillsClient({
 
   return (
     <>
+      {initialBrief && (
+        <section className="mt-6 rounded-xl border border-[#d9e3dc] bg-[#f7fbf8] px-4 py-3">
+          <p className="text-xs font-medium text-accent">已从工作台带入任务说明</p>
+          <p className="mt-1 text-sm leading-6 text-ink">{initialBrief}</p>
+          <p className="mt-1 text-xs leading-5 text-ink-soft">
+            选择分析框架后，这段说明会自动进入运行面板，生成结果可保存到项目档案或知识库。
+          </p>
+        </section>
+      )}
       <section className="mt-6 rounded-xl border border-line bg-white p-5">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -380,6 +391,7 @@ export function SkillsClient({
             }
             onRun={() => {
               if (s.requires_capability === "zjjr_data") {
+                if (initialBrief) setClIndustry(initialBrief);
                 setClSkill(s);
               } else {
                 setRunnerSkill(s);
@@ -440,7 +452,11 @@ export function SkillsClient({
 
       {/* 运行面板（仅登录） */}
       {isLoggedIn && runnerSkill && (
-        <SkillRunner skill={runnerSkill} onClose={() => setRunnerSkill(null)} />
+        <SkillRunner
+          skill={runnerSkill}
+          initialInput={initialBrief}
+          onClose={() => setRunnerSkill(null)}
+        />
       )}
 
       {/* 创建面板 */}

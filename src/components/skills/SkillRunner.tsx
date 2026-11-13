@@ -20,12 +20,13 @@ interface ProjectOption {
 interface Props {
   skill: RunnerSkill;
   onClose: () => void;
+  initialInput?: string;
 }
 
-export function SkillRunner({ skill, onClose }: Props) {
+export function SkillRunner({ skill, onClose, initialInput = "" }: Props) {
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [projectId, setProjectId] = useState("");
-  const [extraInput, setExtraInput] = useState("");
+  const [extraInput, setExtraInput] = useState(initialInput);
   const [result, setResult] = useState("");
   const [running, setRunning] = useState(false);
   const [error, setError] = useState("");
@@ -106,7 +107,7 @@ export function SkillRunner({ skill, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            className="shrink-0 text-sm text-ink-faint hover:text-ink"
+            className="min-h-11 shrink-0 px-2 text-sm text-ink-faint hover:text-ink"
             aria-label="关闭"
           >
             ✕ 关闭
@@ -140,7 +141,7 @@ export function SkillRunner({ skill, onClose }: Props) {
             value={extraInput}
             onChange={(e) => setExtraInput(e.target.value)}
             disabled={running}
-            rows={2}
+            rows={initialInput ? 4 : 2}
             placeholder="特别关注的方面…"
             className="mt-1 w-full resize-none rounded-md border border-line px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent disabled:bg-surface"
           />
@@ -148,7 +149,7 @@ export function SkillRunner({ skill, onClose }: Props) {
           <button
             onClick={run}
             disabled={running}
-            className="mt-4 rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="mt-4 min-h-11 w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 sm:w-auto"
           >
             {running ? "分析中…" : hasResult ? "重新分析" : "开始分析"}
           </button>

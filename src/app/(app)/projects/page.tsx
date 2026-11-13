@@ -97,6 +97,7 @@ export default async function ProjectsPage({
   const priority = pickStr(searchParams?.priority) === "1";
   const sort = pickStr(searchParams?.sort) || "created_desc";
   const focus = pickStr(searchParams?.focus);
+  const taskBrief = pickStr(searchParams?.brief).slice(0, 2_000);
 
   const processStage =
     processStageRaw &&
@@ -217,6 +218,7 @@ export default async function ProjectsPage({
         <div className="mt-4 rounded-lg border border-[#d9e3dc] bg-[#f7fbf8] px-4 py-3">
           <p className="text-sm font-medium text-ink">选择一个项目准备 IC 讨论</p>
           <p className="mt-1 text-xs text-ink-soft">打开项目后会直接进入投资决策与 IC Memo 工作区。</p>
+          {taskBrief && <p className="mt-2 text-sm leading-6 text-ink">任务说明：{taskBrief}</p>}
         </div>
       )}
 
@@ -243,7 +245,12 @@ export default async function ProjectsPage({
       ) : (
         <div className="mt-5 space-y-3 lg:hidden" aria-label="移动端项目列表">
           {projects.map((project) => (
-            <ProjectMobileCard key={project.id} project={project} focus={focus} />
+            <ProjectMobileCard
+              key={project.id}
+              project={project}
+              focus={focus}
+              taskBrief={taskBrief}
+            />
           ))}
         </div>
       )}
@@ -263,7 +270,9 @@ export default async function ProjectsPage({
               return (
                 <Link
                   key={project.id}
-                  href={focus === "ic" ? `/projects/${project.id}?tab=decision&focus=ic` : `/projects/${project.id}`}
+                  href={focus === "ic"
+                    ? `/projects/${project.id}?tab=decision&focus=ic${taskBrief ? `&brief=${encodeURIComponent(taskBrief)}` : ""}`
+                    : `/projects/${project.id}`}
                   className="grid grid-cols-[minmax(0,1.4fr)_0.9fr_0.8fr_0.8fr_auto] items-center gap-4 px-4 py-4 transition-colors hover:bg-[#fbfaf7]"
                 >
                   <div className="min-w-0">

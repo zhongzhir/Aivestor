@@ -38,7 +38,8 @@ export function IntelligenceWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const topicId = searchParams.get("topic");
-  const creating = searchParams.get("new") === "1";
+  const initialDescription = (searchParams.get("brief") ?? "").slice(0, 2_000);
+  const creating = searchParams.get("new") === "1" || Boolean(initialDescription);
   const [data, setData] = useState<WorkspaceData | null>(null);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState<"all" | "attention">("all");
@@ -71,7 +72,13 @@ export function IntelligenceWorkspace() {
     await load();
   };
 
-  if (creating) return <IntelligenceTopicCreator onCancel={openWorkspace} onCreated={openTopic} />;
+  if (creating) return (
+    <IntelligenceTopicCreator
+      initialDescription={initialDescription}
+      onCancel={openWorkspace}
+      onCreated={openTopic}
+    />
+  );
   if (topicId) return <IntelligenceTopicView
     topicId={topicId}
     scheduler={data?.scheduler ?? { healthy: false, lastHeartbeatAt: null }}

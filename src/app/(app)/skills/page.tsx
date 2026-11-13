@@ -53,7 +53,7 @@ async function loadCustomSkills(userId: string): Promise<SkillRow[]> {
 export default async function SkillsPage({
   searchParams,
 }: {
-  searchParams?: { scene?: string };
+  searchParams?: { scene?: string; brief?: string };
 }) {
   const session = await getServerSession(authOptions);
   const isLoggedIn = !!session?.user;
@@ -120,6 +120,7 @@ export default async function SkillsPage({
         isLoggedIn={isLoggedIn}
         hasZjjrData={hasZjjrData}
         initialScene={searchParams?.scene ?? null}
+        initialBrief={(searchParams?.brief ?? "").slice(0, 2_000)}
       />
     </div>
   );

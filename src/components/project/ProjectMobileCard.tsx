@@ -61,13 +61,15 @@ function reportLabel(project: ProjectMobileCardData): string {
 export function ProjectMobileCard({
   project,
   focus,
+  taskBrief = "",
 }: {
   project: ProjectMobileCardData;
   focus?: string;
+  taskBrief?: string;
 }) {
   const days = sleepDays(project.status, project.updated_at);
   const href = focus === "ic"
-    ? `/projects/${project.id}?tab=decision&focus=ic`
+    ? `/projects/${project.id}?tab=decision&focus=ic${taskBrief ? `&brief=${encodeURIComponent(taskBrief)}` : ""}`
     : `/projects/${project.id}`;
   const stage = project.process_stage
     ? STAGE_LABELS[project.process_stage] ?? project.process_stage

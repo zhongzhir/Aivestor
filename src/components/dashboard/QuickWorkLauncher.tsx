@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { QUICK_WORK_SCENES } from "@/lib/workScenes";
+import { UnifiedTaskLauncher } from "./UnifiedTaskLauncher";
 
 export function QuickWorkLauncher() {
   return (
@@ -7,10 +8,10 @@ export function QuickWorkLauncher() {
       <div className="mb-3 flex items-end justify-between gap-3">
         <div>
           <h2 id="quick-work-title" className="text-base font-semibold text-ink">
-            开始一项工作
+            用一句话开始一项工作
           </h2>
           <p className="mt-1 text-xs leading-5 text-ink-soft">
-            先选择目标，再进入对应流程；不需要先判断该用哪个功能。
+            系统只负责识别入口，任务说明会随你进入真实流程，不会留在一个无法继续的输入框里。
           </p>
         </div>
         <Link href="/chat" className="shrink-0 text-xs font-medium text-accent hover:underline">
@@ -18,7 +19,9 @@ export function QuickWorkLauncher() {
         </Link>
       </div>
 
-      <div className="flex snap-x gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible">
+      <UnifiedTaskLauncher />
+
+      <div className="mt-4 flex snap-x gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible">
         {QUICK_WORK_SCENES.map((scene) => (
           <Link
             key={scene.id}
