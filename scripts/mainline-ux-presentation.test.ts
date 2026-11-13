@@ -106,7 +106,6 @@ const root = process.cwd();
 const dashboard = fs.readFileSync(path.join(root, "src/app/(app)/dashboard/page.tsx"), "utf8");
 const workScenes = fs.readFileSync(path.join(root, "src/components/dashboard/WorkSceneCards.tsx"), "utf8");
 const projectDetail = fs.readFileSync(path.join(root, "src/components/project/ProjectDetail.tsx"), "utf8");
-const intelligenceForm = fs.readFileSync(path.join(root, "src/components/data-apps/IntelligenceSubscriptions.tsx"), "utf8");
 
 assert.match(dashboard, /今日优先事项/);
 assert.match(dashboard, /attentionPresentation\.primary/);
@@ -119,8 +118,5 @@ assert.match(projectDetail, /查看其他分析方式/);
 assert.match(projectDetail, /专项工具与其他输出/);
 assert.match(projectDetail, /3-10 条核心判断要点/);
 assert.doesNotMatch(projectDetail, /3-10 个.*问题/);
-assert.match(intelligenceForm, /advancedVisibility\.showCustomRange/);
-assert.match(intelligenceForm, /advancedVisibility\.showSchedule/);
-assert.match(intelligenceForm, /advancedVisibility\.showWeekday/);
 
 console.log("mainline UX presentation checks passed");

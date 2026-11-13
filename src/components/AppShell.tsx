@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
 
 export function AppShell({
   children,
@@ -48,8 +49,11 @@ export function AppShell({
           menuButtonRef={menuButtonRef}
           onMenuOpen={() => setSidebarOpen(true)}
         />
-        <main className="min-w-0 flex-1 overflow-y-auto bg-canvas">{children}</main>
+        <main className="min-w-0 flex-1 overflow-y-auto bg-canvas pb-20 md:pb-0">
+          {children}
+        </main>
       </div>
+      <MobileBottomNav />
     </div>
   );
 }

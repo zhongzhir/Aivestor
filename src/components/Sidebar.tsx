@@ -6,17 +6,10 @@ import { signOut, useSession } from "next-auth/react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { BRAND } from "@/lib/brand";
-
-const NAV = [
-  { href: "/dashboard", label: "工作台", desc: "今日关注" },
-  { href: "/chat", label: "研究对话", desc: "讨论与沉淀" },
-  { href: "/projects", label: "项目管线", desc: "分析与推进" },
-  { href: "/data-apps/intelligence-subscriptions", label: "投资情报", desc: "主题、运行与历史简报" },
-  { href: "/archive", label: "项目档案", desc: "历史与投后" },
-  { href: "/knowledge", label: "知识库", desc: "经验复用" },
-  { href: "/skills", label: "SKILL 广场", desc: "分析框架" },
-  { href: "/settings", label: "设置", desc: "偏好与账户" },
-];
+import {
+  DESKTOP_PRIMARY_NAV,
+  isPrimaryNavigationActive,
+} from "@/lib/primaryNavigation";
 
 export function Sidebar({
   hasOrganization = false,
@@ -65,7 +58,7 @@ export function Sidebar({
 
   const nav = session?.user
     ? [
-        ...NAV,
+        ...DESKTOP_PRIMARY_NAV,
         ...(hasOrganization
           ? [
               {
@@ -81,7 +74,7 @@ export function Sidebar({
             ]
           : []),
       ]
-    : NAV;
+    : DESKTOP_PRIMARY_NAV;
 
   return (
     <aside
@@ -100,10 +93,7 @@ export function Sidebar({
 
       <nav className="flex-1 px-2">
         {nav.map((item) => {
-          const active =
-            item.href === "/dashboard"
-              ? pathname === "/" || pathname.startsWith("/dashboard")
-              : pathname.startsWith(item.href);
+          const active = isPrimaryNavigationActive(pathname, item.href);
 
           return (
             <Link

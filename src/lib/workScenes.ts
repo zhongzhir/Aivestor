@@ -65,6 +65,18 @@ export const WORK_SCENES: WorkScene[] = [
   },
 ];
 
+export const QUICK_WORK_SCENE_IDS = [
+  "company-analysis",
+  "batch-screening",
+  "industry-research",
+] as const;
+
+export const QUICK_WORK_SCENES = QUICK_WORK_SCENE_IDS.map((id) => {
+  const scene = WORK_SCENES.find((item) => item.id === id);
+  if (!scene) throw new Error(`Unknown quick work scene: ${id}`);
+  return scene;
+});
+
 export const SKILL_SCENES = [
   {
     id: "industry-research",

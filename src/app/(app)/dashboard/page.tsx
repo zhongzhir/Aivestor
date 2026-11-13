@@ -7,6 +7,7 @@ import { BRAND } from "@/lib/brand";
 import { getIntelligenceGenerationAccess } from "@/lib/intelligenceGeneration";
 import { IntelligenceAttention, type DashboardIntelligenceBrief, type DashboardIntelligenceItem, type DashboardIntelligenceTask } from "@/components/dashboard/IntelligenceAttention";
 import { WorkSceneCards } from "@/components/dashboard/WorkSceneCards";
+import { QuickWorkLauncher } from "@/components/dashboard/QuickWorkLauncher";
 import { partitionAttentionProjects } from "@/lib/dashboardAttention";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -260,6 +261,8 @@ export default async function DashboardPage() {
           <MetricCard label="报告草稿" value={draftReportCount} note="可继续打磨输出" />
         </div>
       </section>
+
+      <QuickWorkLauncher />
 
       <section className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
         <div className="rounded-lg border border-line bg-white p-5">
