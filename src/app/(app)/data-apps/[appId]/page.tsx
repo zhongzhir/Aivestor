@@ -25,16 +25,20 @@ export default async function DataAppPage({
   // 动态加载客户端组件（路径静态可分析；mod.default 为 "use client" 组件）。
   const mod = await app.component();
   const AppComponent = mod.default;
+  const isIntelligence = params.appId === "intelligence-subscriptions";
 
   return (
-    <div className={`mx-auto px-6 py-8 ${params.appId === "intelligence-subscriptions" ? "max-w-6xl" : "max-w-doc"}`}>
+    <div className={`mx-auto px-6 py-8 ${isIntelligence ? "max-w-6xl" : "max-w-doc"}`}>
       <div className="mb-4 flex items-center gap-2 text-sm">
-        <Link href="/data-apps" className="text-ink-faint hover:text-ink">
-          数据应用
+        <Link
+          href={isIntelligence ? "/dashboard" : "/data-apps"}
+          className="text-ink-faint hover:text-ink"
+        >
+          {isIntelligence ? "工作台" : "机构与市场数据"}
         </Link>
         <span className="text-ink-faint">/</span>
         <span className="text-ink">
-          {app.icon} {app.name}
+          {isIntelligence ? "投资情报" : `${app.icon} ${app.name}`}
         </span>
       </div>
       <AppComponent />

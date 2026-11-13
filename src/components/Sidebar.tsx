@@ -68,8 +68,8 @@ export function Sidebar({
               },
               {
                 href: "/data-apps",
-                label: "数据应用",
-                desc: "情报订制与机构数据",
+                label: "机构与市场数据",
+                desc: "市场洞察与机构点查",
               },
             ]
           : []),

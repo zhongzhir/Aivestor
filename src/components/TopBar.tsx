@@ -176,10 +176,16 @@ function getCrumbs(pathname: string): Crumb[] {
       { label: "组织工作台" },
     ];
   }
+  if (pathname.startsWith("/data-apps/intelligence-subscriptions")) {
+    return [
+      { label: "工作台", href: "/dashboard" },
+      { label: "投资情报" },
+    ];
+  }
   if (pathname.startsWith("/data-apps")) {
     return [
       { label: "工作台", href: "/dashboard" },
-      { label: "数据应用" },
+      { label: "机构与市场数据" },
     ];
   }
   if (pathname.startsWith("/settings")) {

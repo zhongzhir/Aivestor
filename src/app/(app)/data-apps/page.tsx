@@ -6,19 +6,24 @@ import { DATA_APPS } from "@/lib/dataApps";
 
 export const dynamic = "force-dynamic";
 
-// 数据应用列表页：只展示当前用户实际可访问的应用。
+// 机构与市场数据列表页：投资情报已经提升为一级入口，不在目录内重复展示。
 export default async function DataAppsPage() {
   const session = await getSession();
   if (!session?.user?.id) redirect("/login");
   const ctx = await getOrgContext(session.user.id);
-  const accessibleApps = DATA_APPS.filter((app) => app.availableToPersonal === true || !!ctx?.capabilities[app.requiredCapability]);
+  const accessibleApps = DATA_APPS.filter(
+    (app) =>
+      app.id !== "intelligence-subscriptions" &&
+      (app.availableToPersonal === true ||
+        !!ctx?.capabilities[app.requiredCapability])
+  );
   if (accessibleApps.length === 0) redirect("/dashboard");
 
   return (
     <div className="mx-auto max-w-doc px-6 py-10">
-      <h1 className="text-xl font-semibold text-ink">数据应用</h1>
+      <h1 className="text-xl font-semibold text-ink">机构与市场数据</h1>
       <p className="mt-1 text-sm text-ink-soft">
-        基于中鉴基金研究院数据的研究辅助应用
+        市场洞察与机构点查等研究辅助工具
       </p>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
