@@ -213,7 +213,8 @@ export async function POST(
   // BP 文档：检测内嵌图片（经预筛选），供前端弹确认提示（按需 Qwen-VL 识别）
   let imageCount = 0;
   let estimatedTokens = 0;
-  if (docKind === "bp" && supportsImageExtraction(fileType) && isQwenVLAvailable()) {
+  if (docKind === "bp" && !parsed.sourceMap.some((entry) => entry.locatorType === "ocr_page")
+      && supportsImageExtraction(fileType) && isQwenVLAvailable()) {
     try {
       const detected = await extractDocumentImages(buffer, fileType);
       imageCount = detected.images.length;

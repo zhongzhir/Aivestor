@@ -53,6 +53,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
+    "@napi-rs/canvas": "^0.1.100",
     "@vercel/blob": "^2.3.3",
     "ali-oss": "^6.23.0",
     "bcryptjs": "^2.4.3",

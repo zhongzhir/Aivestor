@@ -3,8 +3,8 @@
 
 import * as XLSX from "xlsx";
 import { parseDocument } from "@/lib/parser";
-import { extractDocumentImages } from "@/lib/imageExtract";
 import { describeImage, isQwenVLAvailable } from "@/lib/qwenVL";
+import { hasVisiblePageContent, openPdfOcrPages } from "@/lib/pdfOcrPages";
 import { sourceMapText, type SourceMapEntry } from "@/lib/sourceMap";
 
 export type ParsableType = "pdf" | "docx" | "pptx" | "xlsx" | "xls";
@@ -21,6 +21,7 @@ const EXCEL_WARNING =
 const OCR_WARNING =
   "该 PDF 原本没有可提取的文字，系统已通过 OCR 尝试识别页面内容；请抽查数字、表格和专有名词。";
 const OCR_CONCURRENCY = 3;
+const MAX_OCR_PAGES = 30;
 
 // NUL 字符（U+0000）。用 fromCharCode 构造，避免源码里直接出现 NUL 字节。
 const NUL_CHAR = String.fromCharCode(0);
@@ -129,41 +130,43 @@ export async function parseFile(
       // 复用现有 unpdf / mammoth 解析逻辑
       ({ text, sourceMap } = await parseDocument(buffer, fileType));
       if (fileType === "pdf" && !text.trim() && isQwenVLAvailable()) {
-        const detected = await extractDocumentImages(buffer, fileType, {
-          // 扫描型 BP 常见为每页一张图片；限制页数以控制耗时和额度。
-          maxImages: 30,
-        });
-        const ocrParts = new Array<string | null>(detected.images.length).fill(null);
-        let nextIndex = 0;
-        async function worker() {
-          while (nextIndex < detected.images.length) {
-            const index = nextIndex++;
-            const image = detected.images[index];
-            const result = await describeImage(image.base64, image.mimeType, "ocr");
-            if (result?.description) {
-              ocrParts[index] = `[${image.position}]\n${result.description}`;
+        const pdfPages = await openPdfOcrPages(buffer);
+        try {
+          // Only process complete rendered pages. Never label an image index as a page.
+          const pageCount = Math.min(pdfPages.pageCount, MAX_OCR_PAGES);
+          const ocrParts = new Array<string | null>(pageCount).fill(null);
+          let nextPage = 1;
+          async function worker() {
+            while (nextPage <= pageCount) {
+              const page = nextPage++;
+              const image = await pdfPages.render(page);
+              if (!(await hasVisiblePageContent(image))) continue;
+              const result = await describeImage(image.toString("base64"), "image/png", "ocr");
+              const recognized = result?.description.trim();
+              if (recognized && !/^无可辨认文字[。.!！\s]*$/.test(recognized)) {
+                ocrParts[page - 1] = recognized;
+              }
             }
           }
-        }
-        await Promise.all(
-          Array.from(
-            { length: Math.min(OCR_CONCURRENCY, detected.images.length) },
-            worker
-          )
-        );
-        const recognized = ocrParts.flatMap((part, index) =>
-          part ? [{ part, page: index + 1 }] : []
-        );
-        if (recognized.length > 0) {
-          sourceMap = recognized.map(({ part, page }) => ({
+          await Promise.all(Array.from({ length: Math.min(OCR_CONCURRENCY, pageCount) }, worker));
+          sourceMap = ocrParts.flatMap((part, index) => part ? [{
+            page: index + 1,
+            text: part,
+          }] : []).map(({ page, text: pageText }) => ({
             locator: `OCR-P${page}`,
             locatorType: "ocr_page",
             label: `OCR第${page}页`,
             page,
-            text: part.replace(/^\[[^\]]+\]\s*/, ""),
+            text: pageText,
           }));
-          text = sourceMapText(sourceMap);
-          warning = OCR_WARNING;
+          if (sourceMap.length > 0) {
+            text = sourceMapText(sourceMap);
+            warning = OCR_WARNING + (pdfPages.pageCount > MAX_OCR_PAGES
+              ? ` 仅处理前${MAX_OCR_PAGES}页，其余页面未识别。`
+              : "");
+          }
+        } finally {
+          await pdfPages.close();
         }
       }
       break;

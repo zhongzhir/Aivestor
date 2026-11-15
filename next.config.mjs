@@ -4,9 +4,9 @@ const nextConfig = {
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
   experimental: {
     // 重量级 / 仅服务端使用的依赖，交由 Node 直接 require，不参与打包
-    //   - unpdf：原生 PDF 解析依赖
+    //   - unpdf / @napi-rs/canvas：PDF 解析及逐页 OCR 渲染依赖
     //   - ali-oss：仅在配置 OSS 时才会触发 require，本地化部署用户无需打包
-    serverComponentsExternalPackages: ["unpdf", "ali-oss"],
+    serverComponentsExternalPackages: ["unpdf", "@napi-rs/canvas", "ali-oss"],
     serverActions: {
       bodySizeLimit: "25mb",
     },

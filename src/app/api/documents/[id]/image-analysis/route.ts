@@ -55,6 +55,14 @@ export async function POST(
       { status: 400 }
     );
   }
+  if (doc.file_type === "pdf" && normalizeSourceMap(doc.source_map).some(
+    (entry) => entry.locatorType === "ocr_page"
+  )) {
+    return NextResponse.json(
+      { error: "该 PDF 已逐页完成 OCR，无需再次提取内嵌图片" },
+      { status: 400 }
+    );
+  }
   if (!supportsImageExtraction(doc.file_type)) {
     return NextResponse.json(
       { error: "该文件格式不支持图片提取" },
