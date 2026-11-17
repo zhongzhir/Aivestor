@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { intelligenceOverviewForReader } from "@/lib/intelligencePresentation";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { OnboardingGate } from "@/components/onboarding/OnboardingGate";
@@ -91,7 +92,7 @@ function briefItems(row: IntelligenceBriefRow): DashboardIntelligenceItem[] {
 
 function briefOverview(row: IntelligenceBriefRow): string {
   const metadata = row.metadata && typeof row.metadata === "object" ? row.metadata as Record<string, unknown> : {};
-  return typeof metadata.overview === "string" ? metadata.overview.replace(/^#{1,3}\s+/, "").trim() : "";
+  return typeof metadata.overview === "string" ? intelligenceOverviewForReader(metadata.overview.replace(/^#{1,3}\s+/, "").trim()) : "";
 }
 
 async function safeCount(sql: string, params: unknown[]): Promise<number> {

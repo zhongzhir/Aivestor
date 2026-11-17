@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { intelligenceOverviewForReader } from "@/lib/intelligencePresentation";
 import { safeIntelligenceExternalUrl } from "@/lib/intelligenceUrl";
 import { intelligenceEventTimeLabel, type IntelligenceBrief, type IntelligenceBriefItem } from "./intelligenceTypes";
 
@@ -34,7 +35,6 @@ export function IntelligenceBriefReader({ brief }: { brief: IntelligenceBrief })
   const research = asObject(metadata.research);
   const validation = asObject(research.validation);
   const rejectedItems = Math.max(0, Number(validation.rejectedItems || 0));
-  const acceptedItems = Math.max(0, Number(validation.acceptedItems || 0));
   const overview = typeof metadata.overview === "string" ? metadata.overview.replace(/^#{1,3}\s+/, "").trim() : "";
   const facts = useMemo(() => [...(brief.important_facts || [])], [brief.important_facts]);
   const clues = useMemo(() => [...(brief.other_items || [])].filter((item) => item.isClue), [brief.other_items]);
@@ -82,21 +82,16 @@ export function IntelligenceBriefReader({ brief }: { brief: IntelligenceBrief })
     <div className="space-y-5">
       {retrievalStatus === "partial" ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          本期部分完成：部分来源不可达。以下内容只代表本次实际检索到的来源集合，不表示市场中没有其他事件。
+          部分网站暂时无法访问，本期内容可能不完整。你可以先阅读已有结果，稍后再更新。
         </div>
       ) : retrievalStatus === "failed" ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          本期检索未完成，没有形成覆盖结论。旧成功简报不会被覆盖。
+          本次未能完成信息收集，请稍后重试。此前的简报仍可在历史中查看。
         </div>
       ) : null}
       {rejectedItems > 0 ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          模型返回的 {rejectedItems} 条事项未通过逐项结构或证据校验，已隔离；本期仅展示 {acceptedItems} 条通过校验的事项，来源记录仍保留。
-        </div>
-      ) : null}
-      {limitedDateCoverage ? (
-        <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
-          部分检索来源只支持粗粒度日期或不支持精确日期过滤；系统会在结果阶段按事件日期复核，但不能据此声称时间窗内全量召回。
+          有 {rejectedItems} 条内容因信息不完整或依据不足，暂未列入简报。
         </div>
       ) : null}
 
@@ -107,11 +102,11 @@ export function IntelligenceBriefReader({ brief }: { brief: IntelligenceBrief })
             <p className="mt-1 text-sm text-ink-faint">覆盖 {date(brief.coverage_start)} 至 {date(brief.coverage_end)} · 生成于 {new Date(brief.generated_at).toLocaleString("zh-CN")}</p>
           </div>
           <span className="text-xs text-ink-faint">
-            {brief.item_count} 条事件 · {sourceSet.length} 个检索候选{verifiedSourceCount > 0 ? ` · ${verifiedSourceCount} 个已取证` : ""}
+            {brief.item_count} 条动态 · {sourceSet.length} 个信息来源{verifiedSourceCount > 0 ? ` · 已阅读 ${verifiedSourceCount} 篇原文` : ""}
           </span>
         </div>
         <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-ink-soft">
-          {overview || (brief.item_count === 0 ? "本期没有达到发布标准的新事件。这不代表市场中不存在其他事件。" : "本期成果已生成，请查看重点事件。")}
+          {intelligenceOverviewForReader(overview) || (brief.item_count === 0 ? "暂未发现可确认的新增动态，建议持续关注。" : "本期简报已更新，请查看以下重点动态。")}
         </p>
       </section>
 
@@ -125,8 +120,9 @@ export function IntelligenceBriefReader({ brief }: { brief: IntelligenceBrief })
       )}
 
       <details className="rounded-lg border border-line bg-white px-4 py-3">
-        <summary className="cursor-pointer text-sm font-medium text-ink">查看本期检索来源（{sourceSet.length}）</summary>
+        <summary className="cursor-pointer text-sm font-medium text-ink">信息来源（{sourceSet.length}）</summary>
         <div className="mt-3 space-y-2 border-t border-line pt-3">
+          <p className="text-xs leading-5 text-ink-faint">本期内容依据以下公开信息整理，可能未涵盖全部市场动态。{limitedDateCoverage ? "部分来源的日期信息有限，已尽可能核对事件发生时间。" : ""}</p>
           {sourceSet.length === 0 ? <p className="text-sm text-ink-faint">本期没有可展示的来源记录。</p> : sourceSet.map((source, index) => (
             <div key={`${source.url ?? source.source}-${index}`} className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-soft">
               <span>
@@ -135,23 +131,23 @@ export function IntelligenceBriefReader({ brief }: { brief: IntelligenceBrief })
                 {source.publishedAt ? ` · 发布于 ${date(source.publishedAt)}` : ""}
                 {source.url ? ` · ${evidenceLabel(sourceEvidenceStatus.get(source.url))}` : ""}
               </span>
-              {safeIntelligenceExternalUrl(source.url) ? <a href={safeIntelligenceExternalUrl(source.url)!} target="_blank" rel="noreferrer" className="text-accent hover:underline">原文</a> : <span>无安全原文链接</span>}
+              {safeIntelligenceExternalUrl(source.url) ? <a href={safeIntelligenceExternalUrl(source.url)!} target="_blank" rel="noreferrer" className="text-accent hover:underline">原文</a> : <span>暂无可用链接</span>}
             </div>
           ))}
         </div>
       </details>
 
-      {feedbackNote && <p role="status" className="text-xs text-ink-faint">反馈已记录；当前不会改变排序或后续生成。</p>}
+      {feedbackNote && <p role="status" className="text-xs text-ink-faint">反馈已保存。</p>}
     </div>
   );
 }
 
 function evidenceLabel(status?: string) {
-  if (status === "full") return "全文核验";
-  if (status === "partial") return "部分核验";
-  if (status === "not_selected") return "未进入取证队列";
-  if (status === "unavailable") return "正文未取到";
-  return "取证状态未知";
+  if (status === "full") return "已阅读原文";
+  if (status === "partial") return "已阅读部分原文";
+  if (status === "not_selected") return "仅参考摘要";
+  if (status === "unavailable") return "原文暂无法读取";
+  return "原文阅读情况未记录";
 }
 
 function EventSection({ title, items, feedback, onFeedback, subdued = false }: {
@@ -197,9 +193,9 @@ function EventCard({ item, feedback, onFeedback, subdued }: {
       {item.isClue && <p className="mt-2 text-xs leading-5 text-amber-800">还需确认：{item.followUpReason || "需要更直接的来源或事件日期。"}</p>}
       {item.conflicts?.map((conflict) => <p key={`${conflict.type}-${conflict.values.join("-")}`} className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">可能存在融资轮次口径差异：同一主体在相近日期出现不同轮次（{conflict.values.join(" / ")}）。请核对这些来源是否指向同一事项，并以公司公告或监管披露为准。</p>)}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs text-ink-faint">
-        <span>{intelligenceEventTimeLabel(item)} · {published}{item.discoveredAt ? ` · 发现日 ${date(item.discoveredAt)}` : ""}{item.evidenceStatus ? ` · ${item.evidenceStatus === "full" ? "全文核验" : item.evidenceStatus === "partial" ? "部分核验" : "仅摘要"}` : ""}</span>
+        <span>{intelligenceEventTimeLabel(item)} · {published}{item.discoveredAt ? ` · 发现日 ${date(item.discoveredAt)}` : ""}{item.evidenceStatus ? ` · ${evidenceLabel(item.evidenceStatus)}` : ""}</span>
         <span className="flex gap-3">
-          {urls[0] && <a href={urls[0]} target="_blank" rel="noreferrer" className="text-accent hover:underline">查看证据</a>}
+          {urls[0] && <a href={urls[0]} target="_blank" rel="noreferrer" className="text-accent hover:underline">查看来源</a>}
           <button type="button" onClick={() => onFeedback(item.id, "valuable")} className={feedback === "valuable" ? "font-medium text-accent" : "hover:text-ink"}>有价值</button>
           <button type="button" onClick={() => onFeedback(item.id, "irrelevant")} className={feedback === "irrelevant" ? "font-medium text-red-700" : "hover:text-ink"}>无关</button>
         </span>

@@ -1,4 +1,5 @@
 "use client";
+import { intelligenceOverviewForReader } from "@/lib/intelligencePresentation";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -18,7 +19,7 @@ interface WorkspaceData {
 function metadataOverview(value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "";
   const overview = (value as Record<string, unknown>).overview;
-  return typeof overview === "string" ? overview.replace(/^#{1,3}\s+/, "").trim() : "";
+  return typeof overview === "string" ? intelligenceOverviewForReader(overview.replace(/^#{1,3}\s+/, "").trim()) : "";
 }
 
 function scopeNeedsReview(task: IntelligenceTopic): boolean {

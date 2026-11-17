@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { readError } from "@/lib/clientAI";
+import { AnalysisMethodCard, analysisActionClass } from "./AnalysisMethodCard";
 
 type JobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 
@@ -27,11 +28,11 @@ interface Task {
 }
 
 const PHASE_LABEL: Record<string, string> = {
-  queued: "等待后台研究进程",
+  queued: "等待开始研究",
   external_research: "搜索并阅读外部权威来源",
   report_generation: "综合项目材料与外部证据",
-  quality_gate: "执行结构与证据门禁",
-  task_creation: "把缺口转为尽调任务",
+  quality_gate: "检查报告内容与来源",
+  task_creation: "整理待核实事项",
   completed: "完整深度投研已完成",
   failed: "任务执行失败",
 };
@@ -123,34 +124,23 @@ export function DeepResearchJobPanel({
 
   const active = latest && ["queued", "running"].includes(latest.status);
   return (
-    <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 sm:p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-emerald-900">完整模式：后台外部取证＋深度报告</p>
-          <p className="mt-1 text-xs leading-5 text-emerald-800">
-            服务端持续执行，关闭页面后不会中断；完成后自动形成报告、质量门禁和尽调任务。
-          </p>
-        </div>
-        <button
-          onClick={start}
-          disabled={!hasParsedDoc || busy || Boolean(active)}
-          className="min-h-11 w-full rounded-md bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-        >
-          {active ? "研究进行中" : busy ? "正在提交…" : "启动完整深度投研"}
-        </button>
-      </div>
+    <AnalysisMethodCard icon="full" title="深度投研（完整）"
+      description="结合项目材料与外部公开信息，形成深度报告和尽调任务；关闭页面后研究仍会继续。"
+      action={<button type="button" onClick={start} disabled={!hasParsedDoc || busy || Boolean(active)} className={analysisActionClass}>
+        {active ? "研究进行中" : busy ? "正在提交…" : "启动完整深度投研"}
+      </button>}>
       {error && <p role="alert" className="mt-3 text-xs text-red-700">{error}</p>}
       {latest && (
-        <div className="mt-4 rounded-md border border-emerald-200 bg-white p-3" aria-live="polite">
-          <div className="flex items-center justify-between gap-3 text-xs text-emerald-900">
+        <div className="mt-4 rounded-md border border-slate-200 bg-white p-3" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-xs text-slate-700">
             <span>{PHASE_LABEL[latest.phase] || latest.phase}</span>
             <span>{latest.progress}%</span>
           </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100">
-            <div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${latest.progress}%` }} />
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-accent-soft">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${latest.progress}%` }} />
           </div>
           {latest.status === "completed" && latest.report_id && (
-            <Link href={`/projects/${projectId}/report?reportId=${latest.report_id}`} className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-emerald-800 underline">
+            <Link href={`/projects/${projectId}/report?reportId=${latest.report_id}`} className="mt-3 inline-flex min-h-11 items-center text-sm font-medium text-slate-600 underline">
               打开完整深度投研报告
             </Link>
           )}
@@ -165,17 +155,17 @@ export function DeepResearchJobPanel({
         </div>
       )}
       {tasks.length > 0 && (
-        <details className="mt-4 text-xs text-emerald-950">
+        <details className="mt-4 text-xs text-slate-700">
           <summary className="cursor-pointer font-medium">尽调任务 {tasks.filter((task) => !["done", "dismissed"].includes(task.status)).length} 项待处理</summary>
           <div className="mt-2 space-y-2">
             {tasks.slice(0, 20).map((task) => (
-              <div key={task.id} className="flex flex-col gap-2 rounded border border-emerald-200 bg-white p-2 sm:flex-row sm:items-start">
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-medium">{task.priority}</span>
+              <div key={task.id} className="flex flex-col gap-2 rounded border border-slate-200 bg-white p-2 sm:flex-row sm:items-start">
+                <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium">{task.priority}</span>
                 <div className="min-w-0 flex-1">
                   <p className={task.status === "done" ? "line-through opacity-60" : ""}>{task.title}</p>
-                  {task.details && <p className="mt-1 text-emerald-800/70">{task.details}</p>}
+                  {task.details && <p className="mt-1 text-slate-600/70">{task.details}</p>}
                 </div>
-                <select value={task.status} onChange={(event) => updateTask(task, event.target.value as Task["status"])} className="min-h-11 rounded border border-emerald-200 bg-white px-2 py-2 sm:min-h-0 sm:py-1">
+                <select value={task.status} onChange={(event) => updateTask(task, event.target.value as Task["status"])} className="min-h-11 rounded border border-slate-200 bg-white px-2 py-2 sm:min-h-0 sm:py-1">
                   <option value="open">待处理</option>
                   <option value="in_progress">处理中</option>
                   <option value="done">已完成</option>
@@ -186,6 +176,6 @@ export function DeepResearchJobPanel({
           </div>
         </details>
       )}
-    </div>
+    </AnalysisMethodCard>
   );
 }

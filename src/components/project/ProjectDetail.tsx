@@ -29,10 +29,11 @@ import { recommendProjectAnalysis } from "@/lib/projectAnalysisPresentation";
 import { hasUsableReportContextMetadata } from "@/lib/reportContext";
 import { ProjectManagementPanel } from "./ProjectManagementPanel";
 import { DeepResearchJobPanel } from "./DeepResearchJobPanel";
+import { AnalysisMethodCard, analysisActionClass } from "./AnalysisMethodCard";
 import { ConversationWorkspace } from "@/components/chat/ConversationWorkspace";
 
 type Tab = "analysis" | "decision" | "post";
-type MobileSection = "materials" | "context" | "source" | "report";
+type MobileSection = "materials" | "context" | "report";
 
 export interface DocMeta {
   id: string;
@@ -169,6 +170,7 @@ export function ProjectDetail({
   );
   const [showSkillModal, setShowSkillModal] = useState(false);
   const [showDeepResearchWorkbench, setShowDeepResearchWorkbench] = useState(false);
+  const [showStandardSettings, setShowStandardSettings] = useState(false);
   const [newUpload, setNewUpload] = useState(false);
   const [hasTeamJudgments, setHasTeamJudgments] = useState(false);
   const [transferring, setTransferring] = useState(false);
@@ -196,7 +198,6 @@ export function ProjectDetail({
   const [mobileSections, setMobileSections] = useState<Record<MobileSection, boolean>>({
     materials: docMeta.length === 0,
     context: false,
-    source: false,
     report: false,
   });
 
@@ -467,6 +468,7 @@ export function ProjectDetail({
   }
 
   function focusJudgmentPoints() {
+    setShowStandardSettings(true);
     setTab("analysis");
     setMobileSections((sections) => ({ ...sections, report: true }));
     window.setTimeout(() => {
@@ -519,33 +521,10 @@ export function ProjectDetail({
     judgmentPointCount,
     deepResearchBetaEnabled,
   });
-  const recommendationCopy = {
-    prepare: {
-      eyebrow: "建议先做",
-      title: "补充报告材料",
-      description: "当前没有可用于报告的 BP、研究材料、财务模型或其他项目材料。补充并解析后，再进入标准分析或深度投研。",
-    },
-    brief: {
-      eyebrow: "建议先做",
-      title: "快速判断",
-      description: "当前判断要点不足 3 条，先形成一份 500–800 字的入库评估，不改变后续标准分析和深度投研入口。",
-    },
-    analysis: {
-      eyebrow: "建议下一步",
-      title: "标准分析",
-      description: `已记录 ${judgmentPointCount} 条判断要点，可围绕这些判断生成常规项目报告。`,
-    },
-    refine: {
-      eyebrow: "建议先整理",
-      title: "精简判断要点",
-      description: `当前有 ${judgmentPointCount} 条判断要点。请收敛到 3–10 条核心判断后再生成标准分析。`,
-    },
-    deep_research: {
-      eyebrow: "建议下一步",
-      title: "深度投研",
-      description: "项目已进入正式尽调或投委会阶段，并已有可解析材料；可进入证据、测算和缺口任务工作台。",
-    },
-  }[analysisRecommendation];
+  const recommendationCopy = { title: {
+    prepare: "先补充项目材料", brief: "可先做快速判断", analysis: "可生成标准分析",
+    refine: "先整理判断要点", deep_research: "可开展深度投研",
+  }[analysisRecommendation] };
 
   function selectTab(nextTab: Tab) {
     setTab(nextTab);
@@ -840,26 +819,9 @@ export function ProjectDetail({
                   onUploadComplete={handleUploadComplete}
                   onGenerate={handleGenerate}
                 />
-              </div>
-              </ResponsiveDisclosure>
-
-              <ResponsiveDisclosure
-                title="项目背景"
-                summary="来源、关键人物与历史判断"
-                open={mobileSections.context}
-                onToggle={() => toggleMobileSection("context")}
-              >
-                <ProjectContextCards projectId={projectId} />
-              </ResponsiveDisclosure>
-
-              <div>
-                <ResponsiveDisclosure
-                  title="材料原文"
-                  summary={docMeta.length > 0 ? `${docMeta.length} 份材料可回看` : "尚未上传材料"}
-                  open={mobileSections.source}
-                  onToggle={() => toggleMobileSection("source")}
-                >
-                <section className="rounded-lg border border-line bg-white p-5">
+                <details className="mt-4 border-t border-slate-100 pt-4">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">查看材料原文</summary>
+                  <div className="mt-3">
                   <p className="text-xs text-ink-faint">
                     {docMeta.length > 0
                       ? docMeta
@@ -878,12 +840,24 @@ export function ProjectDetail({
                     analyzeImages={analyzeImages}
                   />
 
-                  <div className="mt-4 h-[420px] overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-xs leading-6 text-ink-soft">
+                  <div className="mt-4 max-h-[420px] overflow-y-auto whitespace-pre-wrap rounded-lg border border-line bg-surface p-4 text-xs leading-6 text-ink-soft">
                     {bpText || "暂无可显示文本"}
                   </div>
-                </section>
-                </ResponsiveDisclosure>
+                  </div>
+                </details>
+              </div>
+              </ResponsiveDisclosure>
 
+              <ResponsiveDisclosure
+                title="项目背景"
+                summary="来源、关键人物与历史判断"
+                open={mobileSections.context}
+                onToggle={() => toggleMobileSection("context")}
+              >
+                <ProjectContextCards projectId={projectId} />
+              </ResponsiveDisclosure>
+
+              <div>
                 <ResponsiveDisclosure
                   title="分析与报告"
                   summary={latestReportId ? "已有分析报告，可继续复核与推进" : recommendationCopy.title}
@@ -891,122 +865,60 @@ export function ProjectDetail({
                   onToggle={() => toggleMobileSection("report")}
                 >
                 <section className="space-y-6 rounded-lg border border-line bg-white p-5">
-                  <div id="analysis-recommendation" className="scroll-mt-24 rounded-lg border border-[#d7e4dc] bg-[#f7fbf8] p-4">
-                    <p className="text-xs font-medium uppercase tracking-wide text-accent">{recommendationCopy.eyebrow}</p>
-                    <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h2 className="text-base font-semibold text-ink">{recommendationCopy.title}</h2>
-                        <p className="mt-1 text-xs leading-5 text-ink-soft">{recommendationCopy.description}</p>
-                      </div>
-                      {analysisRecommendation === "prepare" ? (
-                        <button
-                          type="button"
-                          onClick={focusMaterials}
-                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-                        >
-                          去补充材料
-                        </button>
-                      ) : analysisRecommendation === "refine" ? (
-                        <button
-                          type="button"
-                          onClick={focusJudgmentPoints}
-                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-                        >
-                          整理判断要点
-                        </button>
-                      ) : analysisRecommendation === "brief" ? (
-                        <Link
-                          href={`/projects/${projectId}/brief-analysis`}
-                          className="inline-flex shrink-0 items-center justify-center rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-                        >
-                          开始快速判断
-                        </Link>
-                      ) : analysisRecommendation === "deep_research" ? (
-                        <button
-                          type="button"
-                          onClick={focusDeepResearch}
-                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-                        >
-                          打开深度投研
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleGenerate}
-                          className="shrink-0 rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:opacity-90"
-                        >
-                          生成标准分析
-                        </button>
-                      )}
-                    </div>
+                  <div id="analysis-recommendation" className="scroll-mt-24 space-y-3">
+                    {!hasReportContextDoc && <p className="text-xs leading-5 text-slate-500">请先在“材料与证据”中上传并解析项目材料，再选择分析方式。</p>}
+                    <AnalysisMethodCard icon="brief" title="快速判断"
+                      description="快速梳理项目亮点、主要风险与待核实问题，形成简洁的初步判断。"
+                      action={<Link href={`/projects/${projectId}/brief-analysis`} className={analysisActionClass}>开始快速判断</Link>} />
 
-                    <details className="mt-3 border-t border-[#d7e4dc] pt-3">
-                      <summary className="cursor-pointer text-xs font-medium text-accent">查看其他分析方式</summary>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {analysisRecommendation !== "brief" && (
-                          <Link href={`/projects/${projectId}/brief-analysis`} className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface">
-                            快速判断
-                          </Link>
-                        )}
-                        {analysisRecommendation !== "analysis" && (
+                    <AnalysisMethodCard id="judgment-points" icon="standard" title="标准分析"
+                      description="围绕你的核心判断，结合项目材料生成常规分析报告。"
+                      action={<button type="button" onClick={judgmentPointCount >= 3 && judgmentPointCount <= 10 ? handleGenerate : focusJudgmentPoints}
+                        disabled={!hasReportContextDoc} className={analysisActionClass}>生成标准分析</button>}>
+                      <details open={showStandardSettings} onToggle={(event) => setShowStandardSettings(event.currentTarget.open)} className="mt-4 border-t border-slate-100 pt-3">
+                        <summary className="cursor-pointer text-xs font-medium text-slate-600">判断要点{judgmentPointCount > 0 ? ` · 已填 ${judgmentPointCount} 条` : " · 需填写"}</summary>
+                        <p className="mt-3 text-xs text-slate-500">填入 3-10 条核心判断要点，标准分析会围绕这些判断展开。</p>
+                    <div className="mt-4 space-y-2">
+                      {points.map((p, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="w-5 shrink-0 text-xs text-ink-faint">
+                            {i + 1}
+                          </span>
+                          <input
+                            value={p}
+                            onChange={(e) => updatePoint(i, e.target.value)}
+                            placeholder="一条你对该项目的核心判断"
+                            className="min-w-0 flex-1 rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
+                          />
                           <button
-                            type="button"
-                            onClick={handleGenerate}
-                            disabled={!hasReportContextDoc || judgmentPointCount < 3 || judgmentPointCount > 10}
-                            title={!hasReportContextDoc ? "需要已解析的 BP、研究材料、财务模型或其他项目材料" : judgmentPointCount >= 3 && judgmentPointCount <= 10 ? undefined : "需要 3–10 条判断要点"}
-                            className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => removePoint(i)}
+                            disabled={points.length <= 1}
+                            className="px-1 text-ink-faint hover:text-ink disabled:opacity-30"
+                            aria-label="删除"
                           >
-                            标准分析
+                            ×
                           </button>
-                        )}
-                        {deepResearchBetaEnabled && analysisRecommendation !== "deep_research" && (
-                          <button
-                            type="button"
-                            onClick={focusDeepResearch}
-                            disabled={!hasReportContextDoc}
-                            title={hasReportContextDoc ? undefined : "请先上传并解析可用于报告的项目文档"}
-                            className="rounded-md border border-line bg-white px-3 py-2 text-xs font-medium text-ink-soft hover:bg-surface disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            深度投研
-                          </button>
-                        )}
-                      </div>
-                    </details>
-                  </div>
-
-                  {deepResearchBetaEnabled && (
-                  <details
-                    id="deep-research-workbench"
-                    open={showDeepResearchWorkbench}
-                    onToggle={(event) => setShowDeepResearchWorkbench(event.currentTarget.open)}
-                    className="scroll-mt-24 rounded-lg border border-[#d8c8b2] bg-[#fffdfa]"
-                  >
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
-                      <span>
-                        <span className="block text-sm font-semibold text-ink">深度投研工作台</span>
-                        <span className="mt-0.5 block text-xs text-ink-soft">外部取证、证据门禁、测算与尽调缺口</span>
-                      </span>
-                      <span className="text-xs font-medium text-accent">{showDeepResearchWorkbench ? "收起" : "展开配置"}</span>
-                    </summary>
-                  <div className="border-t border-[#d8c8b2] p-4">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-accent">
-                          Deep Research
-                        </p>
-                        <h2 className="mt-1 text-base font-semibold text-ink">
-                          一次完成单项目深度投研
-                        </h2>
-                        <p className="mt-1 text-xs leading-5 text-ink-soft">
-                          自动按项目阶段选择早期七项框架或成长/中后期16章框架，形成事实、反方、测算、进退动作和分级尽调清单。
-                        </p>
-                      </div>
-                      <span className="shrink-0 rounded-full bg-accent-soft px-2.5 py-1 text-xs font-medium text-accent">
-                        项目级完整报告
-                      </span>
+                        </div>
+                      ))}
                     </div>
+                    {points.length < 10 && (
+                      <button
+                        onClick={addPoint}
+                        className="mt-3 text-xs font-medium text-accent hover:underline"
+                      >
+                        + 添加一条
+                      </button>
+                    )}
+                      </details>
+                    </AnalysisMethodCard>
 
-                    <div className="mt-4 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
+                    {deepResearchBetaEnabled && <>
+                      <AnalysisMethodCard id="deep-research-workbench" icon="materials" title="深度投研（基于现有材料）"
+                        description="深入分析已上传材料，梳理关键假设、财务测算和尽调缺口，不补充外部信息。"
+                        action={<button type="button" onClick={handleGenerateDeepResearch} disabled={!hasReportContextDoc} className={analysisActionClass}>生成深度报告</button>}>
+                        <details open={showDeepResearchWorkbench} onToggle={(event) => setShowDeepResearchWorkbench(event.currentTarget.open)} className="mt-4 border-t border-slate-100 pt-3">
+                          <summary className="cursor-pointer text-xs font-medium text-slate-600">分析设置（选填，两种深度投研共用）</summary>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]">
                       <label className="text-xs text-ink-soft">
                         分析框架
                         <select
@@ -1037,81 +949,11 @@ export function ProjectDetail({
                         />
                       </label>
                     </div>
-
-                    <DeepResearchJobPanel
-                      projectId={projectId}
-                      hasParsedDoc={hasReportContextDoc}
-                      profile={deepProfile}
-                      decisionContext={deepDecisionContext}
-                    />
-
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                      <p className="text-xs leading-5 text-ink-faint">
-                        外部证据与材料事实分开标注；无法核验的信息会进入P0/P1/P2清单。
-                      </p>
-                      <button
-                        onClick={handleGenerateDeepResearch}
-                        disabled={!hasReportContextDoc}
-                        className="rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-white hover:bg-[#265b42] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        仅基于现有材料快速生成
-                      </button>
-                    </div>
-                  </div>
-                  </details>
-                  )}
-
-                  <div id="judgment-points" className="scroll-mt-24">
-                    <h2 className="text-sm font-semibold text-ink">
-                      判断要点
-                    </h2>
-                    <p className="mt-1 text-xs text-ink-faint">
-                      填入 3-10 条核心判断要点，标准分析会围绕这些判断展开。
-                    </p>
-                    <div className="mt-4 space-y-2">
-                      {points.map((p, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="w-5 shrink-0 text-xs text-ink-faint">
-                            {i + 1}
-                          </span>
-                          <input
-                            value={p}
-                            onChange={(e) => updatePoint(i, e.target.value)}
-                            placeholder="一条你对该项目的核心判断"
-                            className="flex-1 rounded-md border border-line bg-[#fffdfa] px-3 py-2 text-sm outline-none placeholder:text-ink-faint focus:border-accent"
-                          />
-                          <button
-                            onClick={() => removePoint(i)}
-                            disabled={points.length <= 1}
-                            className="px-1 text-ink-faint hover:text-ink disabled:opacity-30"
-                            aria-label="删除"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                    {points.length < 10 && (
-                      <button
-                        onClick={addPoint}
-                        className="mt-3 text-xs font-medium text-accent hover:underline"
-                      >
-                        + 添加一条
-                      </button>
-                    )}
-                  </div>
-
-                  {error && <p className="text-sm text-red-600">{error}</p>}
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={handleGenerate}
-                      disabled={!hasReportContextDoc}
-                      title={hasReportContextDoc ? undefined : "请先上传并解析可用于报告的项目文档"}
-                      className="min-w-[140px] flex-1 rounded-lg bg-accent py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#265b42] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      生成标准分析
-                    </button>
+                        </details>
+                      </AnalysisMethodCard>
+                      <DeepResearchJobPanel projectId={projectId} hasParsedDoc={hasReportContextDoc} profile={deepProfile} decisionContext={deepDecisionContext} />
+                    </>}
+                    {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
                   </div>
                   <details className="rounded-lg border border-line bg-surface/40 px-3 py-2">
                     <summary className="cursor-pointer text-xs font-medium text-ink-soft">专项工具与其他输出</summary>

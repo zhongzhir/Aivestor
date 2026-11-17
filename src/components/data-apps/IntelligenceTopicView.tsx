@@ -287,7 +287,7 @@ function RunStatusStrip({ run, topic, scheduler, onRetry, canRetry }: { run: Int
           {run?.requires_fresh_authorization && ["failed", "blocked"].includes(run.status) ? (
             <p className="mt-1 text-xs leading-5">这是旧版单次授权运行，不能直接重放。点击顶部“运行一次”会按当前账户的默认 AI 额度创建新记录。</p>
           ) : null}
-          {run?.status === "partial" && <p className="mt-1 text-xs leading-5">本次仅发布通过来源与结构校验的事项；未通过部分已隔离，来源和运行记录仍保留。</p>}
+          {run?.status === "partial" && <p className="mt-1 text-xs leading-5">本期简报已更新，部分信息尚待确认，请结合下方说明阅读。</p>}
           {topic.execution_mode === "scheduled" && (
             <p className="mt-1 text-xs leading-5">
               {scheduler.healthy && topic.next_run_at ? `下次计划：${date(topic.next_run_at)} · ${topic.schedule_config?.timezone ?? ""}` : "已配置自动计划，但当前无法确认调度服务状态。"}
@@ -441,7 +441,7 @@ function RunHistory({ runs, onRetry, canRetry, nextCursor, onLoadMore }: { runs:
 }
 
 function pipelineStageLabel(stage: NonNullable<IntelligenceRun["checkpoint_stage"]>): string {
-  return ({ understanding: "理解任务", retrieval: "检索来源", evidence: "核验正文", facts: "提取事实", brief: "形成简报" } as const)[stage];
+  return ({ understanding: "理解关注范围", retrieval: "查找相关信息", evidence: "阅读并核对原文", facts: "整理重要动态", brief: "生成简报" } as const)[stage];
 }
 
 function DeepSeekAuditLine({ run }: { run: IntelligenceRun }) {

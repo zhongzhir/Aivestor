@@ -12,8 +12,8 @@ export const WORK_SCENES: WorkScene[] = [
   {
     id: "company-analysis",
     eyebrow: "企业分析",
-    title: "快速看懂一个项目",
-    description: "从 BP 和补充材料开始，先形成一版可继续推进的项目判断。",
+    title: "新建项目分析",
+    description: "上传 BP 和补充材料，为新项目建档并形成初步判断。",
     input: "BP 或项目材料",
     output: "项目工作区与初步分析",
     href: "/projects/new",

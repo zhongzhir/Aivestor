@@ -7,6 +7,10 @@ import {
 } from "@/lib/projectAnalysisPresentation";
 import { intelligenceFormVisibility } from "@/lib/intelligenceFormVisibility";
 import { partitionAttentionProjects } from "@/lib/dashboardAttention";
+import { intelligenceOverviewForReader } from "@/lib/intelligencePresentation";
+
+assert.equal(intelligenceOverviewForReader("本次已核验来源中有 2 条事项的明确事件日期不在报告窗口内，未作为本期新增发布；这不代表市场上没有其他相关事项。"), "本次找到的 2 条相关动态发生在所选日期范围之外，因此未列为本期新增。暂未发现可确认的新增动态，建议持续关注。");
+assert.equal(intelligenceOverviewForReader("公司于11月12日完成融资，金额尚未披露。"), "公司于11月12日完成融资，金额尚未披露。", "research findings must remain unchanged");
 
 const recommendation = (overrides: Partial<ProjectAnalysisContext> = {}) =>
   recommendProjectAnalysis({
@@ -114,7 +118,9 @@ assert.match(dashboard, /查看项目管线/);
 assert.match(workScenes, /<details/);
 assert.match(workScenes, /展开 6 个场景/);
 assert.match(projectDetail, /analysis-recommendation/);
-assert.match(projectDetail, /查看其他分析方式/);
+assert.match(projectDetail, /title="快速判断"/);
+assert.match(projectDetail, /title="标准分析"/);
+assert.match(projectDetail, /title="深度投研（基于现有材料）"/);
 assert.match(projectDetail, /专项工具与其他输出/);
 assert.match(projectDetail, /3-10 条核心判断要点/);
 assert.doesNotMatch(projectDetail, /3-10 个.*问题/);
