@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { DigestCard } from "@/components/report/DigestCard";
 import type { ConversationSource } from "@/lib/conversationResearch";
+import { remarkResearchCitations, researchCitationIndices } from "@/lib/researchCitations";
 
 export interface ChatMsg {
   role: "user" | "assistant";
@@ -478,6 +479,9 @@ function MessageBubble({
   const [showSources, setShowSources] = useState(false);
   const sourcePrefix = useId();
   const isUser = message.role === "user";
+  const citedIndices = researchCitationIndices(message.content, message.sources?.length ?? 0);
+  const visibleSources = (message.sources ?? []).map((source, index) => ({ source, index }))
+    .filter(({ index }) => citedIndices.length === 0 || citedIndices.includes(index));
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className={isUser ? "max-w-[90%] sm:max-w-[85%]" : "w-full min-w-0"}>
@@ -494,7 +498,7 @@ function MessageBubble({
           ) : (
             <>
               {message.content ? (
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                <ReactMarkdown remarkPlugins={[remarkGfm, [remarkResearchCitations, { sourceCount: message.sources?.length ?? 0 }]]} components={{
                   a: ({ href, children }) => {
                     const reference = href?.match(/^#source-(\d+)$/);
                     if (reference) {
@@ -531,11 +535,11 @@ function MessageBubble({
               aria-controls={`${sourcePrefix}-sources`}
               className="min-h-9 rounded-lg px-2 text-slate-600 hover:bg-slate-50 hover:text-slate-800"
             >
-              {showSources ? "收起来源" : "查看来源"} · {message.sources.length}
+              {showSources ? "收起来源" : citedIndices.length ? "查看来源" : "参考资料"} · {visibleSources.length}
             </button>
             {showSources && (
               <ul id={`${sourcePrefix}-sources`} className="mt-2 space-y-2">
-                {message.sources.map((s, i) => (
+                {visibleSources.map(({ source: s, index: i }) => (
                   <li
                     key={i}
                     id={`${sourcePrefix}-${i}`}

@@ -1,6 +1,19 @@
 /// <reference path="../src/types/next-auth.d.ts" />
 import assert from "node:assert/strict";
 import { researchQuery, researchHistory, digestSources, relevance, researchTerms } from "../src/lib/conversationResearch";
+import { remarkResearchCitations, researchCitationIndices } from "../src/lib/researchCitations";
+
+assert.deepEqual(researchCitationIndices("原文（[1]），经营情况[2][4]，详见[资料](#source-3)。[99]", 14), [0, 1, 2, 3]);
+assert.deepEqual(researchCitationIndices("`[1]`\n```js\n[2]\n```\n[3](https://example.com) ![4](#source-4) 正文[5]", 14), [4]);
+const citationTree = { type: "root", children: [
+  { type: "paragraph", children: [{ type: "text", value: "原文[1][2]，不存在[99]" }] },
+  { type: "link", url: "https://example.com", children: [{ type: "text", value: "[1]" }] },
+  { type: "inlineCode", value: "[1]" },
+] };
+remarkResearchCitations({ sourceCount: 2 })(citationTree);
+assert.deepEqual(citationTree.children[0].children?.map((node) => node.type), ["text", "link", "link", "text"]);
+assert.equal(citationTree.children[1].children?.[0].type, "text", "existing links must not contain nested citation links");
+assert.equal(citationTree.children[2].value, "[1]", "code remains unchanged");
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const otherProjectId = "22222222-2222-4222-8222-222222222222";
