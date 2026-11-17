@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { DigestCard } from "@/components/report/DigestCard";
+import type { ConversationSource } from "@/lib/conversationResearch";
 
 export interface ChatMsg {
   role: "user" | "assistant";
   content: string;
   ts: string;
-  sources?: Array<{ content: string; source_type: string | null }>;
+  sources?: ConversationSource[];
 }
 
 export interface ChatConversation {
@@ -23,6 +25,8 @@ interface Props {
   conversation: ChatConversation;
   onTitleUpdate: (id: string, title: string) => void;
   onMessagesChange: (id: string, messages: ChatMsg[]) => void;
+  onStreamingChange?: (streaming: boolean) => void;
+  disabled?: boolean;
 }
 
 const QUICK_STARTS = [
@@ -38,6 +42,8 @@ export function ChatArea({
   conversation,
   onTitleUpdate,
   onMessagesChange,
+  onStreamingChange,
+  disabled = false,
 }: Props) {
   const [messages, setMessages] = useState<ChatMsg[]>(
     conversation.messages ?? []
@@ -61,12 +67,15 @@ export function ChatArea({
   const [digestToast, setDigestToast] = useState(false);
   const [showDigestPanel, setShowDigestPanel] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const followLatest = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const digestToastTimer = useRef<number | null>(null);
+  useEffect(() => { onStreamingChange?.(streaming); }, [streaming, onStreamingChange]);
 
   // 卸载时清理 toast 定时器
   useEffect(() => {
     return () => {
+      abortRef.current?.abort();
       if (digestToastTimer.current) window.clearTimeout(digestToastTimer.current);
     };
   }, []);
@@ -92,13 +101,14 @@ export function ChatArea({
   // 自动滚动到底部
   useEffect(() => {
     const el = scrollerRef.current;
-    if (!el) return;
+    if (!el || !followLatest.current) return;
     el.scrollTop = el.scrollHeight;
   }, [messages, streamingText]);
 
   async function send(text: string) {
     const message = text.trim();
-    if (!message || streaming) return;
+    if (!message || message.length > MAX_LEN || streaming || disabled) return;
+    followLatest.current = true;
     setError("");
     setInput("");
 
@@ -116,6 +126,7 @@ export function ChatArea({
     let fullReply = "";
     let sources: ChatMsg["sources"] = [];
     let savePref: string | null = null;
+    let completed = false;
     try {
       const res = await fetch(
         `/api/conversations/${conversation.id}/chat`,
@@ -145,7 +156,7 @@ export function ChatArea({
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const raw = line.slice(6);
-          if (raw === "[DONE]") continue;
+          if (raw === "[DONE]") { completed = true; continue; }
           try {
             const msg = JSON.parse(raw);
             if (msg.type === "sources") {
@@ -158,6 +169,8 @@ export function ChatArea({
               onTitleUpdate(conversation.id, msg.title);
             } else if (msg.type === "save_pref") {
               savePref = typeof msg.pref === "string" ? msg.pref : null;
+            } else if (msg.type === "saved") {
+              completed = true;
             } else if (msg.type === "auto_digest") {
               // 后台已静默沉淀入库，仅给一个 2 秒消失的极简提示
               flashDigestToast();
@@ -171,11 +184,20 @@ export function ChatArea({
           }
         }
       }
+      if (!completed) throw new Error("连接中断，问题已保留，请重试");
     } catch (e) {
+      if (!completed) {
       if (e instanceof Error && e.name === "AbortError") {
         // 用户主动停止
       } else {
         setError(e instanceof Error ? e.message : "发送失败");
+      }
+      setInput(message);
+      setMessages(messages);
+      setStreaming(false);
+      setStreamingText("");
+      setStreamingSources([]);
+      return;
       }
     } finally {
       abortRef.current = null;
@@ -250,7 +272,7 @@ export function ChatArea({
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       send(input);
     }
@@ -260,44 +282,38 @@ export function ChatArea({
   const turnCount = messages.length;
 
   return (
-    <div className="relative flex h-full flex-1 flex-col bg-canvas">
-      {/* 顶部 */}
-      <div className="border-b border-slate-200 px-6 py-4">
-        <h1 className="truncate text-base font-semibold text-ink">
-          {conversation.title || "新对话"}
-        </h1>
-        {conversation.project_name && (
-          <p className="mt-0.5 text-xs text-slate-400">
-            关联项目：{conversation.project_name}
-          </p>
-        )}
-      </div>
-
+    <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col bg-white">
       {/* 消息区 */}
       <div
         ref={scrollerRef}
-        className="flex-1 overflow-y-auto px-6 py-6"
+        data-research-scroll
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          followLatest.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+        }}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6"
       >
         {messages.length === 0 && !streaming ? (
-          <div className="mx-auto max-w-2xl pt-8">
-            <p className="text-sm text-slate-500">
-              不知道从哪开始？试试这些问题：
+          <div className="mx-auto max-w-2xl py-6 sm:py-10">
+            <p className="text-base font-medium text-slate-800">
+              想从哪里开始？
             </p>
             <div className="mt-4 grid gap-2">
-              {QUICK_STARTS.map((q) => (
+              {(conversation.project_id ? ["这个项目最值得核验的假设是什么？", "结合项目材料，分析主要风险及其依据"] : QUICK_STARTS).map((q) => (
                 <button
                   key={q}
                   type="button"
                   onClick={() => send(q)}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-left text-sm text-ink-soft transition-colors duration-150 hover:border-blue-400 hover:bg-blue-50/40 hover:text-ink"
+                  disabled={disabled}
+                  className="min-h-11 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-left text-sm text-slate-600 transition-colors hover:border-accent hover:bg-accent-soft disabled:opacity-50"
                 >
-                  · {q}
+                  {q}
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl space-y-5">
+          <div className="mx-auto max-w-3xl space-y-7">
             {messages.map((m, i) => (
               <div key={i}>
                 <MessageBubble message={m} />
@@ -344,7 +360,7 @@ export function ChatArea({
       {error && (
         <div className="px-6">
           <div className="mx-auto max-w-3xl">
-            <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+            <p role="alert" className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
               {error}
             </p>
           </div>
@@ -352,14 +368,14 @@ export function ChatArea({
       )}
 
       {/* 输入区 */}
-      <div className="border-t border-slate-200 bg-canvas px-6 py-4">
-        <div className="relative mx-auto max-w-3xl">
+      <div className="shrink-0 bg-white px-4 pb-4 pt-2 sm:px-6">
+        <div className="relative mx-auto max-w-3xl rounded-2xl border border-slate-300 bg-white p-3 shadow-[0_2px_8px_rgba(15,23,42,0.04)] focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft">
           {/* 手动沉淀浮层：主动查看/编辑本次对话将沉淀的内容 */}
           {showDigestPanel && (
             <div className="absolute bottom-full right-0 z-30 mb-2 w-[min(92vw,28rem)] rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-ink">
-                  本次对话将沉淀的内容
+                  研究沉淀
                 </p>
                 <button
                   type="button"
@@ -371,7 +387,7 @@ export function ChatArea({
                 </button>
               </div>
               <p className="mt-1 text-xs text-slate-400">
-                点击下方按钮生成预览，可编辑后存入；对话也会在后台自动沉淀。
+                生成纪要后可编辑保存，对话也会自动沉淀。
               </p>
               <div className="mt-1 max-h-[60vh] overflow-y-auto">
                 <DigestCard
@@ -390,21 +406,23 @@ export function ChatArea({
             </div>
           )}
           <textarea
+            aria-label="研究问题"
+            aria-invalid={overLimit || undefined}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKey}
-            disabled={streaming}
-            rows={3}
-            placeholder="想聊点什么？Enter 发送，Shift+Enter 换行"
-            className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-ink placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-50"
+            disabled={streaming || disabled}
+            rows={2}
+            placeholder={conversation.project_id ? "围绕项目提问，或继续追问…" : "输入你的问题…"}
+            className="block w-full resize-none border-0 bg-transparent px-1 py-1 text-[15px] text-slate-800 placeholder:text-slate-500 focus:outline-none disabled:text-slate-500"
           />
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <span
               className={`text-xs ${
-                overLimit ? "text-red-500" : "text-slate-400"
+                overLimit ? "text-red-600" : "text-slate-500"
               }`}
             >
-              {input.length} / {MAX_LEN}
+              {input.length > 1600 ? `${input.length} / ${MAX_LEN}` : <span className="hidden sm:inline">Enter 发送 · Shift+Enter 换行</span>}
             </span>
             <div className="flex items-center gap-2">
               {/* 静默沉淀入口：主动查看本次对话将沉淀的内容（≥3 条消息才可提炼） */}
@@ -414,31 +432,21 @@ export function ChatArea({
                   onClick={() => setShowDigestPanel((v) => !v)}
                   aria-label="查看将沉淀到知识库的内容"
                   title="沉淀到知识库"
-                  className={`rounded-lg border px-2 py-1.5 transition-colors duration-150 ${
+                  aria-expanded={showDigestPanel}
+                  className={`min-h-10 rounded-lg px-3 text-xs transition-colors duration-150 ${
                     showDigestPanel
-                      ? "border-blue-300 bg-blue-50 text-blue-600"
-                      : "border-slate-200 text-slate-400 hover:border-blue-300 hover:text-blue-600"
+                      ? "bg-accent-soft text-accent"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                   }`}
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    className="h-4 w-4"
-                  >
-                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-                  </svg>
+                  沉淀
                 </button>
               )}
               {streaming ? (
                 <button
                   type="button"
                   onClick={stop}
-                  className="rounded-lg border border-red-300 px-4 py-1.5 text-sm font-medium text-red-600 transition-colors duration-150 hover:bg-red-50"
+                  className="min-h-10 rounded-lg border border-red-300 px-4 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
                 >
                   停止
                 </button>
@@ -446,8 +454,8 @@ export function ChatArea({
                 <button
                   type="button"
                   onClick={() => send(input)}
-                  disabled={!input.trim() || overLimit}
-                  className="rounded-lg bg-[#1B6FE8] px-4 py-1.5 text-sm font-medium tracking-[0.01em] text-white transition-colors duration-150 hover:bg-[#1762d0] disabled:opacity-50"
+                  disabled={!input.trim() || overLimit || disabled}
+                  className="min-h-10 rounded-lg bg-accent px-5 text-sm font-medium text-white transition-colors hover:opacity-90 disabled:bg-slate-100 disabled:text-slate-400"
                 >
                   发送
                 </button>
@@ -468,16 +476,17 @@ function MessageBubble({
   streaming?: boolean;
 }) {
   const [showSources, setShowSources] = useState(false);
+  const sourcePrefix = useId();
   const isUser = message.role === "user";
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`max-w-[85%] ${isUser ? "" : "w-full"}`}>
+      <div className={isUser ? "max-w-[90%] sm:max-w-[85%]" : "w-full min-w-0"}>
         <div
           title={new Date(message.ts).toLocaleString("zh-CN")}
           className={
             isUser
-              ? "inline-block rounded-2xl rounded-tr-md bg-[#0D1B3E] px-4 py-2.5 text-sm text-white"
-              : "report-body rounded-2xl rounded-tl-md border border-slate-200 bg-white px-4 py-3 text-sm"
+              ? "inline-block rounded-2xl rounded-tr-md bg-slate-100 px-4 py-3 text-[15px] text-slate-800"
+              : "research-markdown py-1"
           }
         >
           {isUser ? (
@@ -485,7 +494,27 @@ function MessageBubble({
           ) : (
             <>
               {message.content ? (
-                <ReactMarkdown>{message.content}</ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                  a: ({ href, children }) => {
+                    const reference = href?.match(/^#source-(\d+)$/);
+                    if (reference) {
+                      const index = Number(reference[1]) - 1;
+                      if (!message.sources?.[index]) return <span>{children}</span>;
+                      return <button type="button" className="research-citation" aria-label={`查看资料 ${index + 1}`}
+                        onClick={() => {
+                          setShowSources(true);
+                          window.requestAnimationFrame(() => {
+                            const source = document.getElementById(`${sourcePrefix}-${index}`);
+                            const scroller = source?.closest<HTMLElement>("[data-research-scroll]");
+                            if (!source || !scroller) return;
+                            const delta = source.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+                            scroller.scrollTo({ top: scroller.scrollTop + delta - 16, behavior: "smooth" });
+                          });
+                        }}>{children}</button>;
+                    }
+                    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>;
+                  },
+                }}>{message.content}</ReactMarkdown>
               ) : (
                 <span className="text-slate-400">…</span>
               )}
@@ -494,24 +523,28 @@ function MessageBubble({
           )}
         </div>
         {!isUser && message.sources && message.sources.length > 0 && (
-          <div className="mt-1.5 text-xs text-slate-400">
+          <div className="mt-2 text-xs text-slate-500">
             <button
               type="button"
               onClick={() => setShowSources((v) => !v)}
-              className="hover:text-ink-soft"
+              aria-expanded={showSources}
+              aria-controls={`${sourcePrefix}-sources`}
+              className="min-h-9 rounded-lg px-2 text-slate-600 hover:bg-slate-50 hover:text-slate-800"
             >
-              📚 参考了知识库 {message.sources.length} 条内容
-              {showSources ? " ▴" : " ▾"}
+              {showSources ? "收起来源" : "查看来源"} · {message.sources.length}
             </button>
             {showSources && (
-              <ul className="mt-1.5 space-y-1">
+              <ul id={`${sourcePrefix}-sources`} className="mt-2 space-y-2">
                 {message.sources.map((s, i) => (
                   <li
                     key={i}
-                    className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-500"
+                    id={`${sourcePrefix}-${i}`}
+                    className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-slate-600"
                   >
-                    {s.content.slice(0, 120)}
-                    {s.content.length > 120 ? "…" : ""}
+                    <p className="font-medium text-ink-soft">[{i + 1}] {s.title || s.source_type || "知识条目"}{s.locator ? ` · ${s.locator}` : ""}</p>
+                    {s.data_as_of && <p className="mt-1">数据截止：{s.data_as_of}</p>}
+                    <p className="mt-1 whitespace-pre-wrap leading-5">{s.content}</p>
+                    {s.href?.startsWith("/reports/") && <a className="mt-1 inline-block text-accent underline" href={s.href}>查看原报告</a>}
                   </li>
                 ))}
               </ul>

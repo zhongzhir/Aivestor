@@ -1,3 +1,5 @@
+import { accessErrorResponse, assertProjectAccess, buildAccessScope } from "@/lib/resourceAccess";
+import { digestSources, type ConversationSource } from "@/lib/conversationResearch";
 ﻿import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
@@ -9,6 +11,7 @@ import { generateEmbedding } from "@/lib/embedding";
 export const maxDuration = 120;
 
 interface Msg {
+  sources?: ConversationSource[];
   role: "user" | "assistant";
   content: string;
   ts?: string;
@@ -45,9 +48,10 @@ function formatHistory(history: Msg[]): string {
 function buildDigestPrompt(title: string, conversation: string): string {
   return `以下是一段投资人与 AI 的独立对话${title ? `（标题：「${title}」）` : ""}。
 
-请提炼对话中的认知价值，重点提炼投资人的思考，
+请提炼对话中的认知价值，区分事实、用户判断、AI 推断和未验证假设，不把猜测改写为事实。重点提炼投资人的思考，
 同时精炼 AI 有价值的观点（有时 AI 的视角更开阔，值得保留）。
 
+摘要不要复用对话中的数字引用编号，需引用时使用文件名和定位。
 以 JSON 格式输出，不要输出任何其他内容：
 {
   "key_insights": ["最重要的判断或认知，3条以内，每条不超过50字"],
@@ -128,6 +132,10 @@ export async function POST(
     return NextResponse.json({ error: "对话不存在" }, { status: 404 });
   }
   const convo = rows[0];
+  if (convo.project_id) {
+    try { await assertProjectAccess(await buildAccessScope(session.user.id), convo.project_id, "read"); }
+    catch (error) { return accessErrorResponse(error); }
+  }
   const history = Array.isArray(convo.messages) ? convo.messages : [];
   if (history.length < 3) {
     return NextResponse.json(
@@ -239,10 +247,10 @@ export async function PUT(
   }
 
   // 校验对话归属并取标题（容错：表不存在时给具体提示）
-  let owned: { id: string; title: string | null }[];
+  let owned: ConvoRow[];
   try {
-    owned = await query<{ id: string; title: string | null }>(
-      "SELECT id, title FROM conversations WHERE id = $1 AND user_id = $2",
+    owned = await query<ConvoRow>(
+      "SELECT c.id, c.title, c.project_id, c.messages, p.name AS project_name FROM conversations c LEFT JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL WHERE c.id = $1 AND c.user_id = $2",
       [params.id, session.user.id]
     );
   } catch (e) {
@@ -267,6 +275,11 @@ export async function PUT(
     return NextResponse.json({ error: "对话不存在" }, { status: 404 });
   }
   const convoTitle = owned[0].title ?? "独立对话";
+  const projectId = owned[0].project_id;
+  if (projectId) {
+    try { await assertProjectAccess(await buildAccessScope(session.user.id), projectId, "read"); }
+    catch (error) { return accessErrorResponse(error); }
+  }
 
   const structured: DigestStructured = {
     key_insights: Array.isArray(sd.key_insights)
@@ -289,15 +302,17 @@ export async function PUT(
   const embeddingModel = emb?.model ?? null;
   const embeddingValue = emb ? `[${emb.vector.join(",")}]` : null;
 
-  const projectName = body.project_name?.trim() || convoTitle;
+  const projectName = owned[0].project_name || convoTitle;
   const tags = ["对话提炼", projectName];
   const metadata: Record<string, unknown> = {
     source_conversation_id: params.id,
+    sources: digestSources(owned[0].messages),
+    evidence_status: "discussion",
     conversation_title: convoTitle,
     digested_at: new Date().toISOString(),
   };
-  if (body.project_id) {
-    metadata.project_id = body.project_id;
+  if (projectId) {
+    metadata.project_id = projectId;
     metadata.project_name = projectName;
   }
 
@@ -320,7 +335,7 @@ export async function PUT(
         JSON.stringify(metadata),
         embeddingValue,
         embeddingModel,
-        body.project_id ?? null,
+        projectId,
       ]
     );
   } catch (e) {

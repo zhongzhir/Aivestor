@@ -21,6 +21,7 @@ export interface LayeredHit {
   title: string | null;
   authorName: string | null; // 机构层条目作者；其余 null
   validUntil: string | null; // 仅 zjjr 层
+  dataAsOf?: string | null;
   similarity: number; // 1 - 余弦距离（或全文 rank）
   weighted: number; // similarity × 层权重 × 时效系数（排序依据）
 }
@@ -38,7 +39,7 @@ const LAYER_WEIGHT: Record<KnowledgeLayer, number> = {
   zjjr: 0.85,
 };
 
-const MIN_QUERY_LEN = 10;
+const MIN_QUERY_LEN = 2;
 
 interface RawHit {
   id?: string | null;
@@ -132,6 +133,7 @@ async function searchOrg(
 //     生成；此处兜底确保标注存在。
 //   - 静默降级：表为空 / 查询异常（如迁移 028 未执行）→ 返回 []，不阻塞主流程。
 interface ZjjrRawHit {
+  id: string;
   title: string | null;
   content: string;
   data_as_of: string | null;
@@ -145,7 +147,7 @@ const ZJJR_SOURCE_TAG = "中鉴基金研究院";
 async function searchZjjr(vec: string, topK: number): Promise<LayeredHit[]> {
   try {
     const rows = await query<ZjjrRawHit>(
-      `SELECT title, content,
+      `SELECT id, title, content,
               data_as_of::text  AS data_as_of,
               valid_until::text AS valid_until,
               1 - (embedding <=> $1::vector) AS similarity,
@@ -164,13 +166,14 @@ async function searchZjjr(vec: string, topK: number): Promise<LayeredHit[]> {
         : `${r.content}（来源：${ZJJR_SOURCE_TAG}，数据截止 ${r.data_as_of ?? "未知"}，仅供参考）`;
       return {
         layer: "zjjr" as const,
-        id: null,
+        id: r.id,
         sourceEntryId: null,
         content,
         sourceType: "zjjr_feature",
         title: r.title,
         authorName: null,
         validUntil: r.valid_until,
+        dataAsOf: r.data_as_of,
         similarity,
         weighted: similarity * LAYER_WEIGHT.zjjr * freshness,
       };

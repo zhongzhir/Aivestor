@@ -137,6 +137,12 @@ export default async function ProjectArchivePage({
 
       <ProjectManagementPanel projectId={project.id} compact />
 
+      <details className="mt-4 rounded-lg border border-line bg-white px-4 py-3">
+        <summary className="cursor-pointer text-sm text-ink-soft">项目研究对话</summary>
+        <p className="mt-2 text-xs text-ink-faint">查看你围绕本项目的研究记录、讨论结论和参考资料。</p>
+        <Link href={`/chat?project=${project.id}`} className="mt-3 inline-block text-sm text-accent">继续查看研究对话 →</Link>
+      </details>
+
       <ArchiveTabs
         projectId={project.id}
         projectName={project.name}

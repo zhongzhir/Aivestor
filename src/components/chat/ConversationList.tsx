@@ -59,28 +59,28 @@ export function ConversationList({
   for (const it of items) grouped[bucket(it.updated_at)].push(it);
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-r border-slate-200 bg-surface">
-      <div className="border-b border-slate-200 p-3">
+    <aside aria-label="对话历史" className="flex h-full w-full shrink-0 flex-col border-r border-slate-100 bg-slate-50/80 md:w-56">
+      {activeId && <div className="p-3 pb-1">
         <button
           type="button"
           onClick={onNew}
           disabled={creating}
-          className="w-full rounded-lg bg-[#1B6FE8] px-3 py-2 text-sm font-medium tracking-[0.01em] text-white transition-colors duration-150 hover:bg-[#1762d0] disabled:opacity-50"
+          className="min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
         >
-          {creating ? "创建中…" : "+ 新对话"}
+          新对话
         </button>
-      </div>
+      </div>}
 
       <div className="flex-1 overflow-y-auto px-2 py-3">
         {items.length === 0 ? (
-          <p className="px-2 text-xs text-slate-400">还没有对话</p>
+          <p className="px-2 py-2 text-xs text-slate-500">还没有历史记录</p>
         ) : (
           (["today", "yesterday", "earlier"] as Group[]).map((g) => {
             const list = grouped[g];
             if (list.length === 0) return null;
             return (
               <div key={g} className="mb-4">
-                <p className="px-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+                <p className="px-3 text-xs font-medium text-slate-500">
                   {GROUP_LABEL[g]}
                 </p>
                 <ul className="mt-1.5 space-y-0.5">
@@ -90,26 +90,27 @@ export function ConversationList({
                       <li
                         key={it.id}
                         className={`group relative rounded-lg ${
-                          active ? "bg-blue-50" : "hover:bg-slate-100"
+                          active ? "bg-accent-soft" : "hover:bg-slate-100"
                         }`}
                       >
                         <button
                           type="button"
                           onClick={() => onSelect(it.id)}
-                          className="block w-full px-2.5 py-1.5 text-left"
+                          aria-current={active ? "true" : undefined}
+                          className="block min-h-11 w-full rounded-lg px-3 py-2.5 pr-9 text-left"
                         >
                           <div
                             className={`truncate text-sm ${
                               active
-                                ? "font-medium text-blue-700"
-                                : "text-ink-soft"
+                                ? "font-medium text-accent"
+                                : "text-slate-600"
                             }`}
                           >
                             {it.title || "新对话"}
                           </div>
                           {it.project_name && (
-                            <div className="mt-0.5 truncate text-xs text-slate-400">
-                              · {it.project_name}
+                            <div className="mt-1 truncate text-xs text-slate-500">
+                              {it.project_name}
                             </div>
                           )}
                         </button>
@@ -130,11 +131,11 @@ export function ConversationList({
                               );
                             }
                           }}
-                          aria-label="删除对话"
-                          className={`absolute right-1.5 top-1.5 rounded px-1.5 py-0.5 text-xs ${
+                          aria-label={pendingDelete === it.id ? "确认删除对话" : "删除对话"}
+                          className={`absolute right-1 top-1.5 min-h-9 min-w-8 rounded-md px-1.5 text-xs ${
                             pendingDelete === it.id
                               ? "bg-red-500 text-white"
-                              : "text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-slate-200 hover:text-ink"
+                              : "text-slate-500 opacity-100 hover:bg-slate-200 hover:text-ink focus-visible:opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100"
                           }`}
                         >
                           {pendingDelete === it.id ? "确认删除" : "×"}

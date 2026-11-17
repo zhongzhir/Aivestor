@@ -66,7 +66,7 @@ export function TopBar({
         <div className="min-w-0">
         <nav className="flex min-w-0 items-center gap-2 text-sm text-ink-soft">
           {crumbs.slice(0, -1).map((crumb) => (
-            <span key={crumb.href ?? crumb.label} className="flex min-w-0 items-center gap-2">
+            <span key={crumb.href ?? crumb.label} className="hidden min-w-0 items-center gap-2 sm:flex">
               {crumb.href ? (
                 <Link
                   href={crumb.href}

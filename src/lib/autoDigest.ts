@@ -1,3 +1,4 @@
+import { digestSources, type ConversationSource } from "@/lib/conversationResearch";
 import { query } from "@/lib/db";
 import { streamChat, type AIProvider } from "@/lib/ai";
 import { injectProfile } from "@/lib/user-profile";
@@ -19,6 +20,7 @@ export function shouldAutoDigest(messageCount: number): boolean {
 }
 
 interface Msg {
+  sources?: ConversationSource[];
   role: "user" | "assistant";
   content: string;
 }
@@ -43,8 +45,9 @@ function formatHistory(messages: Msg[]): string {
 function buildDigestPrompt(title: string, conversation: string): string {
   return `以下是一段投资人与 AI 的独立对话${title ? `（标题：「${title}」）` : ""}。
 
-请提炼对话中的认知价值，重点提炼投资人的思考。
+请提炼对话中的认知价值，区分事实、用户判断、AI 推断和未验证假设，不把猜测改写为事实。重点提炼投资人的思考。
 
+摘要不要复用对话中的数字引用编号，需引用时使用文件名和定位。
 以 JSON 格式输出，不要输出任何其他内容：
 {
   "key_insights": ["最重要的判断或认知，3条以内，每条不超过50字"],
@@ -195,6 +198,8 @@ export async function runAutoDigest(opts: RunOpts): Promise<{
     conversation_title: opts.title ?? "",
     digested_at: new Date().toISOString(),
     auto: true,
+    evidence_status: "discussion",
+    sources: digestSources(opts.messages),
   };
   if (opts.projectId) {
     metadata.project_id = opts.projectId;

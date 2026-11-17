@@ -14,7 +14,7 @@ body {
 body {
   @apply bg-canvas text-ink;
   /* Inter 负责拉丁/数字；中文走系统字体，渲染天然平顺、无需外部加载 */
-  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont,
+  font-family: var(--font-inter, system-ui), -apple-system, BlinkMacSystemFont,
     "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC",
     system-ui, sans-serif;
   font-size: 15px;
@@ -388,6 +388,79 @@ b {
 }
 
 /* AI 输出 Markdown 渲染优化 */
+/* 研究工作区使用屏幕阅读排版，正式报告仍保留原有文档字体。 */
+.project-workspace,
+.research-workspace {
+  font-family: var(--font-inter, system-ui), -apple-system, BlinkMacSystemFont,
+    "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  color: #1e293b;
+  letter-spacing: 0;
+}
+
+:is(.project-workspace, .research-workspace) .text-ink { color: #1e293b; }
+:is(.project-workspace, .research-workspace) .text-ink-soft { color: #475569; }
+:is(.project-workspace, .research-workspace) .text-ink-faint { color: #64748b; }
+:is(.project-workspace, .research-workspace) .border-line { border-color: #e2e8f0; }
+
+:is(.project-workspace, .research-workspace) :is(button, a, select, summary):focus-visible {
+  outline: 2px solid var(--brand-primary, #2f6f4f);
+  outline-offset: 3px;
+}
+
+.project-support .disclosure-body > section {
+  border: 0;
+  border-radius: 0;
+  padding-top: 0.25rem;
+}
+
+.research-markdown {
+  color: #334155;
+  font-size: 15px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.research-markdown :is(p, li) { line-height: 1.85; }
+.research-markdown p { margin: 0 0 0.85em; }
+.research-markdown > :first-child { margin-top: 0; }
+.research-markdown > :last-child { margin-bottom: 0; }
+.research-markdown :is(h1, h2, h3, h4) {
+  margin: 1.2em 0 0.5em;
+  font-size: 1em;
+  line-height: 1.5;
+  font-weight: 600;
+  color: #1e293b;
+  letter-spacing: 0;
+}
+.research-markdown :is(ul, ol) { margin: 0.75em 0; padding-left: 1.5em; }
+.research-markdown ul { list-style: disc; }
+.research-markdown ol { list-style: decimal; }
+.research-markdown li + li { margin-top: 0.3em; }
+.research-markdown strong { font-weight: 600; color: #1e293b; }
+.research-markdown blockquote { border-left: 3px solid #cbd5e1; padding-left: 1em; color: #475569; }
+.research-markdown table { display: block; max-width: 100%; overflow-x: auto; margin: 1em 0; border-collapse: collapse; font-size: 14px; }
+.research-markdown :is(th, td) { border: 1px solid #e2e8f0; padding: 0.55em 0.8em; text-align: left; min-width: 6rem; }
+.research-markdown th { background: #f8fafc; font-weight: 600; }
+.research-markdown pre { overflow-x: auto; border-radius: 8px; background: #f8fafc; padding: 1em; }
+.research-markdown code { font-size: 0.9em; }
+.research-markdown a { color: var(--brand-primary, #2f6f4f); text-decoration: underline; text-underline-offset: 3px; }
+.research-citation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  margin: 0 0.2em;
+  padding: 0 0.35em;
+  border-radius: 6px;
+  background: var(--brand-primary-soft, #edf4ef);
+  color: var(--brand-primary, #2f6f4f);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: baseline;
+}
+
 .prose {
   line-height: 1.85;
   letter-spacing: 0.015em;

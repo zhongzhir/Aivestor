@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { accessErrorResponse, assertProjectAccess, buildAccessScope, scopedProjectWhere } from "@/lib/resourceAccess";
 
 interface ListRow {
   id: string;
@@ -35,21 +36,31 @@ function describeError(e: unknown) {
 }
 
 // GET /api/conversations — 当前用户的对话列表（不含 messages）
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getSession();
     if (!session?.user) {
       return NextResponse.json({ error: "未登录" }, { status: 401 });
     }
 
+    const projectId = new URL(req.url).searchParams.get("project_id");
+    const scope = await buildAccessScope(session.user.id);
+    if (projectId) {
+      if (!/^[0-9a-f-]{36}$/i.test(projectId)) return NextResponse.json({ error: "项目无效" }, { status: 400 });
+      try { await assertProjectAccess(scope, projectId, "read"); }
+      catch (error) { return accessErrorResponse(error); }
+    }
+    const visible = scopedProjectWhere(scope, 3, { alias: "p" });
     const rows = await query<ListRow>(
       `SELECT c.id, c.title, c.project_id, p.name AS project_name, c.updated_at
          FROM conversations c
          LEFT JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL
         WHERE c.user_id = $1
+          AND ($2::uuid IS NULL OR c.project_id = $2)
+          AND (c.project_id IS NULL OR (p.id IS NOT NULL AND ${visible.sql}))
         ORDER BY c.updated_at DESC
         LIMIT 50`,
-      [session.user.id]
+      [session.user.id, projectId, ...visible.params]
     );
 
     return NextResponse.json({ conversations: rows });
@@ -90,11 +101,12 @@ export async function POST(req: Request) {
     // 校验项目归属，避免越权关联
     let projectId: string | null = null;
     if (body.project_id) {
-      const owned = await query<{ id: string }>(
-        "SELECT id FROM projects WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
-        [body.project_id, session.user.id]
-      );
-      if (owned[0]) projectId = owned[0].id;
+      if (typeof body.project_id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.project_id)) {
+        return NextResponse.json({ error: "项目无效" }, { status: 400 });
+      }
+      try { await assertProjectAccess(await buildAccessScope(session.user.id), body.project_id, "read"); }
+      catch (error) { return accessErrorResponse(error); }
+      projectId = body.project_id;
     }
 
     const inserted = await query<{

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FinancialCharts } from "./FinancialCharts";
@@ -29,6 +29,7 @@ import { recommendProjectAnalysis } from "@/lib/projectAnalysisPresentation";
 import { hasUsableReportContextMetadata } from "@/lib/reportContext";
 import { ProjectManagementPanel } from "./ProjectManagementPanel";
 import { DeepResearchJobPanel } from "./DeepResearchJobPanel";
+import { ConversationWorkspace } from "@/components/chat/ConversationWorkspace";
 
 type Tab = "analysis" | "decision" | "post";
 type MobileSection = "materials" | "context" | "source" | "report";
@@ -193,10 +194,10 @@ export function ProjectDetail({
   const [decisionEventState, setDecisionEventState] =
     useState<DecisionEventMeta[]>(decisionEvents);
   const [mobileSections, setMobileSections] = useState<Record<MobileSection, boolean>>({
-    materials: true,
+    materials: docMeta.length === 0,
     context: false,
     source: false,
-    report: true,
+    report: false,
   });
 
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
@@ -561,15 +562,15 @@ export function ProjectDetail({
   }
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-      <div className="rounded-lg border border-[#e6ded1] bg-[#fffdfa] px-4 py-3 sm:px-5 sm:py-4">
+    <div className="project-workspace mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+      <div className="rounded-xl border border-slate-200 bg-white px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="min-w-0 break-words text-xl font-semibold text-ink sm:text-2xl">
                 {projectName}
               </h1>
-              <span className="rounded-full border border-[#dfd4c4] bg-white px-2.5 py-1 text-xs font-medium text-ink-soft">
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
                 {STAGE_LABELS[processStage] ?? processStage}
               </span>
               {outcome && outcome !== "pending" && (
@@ -581,31 +582,18 @@ export function ProjectDetail({
                   {outcomeDef(outcome).icon} {outcomeDef(outcome).label}
                 </span>
               )}
+              <button
+                type="button"
+                aria-label="查看来源与材料"
+                onClick={() => setSourceDrawerOpen(true)}
+                className="ml-auto min-h-9 rounded-lg px-2 text-xs text-slate-600 hover:bg-slate-50 xl:hidden"
+              >
+                资料
+              </button>
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs text-ink-soft sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
-              <span className="col-span-2 sm:col-span-1">
-                下一步：
-                <span className="font-medium text-ink">
-                  {workflowState.nextAction || workspaceState.title}
-                </span>
-              </span>
-              <span>
-                证据完整度：
-                <span className="font-medium text-ink">{effectiveCompleteness}%</span>
-              </span>
-              <span>
-                项目记录：
-                <span className="font-medium text-ink">{activityItems.length} 条</span>
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-faint">
-              <span>
-                材料：<span className="text-ink-soft">{parsedDocCount}/{docMeta.length} 份已解析</span>
-              </span>
-              <span>
-                报告：<span className="text-ink-soft">{latestReportId ? "已有分析报告" : "待生成分析报告"}</span>
-              </span>
-            </div>
+            <p className="mt-2 text-sm text-slate-600">
+              下一步：{workflowState.nextAction || workspaceState.title}
+            </p>
           </div>
           <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             {latestReportId ? (
@@ -657,18 +645,12 @@ export function ProjectDetail({
               type="button"
               onClick={() => {
                 setTab("analysis");
+                setMobileSections((sections) => ({ ...sections, report: true }));
                 window.setTimeout(() => document.getElementById("analysis-recommendation")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
               }}
               className="min-h-11 rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface sm:min-h-0"
             >
               查看分析方式
-            </button>
-            <button
-              type="button"
-              onClick={() => setSourceDrawerOpen(true)}
-              className="col-span-2 min-h-11 rounded-lg border border-line bg-white px-3 py-2 text-sm font-medium text-ink-soft hover:bg-surface xl:hidden"
-            >
-              查看来源与材料
             </button>
           </div>
         </div>
@@ -696,22 +678,22 @@ export function ProjectDetail({
         </section>
       )}
 
-      <details className="group mt-4 rounded-lg border border-line bg-white">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none">
+      <details className="group mt-2">
+        <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-3 py-2 hover:bg-white marker:content-none">
           <span>
-            <span className="text-sm font-medium text-ink">项目管理与跟踪</span>
+            <span className="text-xs font-medium text-slate-600">项目管理与跟踪</span>
             <span className="ml-2 text-xs text-ink-faint">{activityItems.length} 条动态</span>
           </span>
           <span className="text-xs font-medium text-accent group-open:hidden">展开</span>
           <span className="hidden text-xs font-medium text-accent group-open:inline">收起</span>
         </summary>
-        <div className="border-t border-line p-4 pt-0">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 pt-0">
           <ProjectManagementPanel projectId={projectId} compact />
           <ActivityTimeline items={activityItems} />
         </div>
       </details>
 
-      <div className="mt-4">
+      <div className="mt-2">
         <div className="min-w-0">
           <div className="sticky top-0 z-20 -mx-4 bg-canvas/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:static md:mx-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-0">
           <div className="grid grid-cols-3 gap-1 rounded-xl border border-line bg-white p-1 shadow-[0_4px_16px_rgba(55,53,47,0.06)] md:flex md:gap-1 md:rounded-none md:border-x-0 md:border-t-0 md:bg-transparent md:p-0 md:shadow-none" role="tablist" aria-label="项目工作阶段">
@@ -727,7 +709,19 @@ export function ProjectDetail({
                 role="tab"
                 aria-selected={tab === id}
                 aria-controls={`project-stage-panel-${id}`}
+                tabIndex={tab === id ? 0 : -1}
                 onClick={() => selectTab(id)}
+                onKeyDown={(event) => {
+                  const tabs: Tab[] = ["analysis", "decision", "post"];
+                  const index = tabs.indexOf(id);
+                  const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+                    : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+                    : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : -1;
+                  if (next < 0) return;
+                  event.preventDefault();
+                  selectTab(tabs[next]);
+                  document.getElementById(`project-stage-tab-${tabs[next]}`)?.focus();
+                }}
                 className={`min-h-11 rounded-lg border-b-2 px-2 py-2 text-xs transition-colors sm:text-sm md:-mb-px md:min-h-0 md:rounded-none md:px-4 ${
                   tab === id
                     ? "border-accent bg-accent-soft font-medium text-accent md:bg-transparent"
@@ -782,6 +776,11 @@ export function ProjectDetail({
 
           {tab === "analysis" && (
             <div id="project-stage-panel-analysis" role="tabpanel" aria-labelledby="project-stage-tab-analysis">
+              <ConversationWorkspace projectId={projectId} projectName={projectName} />
+              <div className="project-support mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+              {hasOrg && <details className="border-b border-slate-100 px-4">
+                <summary className="min-h-12 cursor-pointer py-3 text-sm font-medium text-slate-700">团队协作</summary>
+
               {!isOrgProject && hasOrg && (
                 <div className="mt-6 flex items-center justify-between gap-3 rounded-lg border border-line bg-white p-4">
                   <p className="text-xs text-ink-soft">
@@ -824,6 +823,8 @@ export function ProjectDetail({
                 </div>
               )}
 
+              </details>}
+
               <ResponsiveDisclosure
                 title="材料与证据"
                 summary={`${parsedDocCount}/${docMeta.length} 份材料已解析 · 完整度 ${effectiveCompleteness}%`}
@@ -843,15 +844,15 @@ export function ProjectDetail({
               </ResponsiveDisclosure>
 
               <ResponsiveDisclosure
-                title="关系、知识与协作背景"
-                summary="项目来源、关键人物和历史判断"
+                title="项目背景"
+                summary="来源、关键人物与历史判断"
                 open={mobileSections.context}
                 onToggle={() => toggleMobileSection("context")}
               >
                 <ProjectContextCards projectId={projectId} />
               </ResponsiveDisclosure>
 
-              <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.95fr)]">
+              <div>
                 <ResponsiveDisclosure
                   title="材料原文"
                   summary={docMeta.length > 0 ? `${docMeta.length} 份材料可回看` : "尚未上传材料"}
@@ -859,8 +860,7 @@ export function ProjectDetail({
                   onToggle={() => toggleMobileSection("source")}
                 >
                 <section className="rounded-lg border border-line bg-white p-5">
-                  <h2 className="text-sm font-semibold text-ink">材料文本</h2>
-                  <p className="mt-2 text-xs text-ink-faint">
+                  <p className="text-xs text-ink-faint">
                     {docMeta.length > 0
                       ? docMeta
                           .map(
@@ -1142,6 +1142,7 @@ export function ProjectDetail({
                 </section>
                 </ResponsiveDisclosure>
               </div>
+              </div>
 
               {(finLoading || finError || financials) && (
                 <div className="mt-6 rounded-lg border border-line bg-white p-5">
@@ -1264,23 +1265,25 @@ function ResponsiveDisclosure({
   onToggle: () => void;
   children: React.ReactNode;
 }) {
+  const panelId = useId();
   return (
-    <div className="xl:contents">
+    <div className="workspace-disclosure min-w-0 border-b border-slate-100 last:border-b-0">
       <button
         type="button"
         aria-expanded={open}
+        aria-controls={panelId}
         onClick={onToggle}
-        className="mt-4 flex min-h-14 w-full items-center justify-between gap-3 rounded-lg border border-line bg-white px-4 py-3 text-left xl:hidden"
+        className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
       >
-        <span className="min-w-0">
-          <span className="block text-sm font-semibold text-ink">{title}</span>
-          <span className="mt-0.5 block truncate text-xs text-ink-faint">{summary}</span>
+        <span className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-4">
+          <span className="shrink-0 text-sm font-medium text-slate-700">{title}</span>
+          <span className="truncate text-xs text-slate-500">{summary}</span>
         </span>
         <span className="shrink-0 text-xs font-medium text-accent">
           {open ? "收起" : "展开"}
         </span>
       </button>
-      <div className={`${open ? "block" : "hidden"} xl:block`}>
+      <div id={panelId} className={`disclosure-body ${open ? "block" : "hidden"}`}>
         {children}
       </div>
     </div>
@@ -2536,20 +2539,8 @@ function DocumentPanel({
   const missingMaterials = materialSuggestions(docMeta);
 
   return (
-    <div className="mt-6 rounded-lg border border-line bg-white p-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-sm font-semibold text-ink">项目材料</h2>
-          <p className="mt-1 text-xs text-ink-faint">
-            按材料类型整理上传内容，方便判断哪些证据已经到位。
-          </p>
-        </div>
-        <span className="rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-ink-soft">
-          {docMeta.length} 份材料
-        </span>
-      </div>
-
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="px-4 pb-4 pt-1">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {evidenceItems.slice(0, 4).map((item) => (
           <div
             key={item.label}

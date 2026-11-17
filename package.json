@@ -4,6 +4,7 @@
   "private": true,
   "description": "面向一级股权投资人的全周期 AI 工作台",
   "scripts": {
+    "test:conversation-research": "node -r ts-node/register -r tsconfig-paths/register scripts/conversation-research.test.ts",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
