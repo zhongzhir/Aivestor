@@ -64,7 +64,7 @@ export async function saveProjectResearch(scope: AccessScope, conversationId: st
       const metadata = JSON.stringify({ source_conversation_id: conversationId, sources, evidence_status: "discussion", adopted_at: new Date().toISOString() });
       const values = [formatResearchDraft(draft) + "\n" + provenance, group("support"), group("concern"), group("hypothesis"), metadata];
       const updated = judgmentId ? await client.query(`UPDATE investment_judgments SET content = $1, bull_case = $2, bear_case = $3, key_hypothesis = $4,
-          metadata = $5, updated_at = NOW() WHERE id = $6 AND project_id = $7 AND user_id = $8 RETURNING id`, [...values, judgmentId, conversation.project_id, scope.userId]) : null;
+          metadata = $5, updated_at = NOW() WHERE id = $6 AND project_id = $7 AND user_id = $8 AND stage = $9 RETURNING id`, [...values, judgmentId, conversation.project_id, scope.userId, project.process_stage]) : null;
       if (!updated?.rows.length && draft.judgments.length) {
         const { rows: [judgment] } = await client.query<{ id: string }>(
           `INSERT INTO investment_judgments (content, bull_case, bear_case, key_hypothesis, metadata, project_id, user_id, org_id, stage)
@@ -76,8 +76,8 @@ export async function saveProjectResearch(scope: AccessScope, conversationId: st
     if (draft.decision || decisionId) {
       const note = `${draft.decision || "本次研究未保留决策建议。"}\n\n${provenance}`;
       const updated = decisionId ? await client.query(
-        `UPDATE project_decision_events SET note = $1 WHERE id = $2 AND project_id = $3 AND user_id = $4 AND status = 'draft' RETURNING id`,
-        [note, decisionId, conversation.project_id, scope.userId]) : null;
+        `UPDATE project_decision_events SET note = $1 WHERE id = $2 AND project_id = $3 AND user_id = $4 AND stage = $5 AND status = 'draft' RETURNING id`,
+        [note, decisionId, conversation.project_id, scope.userId, project.process_stage]) : null;
       if (!updated?.rows.length && draft.decision) {
         const { rows: [decision] } = await client.query<{ id: string }>(
           `INSERT INTO project_decision_events (project_id,user_id,org_id,stage,event_type,status,title,note)

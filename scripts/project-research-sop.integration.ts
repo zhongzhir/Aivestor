@@ -95,6 +95,13 @@ async function main() {
   const failed = await route.PUT(request({ revision: nextRevision, draft: { ...nextDraft, summary: "ROLLBACK_TEST", judgments: [{ kind: "concern", text: "不得残留的判断" }] } }), params);
   assert.equal(failed.status, 500);
   assert.equal(JSON.stringify((await pool.query("SELECT judgment_points FROM projects WHERE id=$1", [projectId])).rows[0].judgment_points), beforePoints);
+  await pool.query("UPDATE projects SET process_stage='due_diligence' WHERE id=$1", [projectId]);
+  messages.push({ role: "user", content: "项目已进入尽调，继续核实收入" });
+  await pool.query("UPDATE conversations SET messages=$1 WHERE id=$2", [JSON.stringify(messages),conversationId]);
+  const stageRevision = conversationRevision({ project_id: projectId, messages });
+  assert.equal((await route.PUT(request({ revision: stageRevision, draft: nextDraft }), params)).status, 200);
+  assert.deepEqual((await pool.query("SELECT stage FROM investment_judgments ORDER BY stage")).rows.map((row) => row.stage), ["due_diligence", "screening"], "research at a later stage must preserve earlier-stage judgments");
+  assert.equal((await pool.query("SELECT * FROM project_decision_events WHERE status='draft' AND stage='due_diligence'")).rowCount, 1);
   sessionUser = otherUid;
   assert.equal((await route.PUT(request({ revision: nextRevision, draft }), params)).status, 404);
   sessionUser = null;
