@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FinancialCharts } from "./FinancialCharts";
@@ -31,6 +31,8 @@ import { ProjectManagementPanel } from "./ProjectManagementPanel";
 import { DeepResearchJobPanel } from "./DeepResearchJobPanel";
 import { AnalysisMethodCard, analysisActionClass } from "./AnalysisMethodCard";
 import { ConversationWorkspace } from "@/components/chat/ConversationWorkspace";
+import { ProjectResearchTasks } from "./ProjectResearchTasks";
+import { mergeResearchPoints } from "@/lib/projectResearch";
 
 type Tab = "analysis" | "decision" | "post";
 type MobileSection = "materials" | "context" | "report";
@@ -179,6 +181,7 @@ export function ProjectDetail({
   const [points, setPoints] = useState<string[]>(
     initialPoints.length > 0 ? initialPoints : ["", "", ""]
   );
+  const pointsEdited = useRef(false);
   const [error, setError] = useState("");
   const [deepProfile, setDeepProfile] = useState<
     "auto" | "early_stage" | "comprehensive"
@@ -203,6 +206,21 @@ export function ProjectDetail({
 
   const hasParsedDoc = docMeta.some((d) => d.parseStatus === "done");
   const hasReportContextDoc = hasUsableReportContextMetadata(docMeta);
+
+  useEffect(() => { setDecisionEventState(decisionEvents); }, [decisionEvents]);
+  useEffect(() => {
+    const refresh = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail?.projectId !== projectId) return;
+      if (Array.isArray(detail.points)) setPoints((current) => {
+        const next = pointsEdited.current ? mergeResearchPoints(current, [], detail.points).points : detail.points;
+        return next.length ? next : ["", "", ""];
+      });
+      router.refresh();
+    };
+    window.addEventListener("project-research-saved", refresh);
+    return () => window.removeEventListener("project-research-saved", refresh);
+  }, [projectId, router]);
 
   useEffect(() => {
     const nextTab = searchParams.get("tab");
@@ -401,14 +419,17 @@ export function ProjectDetail({
   }
 
   function updatePoint(i: number, v: string) {
+    pointsEdited.current = true;
     setPoints((prev) => prev.map((p, idx) => (idx === i ? v : p)));
   }
 
   function addPoint() {
+    pointsEdited.current = true;
     if (points.length < 10) setPoints((p) => [...p, ""]);
   }
 
   function removePoint(i: number) {
+    pointsEdited.current = true;
     if (points.length > 1) setPoints((p) => p.filter((_, idx) => idx !== i));
   }
 
@@ -757,6 +778,7 @@ export function ProjectDetail({
             <div id="project-stage-panel-analysis" role="tabpanel" aria-labelledby="project-stage-tab-analysis">
               <ConversationWorkspace projectId={projectId} projectName={projectName} />
               <div className="project-support mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <ProjectResearchTasks projectId={projectId} />
               {hasOrg && <details className="border-b border-slate-100 px-4">
                 <summary className="min-h-12 cursor-pointer py-3 text-sm font-medium text-slate-700">团队协作</summary>
 
@@ -1404,7 +1426,8 @@ function DecisionGatePanel({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
-  const latestEvent = decisionEvents[0] ?? null;
+  const latestEvent = decisionEvents.find((event) => event.status !== "draft") ?? null;
+  const researchDrafts = decisionEvents.filter((event) => event.status === "draft" && event.title.endsWith("研究对话决策参考"));
 
   async function save() {
     setSaving(true);
@@ -1456,6 +1479,18 @@ function DecisionGatePanel({
           </span>
         </div>
       </div>
+
+      {researchDrafts.length > 0 && <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-medium text-slate-600">研究对话中的决策参考（{researchDrafts.length}）</summary>
+        <div className="mt-3 space-y-3">{researchDrafts.map((item) => <div key={item.id}>
+          <p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{item.note?.split("\n\n来源对话：")[0]}</p>
+          <button type="button" onClick={() => setNote((current) => {
+            const text = item.note ?? "";
+            return current.includes(text) ? current : [current.trim(), text].filter(Boolean).join("\n\n");
+          })} className="mt-1 min-h-9 text-xs text-accent">带入结论与依据</button>
+          {item.note?.match(/来源对话：(\/chat\?[^\s]+)/)?.[1] && <Link href={item.note.match(/来源对话：(\/chat\?[^\s]+)/)![1]} className="ml-4 text-xs text-slate-500">查看来源对话</Link>}
+        </div>)}</div>
+      </details>}
 
       <div className="mt-4 grid gap-3 lg:grid-cols-[160px_170px_150px_minmax(0,1fr)]">
         <label className="block">

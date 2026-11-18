@@ -29,6 +29,7 @@ export interface ArchiveReport {
 }
 
 export interface ArchiveJudgment {
+  source_conversation_id?: string | null;
   id: string;
   stage: string;
   bull_case: string | null;
@@ -640,6 +641,7 @@ function JudgmentsTab({
                       {j.key_hypothesis}
                     </p>
                   )}
+                  {j.source_conversation_id && <Link href={`/chat?project=${projectId}&conversation=${j.source_conversation_id}`} className="inline-block pt-2 text-accent">查看研究对话与来源</Link>}
                 </div>
               </div>
             );

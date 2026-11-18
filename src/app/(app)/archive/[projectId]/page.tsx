@@ -88,7 +88,7 @@ export default async function ProjectArchivePage({
   try {
     judgments = await query<ArchiveJudgment>(
       `SELECT id, stage, bull_case, bear_case, founder_assessment,
-              key_hypothesis, confidence_level, created_at
+              key_hypothesis, confidence_level, created_at, metadata->>'source_conversation_id' AS source_conversation_id
          FROM investment_judgments
         WHERE project_id = $1 AND user_id = $2
         ORDER BY created_at DESC`,

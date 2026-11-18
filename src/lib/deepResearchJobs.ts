@@ -3,6 +3,7 @@ import { streamChat } from "@/lib/ai";
 import { loadUserAICredentials } from "@/lib/report";
 import { isUsableReportContextDocument, REPORT_CONTEXT_DOC_KINDS } from "@/lib/reportContext";
 import { buildDeepResearchMessages, type DeepResearchMaterial, type DeepResearchProfile } from "@/lib/deepResearch";
+import { projectResearchContext } from "@/lib/projectResearchStore";
 import { buildDeepResearchMetadata, type EvidenceLedgerItem } from "@/lib/deepResearchWorkpaper";
 import { runProjectExternalResearch, type DeepResearchExternalResult } from "@/lib/deepResearchExternal";
 import { buildDueDiligenceTasks } from "@/lib/deepResearchTasks";
@@ -207,6 +208,7 @@ export async function runClaimedDeepResearchJob(job: DeepResearchJobRow): Promis
     });
     system = await injectOrgKnowledge(scope, retrievalQuery, system);
     system = await injectMarketContext(scope, retrievalQuery, system);
+    system += await projectResearchContext(job.project_id);
     let content = "";
     for await (const chunk of streamChat({
       provider: credentials.provider,

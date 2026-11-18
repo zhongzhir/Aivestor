@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
+import { projectResearchContext } from "@/lib/projectResearchStore";
 import {
   buildGenerationMessages,
   loadUserAICredentials,
@@ -251,6 +252,7 @@ export async function POST(
   injectedSystem = await injectOrgKnowledge(scope, retrievalQuery, injectedSystem);
   // 中鉴市场上下文注入（无 org / 无 zjjr_data 能力位 / 无命中时返回原文）
   injectedSystem = await injectMarketContext(scope, retrievalQuery, injectedSystem);
+  injectedSystem += await projectResearchContext(params.id);
 
   const generator = streamChat({
     provider: creds.provider,

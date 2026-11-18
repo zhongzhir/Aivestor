@@ -19,14 +19,6 @@ interface Job {
   created_at: string;
 }
 
-interface Task {
-  id: string;
-  title: string;
-  details: string | null;
-  priority: "P0" | "P1" | "P2";
-  status: "open" | "in_progress" | "done" | "dismissed";
-}
-
 const PHASE_LABEL: Record<string, string> = {
   queued: "等待开始研究",
   external_research: "搜索并阅读外部权威来源",
@@ -49,17 +41,16 @@ export function DeepResearchJobPanel({
   decisionContext: string;
 }) {
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    const [jobsResponse, tasksResponse] = await Promise.all([
-      fetch(`/api/projects/${projectId}/deep-research/jobs`, { cache: "no-store" }),
-      fetch(`/api/projects/${projectId}/deep-research/tasks`, { cache: "no-store" }),
-    ]);
-    if (jobsResponse.ok) setJobs((await jobsResponse.json()).jobs ?? []);
-    if (tasksResponse.ok) setTasks((await tasksResponse.json()).tasks ?? []);
+    const jobsResponse = await fetch(`/api/projects/${projectId}/deep-research/jobs`, { cache: "no-store" });
+    if (jobsResponse.ok) {
+      const next = (await jobsResponse.json()).jobs ?? [];
+      setJobs(next);
+      if (next[0]?.status === "completed") window.dispatchEvent(new CustomEvent("project-research-job-updated", { detail: { projectId } }));
+    }
   }, [projectId]);
 
   useEffect(() => {
@@ -113,15 +104,6 @@ export function DeepResearchJobPanel({
     }
   }
 
-  async function updateTask(task: Task, status: Task["status"]) {
-    const response = await fetch(`/api/projects/${projectId}/deep-research/tasks`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId: task.id, status }),
-    });
-    if (response.ok) await load();
-  }
-
   const active = latest && ["queued", "running"].includes(latest.status);
   return (
     <AnalysisMethodCard icon="full" title="深度投研（完整）"
@@ -153,28 +135,6 @@ export function DeepResearchJobPanel({
             </div>
           )}
         </div>
-      )}
-      {tasks.length > 0 && (
-        <details className="mt-4 text-xs text-slate-700">
-          <summary className="cursor-pointer font-medium">尽调任务 {tasks.filter((task) => !["done", "dismissed"].includes(task.status)).length} 项待处理</summary>
-          <div className="mt-2 space-y-2">
-            {tasks.slice(0, 20).map((task) => (
-              <div key={task.id} className="flex flex-col gap-2 rounded border border-slate-200 bg-white p-2 sm:flex-row sm:items-start">
-                <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium">{task.priority}</span>
-                <div className="min-w-0 flex-1">
-                  <p className={task.status === "done" ? "line-through opacity-60" : ""}>{task.title}</p>
-                  {task.details && <p className="mt-1 text-slate-600/70">{task.details}</p>}
-                </div>
-                <select value={task.status} onChange={(event) => updateTask(task, event.target.value as Task["status"])} className="min-h-11 rounded border border-slate-200 bg-white px-2 py-2 sm:min-h-0 sm:py-1">
-                  <option value="open">待处理</option>
-                  <option value="in_progress">处理中</option>
-                  <option value="done">已完成</option>
-                  <option value="dismissed">不处理</option>
-                </select>
-              </div>
-            ))}
-          </div>
-        </details>
       )}
     </AnalysisMethodCard>
   );

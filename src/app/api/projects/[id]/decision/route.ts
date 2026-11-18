@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
+import { projectResearchContext } from "@/lib/projectResearchStore";
 import {
   loadUserAICredentials,
   streamTextResponse,
@@ -285,7 +286,7 @@ export async function POST(
         taskText: prompt,
       }
     ),
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content: prompt + await projectResearchContext(params.id) }],
   });
 
   // 决策分析结果不持久化

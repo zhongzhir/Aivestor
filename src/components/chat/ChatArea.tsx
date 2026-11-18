@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { DigestCard } from "@/components/report/DigestCard";
+import { ProjectResearchSave } from "./ProjectResearchSave";
 import type { ConversationSource } from "@/lib/conversationResearch";
 import { remarkResearchCitations, researchCitationIndices } from "@/lib/researchCitations";
 
@@ -372,7 +373,7 @@ export function ChatArea({
       <div className="shrink-0 bg-white px-4 pb-4 pt-2 sm:px-6">
         <div className="relative mx-auto max-w-3xl rounded-2xl border border-slate-300 bg-white p-3 shadow-[0_2px_8px_rgba(15,23,42,0.04)] focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-soft">
           {/* 手动沉淀浮层：主动查看/编辑本次对话将沉淀的内容 */}
-          {showDigestPanel && (
+          {showDigestPanel && !conversation.project_id && (
             <div className="absolute bottom-full right-0 z-30 mb-2 w-[min(92vw,28rem)] rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-ink">
@@ -427,7 +428,11 @@ export function ChatArea({
             </span>
             <div className="flex items-center gap-2">
               {/* 静默沉淀入口：主动查看本次对话将沉淀的内容（≥3 条消息才可提炼） */}
-              {turnCount >= 3 && (
+              {conversation.project_id && turnCount >= 2 && <ProjectResearchSave
+                conversationId={conversation.id} projectId={conversation.project_id}
+                messageVersion={`${messages.length}:${messages[messages.length - 1]?.ts}:${messages[messages.length - 1]?.content.length}`}
+                disabled={streaming || disabled} />}
+              {!conversation.project_id && turnCount >= 3 && (
                 <button
                   type="button"
                   onClick={() => setShowDigestPanel((v) => !v)}

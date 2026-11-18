@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { accessErrorResponse, assertProjectAccess, buildAccessScope } from "@/lib/resourceAccess";
 import { canUseDeepResearchBeta } from "@/lib/deepResearchAccess";
+import { conversationResearchTasks, updateConversationResearchTask } from "@/lib/projectResearchTasks";
 
 export async function GET(
   _req: Request,
@@ -10,16 +11,13 @@ export async function GET(
 ) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!(await canUseDeepResearchBeta(session.user.id))) {
-    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
-  }
   const scope = await buildAccessScope(session.user.id);
   try {
     await assertProjectAccess(scope, params.id, "read");
   } catch (error) {
     return accessErrorResponse(error);
   }
-  const tasks = await query(
+  const tasks = await canUseDeepResearchBeta(session.user.id) ? await query<{ priority: string; status: string }>(
     `SELECT id, report_id, evidence_item_id, title, details, priority,
             status, owner, due_date, created_at, updated_at
        FROM deep_research_tasks
@@ -28,8 +26,10 @@ export async function GET(
                CASE status WHEN 'open' THEN 0 WHEN 'in_progress' THEN 1 ELSE 2 END,
                created_at DESC`,
     [params.id]
-  );
-  return NextResponse.json({ tasks });
+  ) : [];
+  const combined = [...await conversationResearchTasks(params.id), ...tasks];
+  combined.sort((a, b) => a.priority.localeCompare(b.priority) || Number(["done", "dismissed"].includes(a.status)) - Number(["done", "dismissed"].includes(b.status)));
+  return NextResponse.json({ tasks: combined });
 }
 
 export async function PATCH(
@@ -38,9 +38,6 @@ export async function PATCH(
 ) {
   const session = await getSession();
   if (!session?.user) return NextResponse.json({ error: "未登录" }, { status: 401 });
-  if (!(await canUseDeepResearchBeta(session.user.id))) {
-    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
-  }
   let body: { taskId?: unknown; status?: unknown; owner?: unknown; dueDate?: unknown };
   try {
     body = await req.json();
@@ -62,6 +59,13 @@ export async function PATCH(
     await assertProjectAccess(scope, params.id, "write");
   } catch (error) {
     return accessErrorResponse(error);
+  }
+  if (body.taskId.startsWith("conversation:")) {
+    try { return NextResponse.json({ task: await updateConversationResearchTask(params.id, body.taskId, body) }); }
+    catch (error) { return accessErrorResponse(error); }
+  }
+  if (!(await canUseDeepResearchBeta(session.user.id))) {
+    return NextResponse.json({ error: "功能未开放" }, { status: 404 });
   }
   const rows = await query(
     `UPDATE deep_research_tasks

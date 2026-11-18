@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { streamChat } from "@/lib/ai";
+import { projectResearchContext } from "@/lib/projectResearchStore";
 import {
   loadUserAICredentials,
   streamTextResponse,
@@ -298,7 +299,7 @@ ${extraInput ? `## 投资人补充说明（请优先参考）\n${extraInput}\n` 
     apiKey: creds.apiKey,
     baseURL: creds.baseURL,
     freeQuotaMeta: freeQuotaMetaFor(creds, userId, "term-sheet"),
-    system: systemPrompt,
+    system: systemPrompt + await projectResearchContext(params.id),
     messages: [{ role: "user", content: userPrompt }],
   });
 

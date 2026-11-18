@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { buildAccessScope, assertProjectAccess } from "@/lib/resourceAccess";
+import type { ResearchTask } from "@/lib/projectResearch";
 
 const MAX_ITEMS = 10;
 
@@ -32,15 +33,23 @@ export async function GET(
     const rows = await query<{
       open_questions: unknown;
       pending_questions: unknown;
+      research_tasks: ResearchTask[] | null;
     }>(
       `SELECT kbe.structured_data->'open_questions' AS open_questions,
-              kbe.metadata->'pending_questions' AS pending_questions
+              kbe.metadata->'pending_questions' AS pending_questions,
+              kbe.metadata->'project_research'->'tasks' AS research_tasks
          FROM knowledge_base_entries kbe
          JOIN conversations c
            ON c.id = NULLIF(kbe.metadata->>'source_conversation_id', '')::uuid
         WHERE kbe.user_id = $1
           AND kbe.entry_type = 'conversation_digest'
           AND c.project_id = $2
+          AND (kbe.metadata ? 'project_research' OR NOT EXISTS (
+            SELECT 1 FROM knowledge_base_entries adopted
+             WHERE adopted.user_id = kbe.user_id AND adopted.project_id = $2
+               AND adopted.metadata ? 'project_research'
+               AND adopted.metadata->>'source_conversation_id' = kbe.metadata->>'source_conversation_id'
+          ))
         ORDER BY kbe.created_at DESC
         LIMIT 20`,
       [session.user.id, params.id]
@@ -48,7 +57,10 @@ export async function GET(
 
     const collected = new Set<string>();
     for (const row of rows) {
-      for (const raw of [row.open_questions, row.pending_questions]) {
+      const values = row.research_tasks
+        ? [row.research_tasks.filter((task) => !["done", "dismissed"].includes(task.status)).map((task) => task.title)]
+        : [row.open_questions, row.pending_questions];
+      for (const raw of values) {
         if (!Array.isArray(raw)) continue;
         for (const q of raw) {
           if (typeof q !== "string") continue;
