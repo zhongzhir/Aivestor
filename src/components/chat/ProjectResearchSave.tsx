@@ -7,7 +7,7 @@ import { RESEARCH_KIND_LABELS, type ProjectResearchDraft, type ResearchJudgmentK
 
 async function read(res: Response) {
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "暂时无法完成，请重试");
+  if (!res.ok) throw Object.assign(new Error(data.error || "暂时无法完成，请重试"), { status: res.status });
   return data;
 }
 
@@ -69,7 +69,10 @@ export function ProjectResearchSave({ conversationId, projectId, messageVersion,
       setSavedVersion(messageVersion); setEverSaved(true);
       window.dispatchEvent(new CustomEvent("project-research-saved", { detail: { projectId, points: data.points } }));
       close();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "保存失败"); }
+    } catch (reason) {
+      if ((reason as { status?: number })?.status === 409) setPreparedVersion("");
+      setError(reason instanceof Error ? reason.message : "保存失败");
+    }
     finally { setBusy(false); setSaving(false); }
   }
 
